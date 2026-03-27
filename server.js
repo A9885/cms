@@ -321,7 +321,7 @@ app.post('/xibo/displays/force-sync-all', async (req, res) => {
         const headers  = await xiboService.getHeaders();
         const results  = [];
 
-        for (const d of displays) {
+        await Promise.all(displays.map(async (d) => {
             const dId = d.displayId;
             try {
                 // 1. Extend auditing to 2027
@@ -343,7 +343,7 @@ app.post('/xibo/displays/force-sync-all', async (req, res) => {
             } catch (e) {
                 results.push({ displayId: dId, name: d.display, status: 'error', error: e.message });
             }
-        }
+        }));
 
         // 4. Trigger XTR tasks to force Xibo Cloud to aggregate raw play logs
         //    IDs confirmed from diagnostic: 11=StatsMigration, 4=StatsArchive, 10=ReportSchedule
@@ -782,7 +782,7 @@ app.get('/xibo/displays', async (req, res) => {
             // We'll also consider it online if lastAccessed is within the last 24 hours to be safe.
             const lastAccessedTime = d.lastAccessed ? new Date(d.lastAccessed + ' UTC').getTime() : 0;
             const now = Date.now();
-            const isOnline = d.loggedIn == 1 || (now - lastAccessedTime < 24 * 60 * 60 * 1000);
+            const isOnline = Number(d.loggedIn) === 1 || (now - lastAccessedTime < 24 * 60 * 60 * 1000);
 
             return {
                 displayId: d.displayId,
@@ -837,7 +837,7 @@ app.post('/xibo/displays', async (req, res) => {
         return res.status(400).json({ error: 'Name and Display ID are required.' });
     }
     try {
-        const result = await xiboService.registerDisplay(parseInt(displayId), name);
+        const result = await xiboService.registerDisplay(parseInt(displayId, 10), name);
         res.json({ success: true, display: result });
     } catch (err) {
         console.error('[POST /xibo/displays]', err.message);
@@ -871,7 +871,10 @@ const SLOT_DURATION_LIMIT = 13;
  * Groups widgets based on their displayOrder and determines slot index.
  */
 /**
- * Helper: Map 20 Individual Slot Playlists to the UI
+ * Fetch all available slots (playlists) for a specific display.
+ * Maps widget data from Xibo to a local 20-slot structure.
+ * @param {number|string} displayId The Xibo display ID.
+ * @returns {Promise<Array>} Array of slot objects.
  */
 async function getSlotsForDisplay(displayId) {
   try {
@@ -946,8 +949,10 @@ app.get('/xibo/proxy/thumbnail/:mediaId', async (req, res) => {
 
 
 /**
- * Synchronize Main Loop for a Display
- * Ensures the main loop playlist exists, is scheduled, and contains all slot playlists.
+ * Core Logic: Ensure the display has a dedicated 'Main Loop' playlist containing all slot sub-playlists.
+ * Synchronizes Xibo structure with local slot-based management.
+ * @param {number|string} displayId The Xibo display ID.
+ * @param {number|string} displayGroupId The display group ID for scheduling (fallback to displayId).
  */
 async function synchronizeMainLoop(displayId, displayGroupId) {
     const headers = await authHeader();
@@ -984,51 +989,50 @@ async function synchronizeMainLoop(displayId, displayGroupId) {
     const existingWidgets = mainLoop?.widgets || [];
 
     // 3. Ensure all 20 slot playlists are linked as sub-playlists
+    const slotPromises = [];
     for (let i = 1; i <= MAX_SLOTS; i++) {
-        const slotPlaylistId = await getSlotPlaylistForDisplay(displayId, i);
-        const widgetName = `Slot ${i}`;
+        slotPromises.push((async (index) => {
+            const slotPlaylistId = await getSlotPlaylistForDisplay(displayId, index);
+            const widgetName = `Slot ${index}`;
 
-        const alreadyLinked = existingWidgets.find(w => {
-            if (w.name && w.name.startsWith(`Slot ${i}:`)) return true;
-            // Also check widget options if the playlistId is already linked
-            const opts = w.widgetOptions || [];
-            const spOpt = opts.find(o => o.option === 'subPlaylists');
-            if (spOpt && spOpt.value) {
+            const alreadyLinked = existingWidgets.find(w => {
+                if (w.name && w.name.startsWith(`Slot ${index}:`)) return true;
+                const opts = w.widgetOptions || [];
+                const spOpt = opts.find(o => o.option === 'subPlaylists');
+                if (spOpt && spOpt.value) {
+                    try {
+                        const linked = JSON.parse(spOpt.value);
+                        return linked.some(l => l.playlistId === slotPlaylistId);
+                    } catch (e) {}
+                }
+                return false;
+            });
+            
+            if (!alreadyLinked) {
                 try {
-                    const linked = JSON.parse(spOpt.value);
-                    return linked.some(l => l.playlistId === slotPlaylistId);
-                } catch (e) {}
-            }
-            return false;
-        });
-        
-        if (!alreadyLinked) {
-            // In Xibo v4, we use a two-step process: create the widget, then assign properties
-            try {
-                // 1. Create the widget
-                const createResp = await axios.post(`${XIBO_BASE_URL}/api/playlist/widget/subplaylist/${mainLoopId}`, 
-                    "", 
-                    { headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' } }
-                );
-                
-                const wId = createResp.data.widgetId;
-                if (wId) {
-                    // 2. Assign properties via PUT
-                    // playlistMixer (subplaylist) expects a JSON array of objects for 'subPlaylists'
-                    const putParams = new URLSearchParams();
-                    putParams.set('name', `${widgetName}: Link`);
-                    putParams.set('subPlaylists', JSON.stringify([{ playlistId: slotPlaylistId, spots: 1 }]));
-                    
-                    await axios.put(`${XIBO_BASE_URL}/api/playlist/widget/${wId}`, 
-                        putParams.toString(),
+                    const createResp = await axios.post(`${XIBO_BASE_URL}/api/playlist/widget/subplaylist/${mainLoopId}`, 
+                        "", 
                         { headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' } }
                     );
+                    
+                    const wId = createResp.data.widgetId;
+                    if (wId) {
+                        const putParams = new URLSearchParams();
+                        putParams.set('name', `${widgetName}: Link`);
+                        putParams.set('subPlaylists', JSON.stringify([{ playlistId: slotPlaylistId, spots: 1 }]));
+                        
+                        await axios.put(`${XIBO_BASE_URL}/api/playlist/widget/${wId}`, 
+                            putParams.toString(),
+                            { headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' } }
+                        );
+                    }
+                } catch (err) {
+                    console.warn(`Failed to link slot ${index}:`, err.response?.data || err.message);
                 }
-            } catch (err) {
-                console.warn(`Failed to link slot ${i}:`, err.response?.data || err.message);
             }
-        }
+        })(i));
     }
+    await Promise.all(slotPromises);
 
     // 4. Ensure Main Loop is scheduled on the Display/DisplayGroup
     let syncId = displayGroupId;
@@ -1049,8 +1053,8 @@ async function synchronizeMainLoop(displayId, displayGroupId) {
     });
     
     const isScheduled = (schedResp.data || []).find(s => 
-        s.eventTypeId === 8 && 
-        (s.campaignId == mainLoopId || (s.campaign && s.campaign.includes(`${mainLoopId}`)))
+        Number(s.eventTypeId) === 8 && 
+        (String(s.campaignId) === String(mainLoopId) || (s.campaign && s.campaign.includes(`${mainLoopId}`)))
     );
     
     if (!isScheduled) {
@@ -1120,7 +1124,7 @@ app.post('/xibo/slots/add', upload.single('file'), async (req, res) => {
   
     try {
       const headers = await authHeader();
-      const requestedDuration = parseInt(duration) || SLOT_DURATION_LIMIT;
+      const requestedDuration = parseInt(duration, 10) || SLOT_DURATION_LIMIT;
       const playlistId = await getSlotPlaylistForDisplay(displayId, slotId);
 
       // 1. Handle Replace
@@ -1131,14 +1135,14 @@ app.post('/xibo/slots/add', upload.single('file'), async (req, res) => {
               headers, params: { playlistId, embed: 'widgets' }
           });
           const widgets = pResp.data?.[0]?.widgets || [];
-          for (const w of widgets) {
-              await axios.delete(`${XIBO_BASE_URL}/api/playlist/widget/${w.widgetId}`, { headers })
-                  .catch(e => console.warn(`Failed to delete widget ${w.widgetId} during replace:`, e.message));
-          }
+          await Promise.all(widgets.map(w => 
+              axios.delete(`${XIBO_BASE_URL}/api/playlist/widget/${w.widgetId}`, { headers })
+                  .catch(e => console.warn(`Failed to delete widget ${w.widgetId} during replace:`, e.message))
+          ));
       } else {
           // Duration Validation (Only if not replacing)
           const currentSlots = await getSlotsForDisplay(displayId);
-          const targetSlot = currentSlots.find(s => s.slot == slotId);
+          const targetSlot = currentSlots.find(s => String(s.slot) === String(slotId));
           if (targetSlot && (targetSlot.totalDuration + requestedDuration > SLOT_DURATION_LIMIT)) {
             if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
             return res.status(400).json({ error: `Slot ${slotId} is full. Max 13s allowed. Use Replace.` });
@@ -1280,7 +1284,6 @@ app.delete('/xibo/slots/media/:widgetId', async (req, res) => {
             } catch(e) { syncId = displayId; }
         }
         await synchronizeMainLoop(displayId, syncId);
-        await axios.post(`${XIBO_BASE_URL}/api/displaygroup/${syncId}/action/collectNow`, null, { headers }).catch(() => {});
         await axios.put(`${XIBO_BASE_URL}/api/display/requestscreenshot/${displayId}`, null, { headers }).catch(() => {});
     }
 
@@ -1296,151 +1299,50 @@ app.delete('/xibo/slots/media/:widgetId', async (req, res) => {
  */
 
 const LOCATION_SYNC_INTERVAL = 10 * 60 * 1000; // 10 minutes
-
-/**
- * syncDisplayLocations
- * Every 10 minutes this job runs over every display and ensures it has
- * an up-to-date, accurate location.
- *
- * Priority order:
- *   1. Device GPS (d.latitude / d.longitude already stored in Xibo by the player)
- *      → reverse-geocode to get a human-readable address, update if changed
- *   2. Geo-IP fallback (only when the device has NO coordinates at all)
- *      → least accurate; used only as a starter until the player reports GPS
- */
-async function syncDisplayLocations() {
-  console.log(`[${new Date().toISOString()}] [LocationSync] Starting location sync...`);
-  try {
-    const displays = await xiboService.getDisplays();
-
-    for (const d of displays) {
-      const hasGPS = d.latitude && d.longitude;
-
-      // ── Case 1: Device already has GPS coordinates ──────────────────────────
-      if (hasGPS) {
-        const lat = parseFloat(d.latitude);
-        const lon = parseFloat(d.longitude);
-        console.log(`[LocationSync] ${d.display} has GPS: ${lat.toFixed(4)}, ${lon.toFixed(4)} — refreshing address...`);
-
-        try {
-          // Reverse-geocode via ip-api's lat/lon support (no API key needed)
-          const geoResp = await axios.get(
-            `http://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`
-          );
-          const geo = geoResp.data;
-          if (geo && geo.city) {
-            const newAddress = [geo.city, geo.principalSubdivision, geo.countryName].filter(Boolean).join(', ');
-            if (newAddress !== (d.address || '').trim()) {
-              console.log(`[LocationSync] UPDATING address for ${d.display}: ${newAddress}`);
-              await xiboService.updateDisplayLocation(d.displayId, { latitude: lat, longitude: lon, address: newAddress });
-            } else {
-              console.log(`[LocationSync] ${d.display} address unchanged (${newAddress})`);
-            }
-          }
-        } catch (e) {
-          console.warn(`[LocationSync] Reverse-geocode failed for ${d.display}:`, e.message);
-        }
-
-        await new Promise(r => setTimeout(r, 500));
-        continue;
-      }
-
-      // ── Case 2: No GPS at all — try Geo-IP as a rough starter ───────────────
-      if (!d.clientAddress || d.clientAddress === '127.0.0.1' || d.clientAddress === 'localhost') {
-        console.log(`[LocationSync] ${d.display}: no GPS and no usable IP — skipping.`);
-        continue;
-      }
-
-      console.log(`[LocationSync] ${d.display} has no GPS — trying Geo-IP on ${d.clientAddress}...`);
-      try {
-        const geoResp = await axios.get(
-          `http://ip-api.com/json/${d.clientAddress}?fields=status,message,country,regionName,city,lat,lon`
-        );
-        const geo = geoResp.data;
-
-        if (geo && geo.status === 'success') {
-          const newLat = parseFloat(geo.lat);
-          const newLon = parseFloat(geo.lon);
-          const newAddress = `${geo.city}, ${geo.regionName}, ${geo.country}`;
-          console.log(`[LocationSync] Geo-IP result for ${d.display}: ${newLat}, ${newLon} (${newAddress})`);
-          await xiboService.updateDisplayLocation(d.displayId, { latitude: newLat, longitude: newLon, address: newAddress });
-        } else {
-          console.warn(`[LocationSync] Geo-IP failed for ${d.display}: ${geo.message || 'unknown error'}`);
-        }
-      } catch (e) {
-        console.error(`[LocationSync] Geo-IP error for ${d.display}:`, e.message);
-      }
-
-      await new Promise(r => setTimeout(r, 1000));
-    }
-
-    console.log(`[${new Date().toISOString()}] [LocationSync] Sync complete.`);
-  } catch (err) {
-    console.error('[LocationSync] Sync JOB FAILED:', err.message);
-  }
-}
-
-
-// Start the 10-minute interval for location sync
-setInterval(syncDisplayLocations, LOCATION_SYNC_INTERVAL);
-// Initial run after a short delay (30s) to allow server and CMS to settle
-setTimeout(syncDisplayLocations, 30000);
-
-/**
- * syncDisplayStats
- * Every 5 minutes: wake all online displays via collectNow + requestscreenshot
- * so the device pushes its buffered play-log to Xibo Cloud and new PoP
- * records become available in the stats API immediately.
- */
 const STATS_SYNC_INTERVAL = 5 * 60 * 1000; // 5 minutes
 
 /**
- * Phase 4: Auto-provision 20 slots for a display if not already in DB
+ * syncDisplayLocations
+ * Delegates periodic location synchronization to ScreenService.
  */
-async function provisionSlots(displayId) {
-  const { dbGet, dbRun } = require('./src/db/database');
-  try {
-    const existing = await dbGet('SELECT COUNT(*) as count FROM slots WHERE displayId = ?', [displayId]);
-    if (existing && existing.count === 0) {
-      console.log(`[Slots] Provisioning 20 dedicated slots for Display ${displayId}`);
-      for (let i = 1; i <= 20; i++) {
-        await dbRun('INSERT OR IGNORE INTO slots (displayId, slot_number) VALUES (?, ?)', [displayId, i]);
-      }
-    }
-  } catch (err) {
-    console.error(`[Slots] Provisioning failed for ${displayId}:`, err.message);
-  }
+async function syncDisplayLocations() {
+  const screenService = require('./src/services/screen.service');
+  await screenService.syncAllLocations();
 }
 
+/**
+ * syncDisplayStats
+ * Every 5 minutes: wake all online displays via collectNow + requestscreenshot.
+ * Delegates provisioning and local record sync to ScreenService.
+ */
 async function syncDisplayStats() {
-  console.log(`[${new Date().toISOString()}] [StatsSync] Triggering collectNow for all displays...`);
+  console.log(`[${new Date().toISOString()}] [StatsSync] Triggering sync...`);
   try {
+    const screenService = require('./src/services/screen.service');
     const headers = await authHeader();
     const displays = await xiboService.getDisplays();
-    for (const d of displays) {
+    
+    await screenService.syncDisplays();
+    
+    await Promise.all(displays.map(async (d) => {
       try {
-        await axios.post(
-          `${XIBO_BASE_URL}/api/displaygroup/${d.displayGroupId}/action/collectNow`,
-          new URLSearchParams(),
-          { headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' } }
-        );
-        await axios.put(`${XIBO_BASE_URL}/api/display/requestscreenshot/${d.displayId}`, null, { headers });
+        await Promise.all([
+          axios.post(
+            `${XIBO_BASE_URL}/api/displaygroup/${d.displayGroupId}/action/collectNow`,
+            new URLSearchParams(),
+            { headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' } }
+          ),
+          axios.put(`${XIBO_BASE_URL}/api/display/requestscreenshot/${d.displayId}`, null, { headers })
+        ]);
         console.log(`[StatsSync] Woke up display ${d.display} (groupId: ${d.displayGroupId})`);
-        
-        // Phase 4: Provision slots if missing
-        await provisionSlots(d.displayId);
       } catch (e) {
         console.warn(`[StatsSync] Could not wake display ${d.display}:`, e.response?.data?.message || e.message);
       }
-      await new Promise(r => setTimeout(r, 500));
-    }
-    // Invalidate widget cache so next stats query fetches fresh data
+    }));
+    
     const statsService = require('./src/services/stats.service');
     statsService.invalidateWidgetCache();
-
-    if (app.get('io')) {
-      app.get('io').emit('stats_updated', { time: Date.now() });
-    }
+    if (app.get('io')) app.get('io').emit('stats_updated', { time: Date.now() });
 
     console.log(`[${new Date().toISOString()}] [StatsSync] Done.`);
   } catch (err) {
@@ -1448,12 +1350,18 @@ async function syncDisplayStats() {
   }
 }
 
-// Mount io to app.settings for background workers to access
-app.set('io', io);
+// ─── BACKGROUND JOB REGISTRATION ─────────────────────────────────────────────
+
+setInterval(syncDisplayLocations, LOCATION_SYNC_INTERVAL);
+setTimeout(syncDisplayLocations, 30000);
 
 setInterval(syncDisplayStats, STATS_SYNC_INTERVAL);
-// First run 10 seconds after server starts
 setTimeout(syncDisplayStats, 10000);
+
+// Mount services to app settings for background access
+app.set('screenService', require('./src/services/screen.service'));
+app.set('statsService', require('./src/services/stats.service'));
+app.set('xiboService', xiboService);
 
 server.listen(PORT, () => {
     console.log(`🚀 Xibo CMS Server starting on http://localhost:${PORT}`);
@@ -1463,3 +1371,4 @@ server.listen(PORT, () => {
         console.warn(`   ⚠️ XIBO_BASE_URL not set in .env!`);
     }
 });
+

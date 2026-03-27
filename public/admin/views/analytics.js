@@ -109,14 +109,23 @@ const AnalyticsView = {
     },
 
     async fetchData() {
+        const tbody = document.getElementById('analytics-tbody');
+        if (!tbody) return;
+
         try {
-            const tbody = document.getElementById('analytics-tbody');
             const resp = await fetch('/xibo/stats/media-summary');
             const data = await resp.json();
             this.allData = data;
 
             if (!data || data.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" class="text-center p-5">No play records found.</td></tr>';
+                tbody.innerHTML = '';
+                const tr = document.createElement('tr');
+                const td = document.createElement('td');
+                td.colSpan = 6;
+                td.className = 'text-center p-5';
+                td.textContent = 'No play records found.';
+                tr.appendChild(td);
+                tbody.appendChild(tr);
                 return;
             }
 
@@ -131,35 +140,85 @@ const AnalyticsView = {
             this.renderTable(data);
         } catch (err) {
             console.error('Error fetching analytics:', err);
-            document.getElementById('analytics-tbody').innerHTML = 
-                `<tr><td colspan="6" class="text-center text-red p-5">Error: ${err.message}</td></tr>`;
+            tbody.innerHTML = '';
+            const tr = document.createElement('tr');
+            const td = document.createElement('td');
+            td.colSpan = 6;
+            td.className = 'text-center text-red p-5';
+            td.textContent = `Error: ${err.message}`;
+            tr.appendChild(td);
+            tbody.appendChild(tr);
         }
     },
 
     renderTable(items) {
         const tbody = document.getElementById('analytics-tbody');
-        tbody.innerHTML = items.map(item => `
-            <tr>
-                <td>
-                    <div class="media-info">
-                        <div class="media-icon"><i data-lucide="${item.type === 'video' ? 'video' : 'image'}"></i></div>
-                        <div>
-                            <div class="font-bold">${item.name}</div>
-                            <div class="text-xs text-muted">ID: ${item.mediaId}</div>
-                        </div>
-                    </div>
-                </td>
-                <td><span class="badge badge-secondary">${item.type}</span></td>
-                <td class="text-center font-bold text-lg">${item.totalPlays}</td>
-                <td class="text-center">${item.uniqueDisplays}</td>
-                <td>${item.lastPlay ? item.lastPlay : '<span class="text-muted italic">Never</span>'}</td>
-                <td class="text-right">
-                    <button class="btn btn-sm btn-primary" onclick="App.views.analytics.viewMediaPop(${item.mediaId}, '${item.name.replace(/'/g, "\\'")}')">
-                        View Proof of Play →
-                    </button>
-                </td>
-            </tr>
-        `).join('');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+
+        items.forEach(item => {
+            const tr = document.createElement('tr');
+
+            // Media Info
+            const tdMedia = document.createElement('td');
+            const wrapper = document.createElement('div');
+            wrapper.className = 'media-info';
+            const iconBox = document.createElement('div');
+            iconBox.className = 'media-icon';
+            const i = document.createElement('i');
+            i.setAttribute('data-lucide', item.type === 'video' ? 'video' : 'image');
+            iconBox.appendChild(i);
+            const textWrap = document.createElement('div');
+            const name = document.createElement('div');
+            name.className = 'font-bold';
+            name.textContent = item.name;
+            const id = document.createElement('div');
+            id.className = 'text-xs text-muted';
+            id.textContent = `ID: ${item.mediaId}`;
+            textWrap.append(name, id);
+            wrapper.append(iconBox, textWrap);
+            tdMedia.appendChild(wrapper);
+
+            // Type
+            const tdType = document.createElement('td');
+            const typeBadge = document.createElement('span');
+            typeBadge.className = 'badge badge-secondary';
+            typeBadge.textContent = item.type;
+            tdType.appendChild(typeBadge);
+
+            // Plays
+            const tdPlays = document.createElement('td');
+            tdPlays.className = 'text-center font-bold text-lg';
+            tdPlays.textContent = item.totalPlays;
+
+            // Screens
+            const tdScreens = document.createElement('td');
+            tdScreens.className = 'text-center';
+            tdScreens.textContent = item.uniqueDisplays;
+
+            // Last Verified
+            const tdLast = document.createElement('td');
+            if (item.lastPlay) {
+                tdLast.textContent = item.lastPlay;
+            } else {
+                const never = document.createElement('span');
+                never.className = 'text-muted italic';
+                never.textContent = 'Never';
+                tdLast.appendChild(never);
+            }
+
+            // Action
+            const tdAction = document.createElement('td');
+            tdAction.className = 'text-right';
+            const btn = document.createElement('button');
+            btn.className = 'btn btn-sm btn-primary';
+            btn.textContent = 'View Proof of Play →';
+            btn.onclick = () => this.viewMediaPop(item.mediaId, item.name);
+            tdAction.appendChild(btn);
+
+            tr.append(tdMedia, tdType, tdPlays, tdScreens, tdLast, tdAction);
+            tbody.appendChild(tr);
+        });
         lucide.createIcons();
     },
 
@@ -172,8 +231,8 @@ const AnalyticsView = {
         this.renderTable(filtered);
     },
 
-    async forceSyncAll() {
-        if (!confirm('Force sync will trigger a manual data collection from all screens. Proceed?')) return;
+    async triggerForceSync() {
+        if (!await App.showConfirm('Force sync will trigger a manual data collection from all screens. Proceed?')) return;
         
         try {
             App.showToast('🚀 Aggregating system-wide stats...', 'info');
@@ -208,29 +267,63 @@ const AnalyticsView = {
         titleObj.textContent = `Analysis: ${mediaName}`;
 
         const tbody = document.getElementById('analytics-pop-tbody');
-        tbody.innerHTML = '<tr><td colspan="4" class="text-center p-5">Fetching playback history...</td></tr>';
+        if (!tbody) return;
+        tbody.innerHTML = '';
+        const loadingTr = document.createElement('tr');
+        const loadingTd = document.createElement('td');
+        loadingTd.colSpan = 4;
+        loadingTd.className = 'text-center p-5';
+        loadingTd.textContent = 'Fetching playback history...';
+        loadingTr.appendChild(loadingTd);
+        tbody.appendChild(loadingTr);
 
         try {
             const res = await fetch(`/xibo/stats?mediaId=${mediaId}&t=` + Date.now());
             const data = await res.json();
             const history = data.history || [];
 
+            tbody.innerHTML = '';
             if (history.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" class="text-center p-5 text-muted">No verify play logs found for this media.</td></tr>';
+                const tr = document.createElement('tr');
+                const td = document.createElement('td');
+                td.colSpan = 4;
+                td.className = 'text-center p-5 text-muted';
+                td.textContent = 'No verify play logs found for this media.';
+                tr.appendChild(td);
+                tbody.appendChild(tr);
                 return;
             }
 
-            tbody.innerHTML = history.map(r => `
-                <tr>
-                    <td class="text-muted">${new Date(r.time).toLocaleString()}</td>
-                    <td class="font-bold">${r.display || 'Unknown Display'}</td>
-                    <td>${r.slot !== '-' ? 'Slot '+r.slot : '-'}</td>
-                    <td>${r.brandName || 'External'}</td>
-                </tr>
-            `).join('');
+            history.forEach(r => {
+                const tr = document.createElement('tr');
+                
+                const tdTime = document.createElement('td');
+                tdTime.className = 'text-muted';
+                tdTime.textContent = new Date(r.time).toLocaleString();
+
+                const tdDisp = document.createElement('td');
+                tdDisp.className = 'font-bold';
+                tdDisp.textContent = r.display || 'Unknown Display';
+
+                const tdSlot = document.createElement('td');
+                tdSlot.textContent = r.slot !== '-' ? 'Slot ' + r.slot : '-';
+
+                const tdBrand = document.createElement('td');
+                tdBrand.textContent = r.brandName || 'External';
+
+                tr.append(tdTime, tdDisp, tdSlot, tdBrand);
+                tbody.appendChild(tr);
+            });
 
         } catch (e) {
-            tbody.innerHTML = `<tr><td colspan="4" class="text-center p-5 text-red">Failed to load history: ${e.message}</td></tr>`;
+            tbody.innerHTML = '';
+            const tr = document.createElement('tr');
+            const td = document.createElement('td');
+            td.colSpan = 4;
+            td.className = 'text-center p-5 text-red';
+            td.textContent = `Failed to load history: ${e.message}`;
+            tr.appendChild(td);
+            tbody.appendChild(tr);
         }
     }
 };

@@ -92,18 +92,54 @@ async function loadDashboard() {
     // Render recent Activity
     const activityList = document.getElementById('recent-activity-list');
     if (activityList) {
+        activityList.innerHTML = '';
         const pop = data.recentPoP || [];
-        activityList.innerHTML = pop.length > 0
-            ? pop.map(r => `
-                <div class="activity-item">
-                    <div class="activity-icon"><i data-lucide="play" size="16"></i></div>
-                    <div style="flex:1;">
-                        <div style="font-size:0.85rem; font-weight:600;">${r.adName || 'Ad played'}</div>
-                        <div style="font-size:0.75rem; color:var(--text-muted);">${r.displayName || 'Screen'} • ${r.playedAt ? new Date(r.playedAt).toLocaleTimeString() : '-'}</div>
-                    </div>
-                    <div style="font-size:0.8rem; font-weight:700; color:var(--success);">+${r.count || 1}</div>
-                </div>`).join('')
-            : '<p style="color:var(--text-muted); font-size:0.85rem;">No recent activity.</p>';
+        if (pop.length > 0) {
+            pop.forEach(r => {
+                const item = document.createElement('div');
+                item.className = 'activity-item';
+                
+                const icon = document.createElement('div');
+                icon.className = 'activity-icon';
+                const i = document.createElement('i');
+                i.setAttribute('data-lucide', 'play');
+                i.setAttribute('size', '16');
+                icon.appendChild(i);
+                item.appendChild(icon);
+
+                const content = document.createElement('div');
+                content.style.flex = '1';
+                
+                const title = document.createElement('div');
+                title.style.fontSize = '0.85rem';
+                title.style.fontWeight = '600';
+                title.textContent = r.adName || 'Ad played';
+                content.appendChild(title);
+
+                const meta = document.createElement('div');
+                meta.style.fontSize = '0.75rem';
+                meta.style.color = 'var(--text-muted)';
+                meta.textContent = `${r.displayName || 'Screen'} • ${r.playedAt ? new Date(r.playedAt).toLocaleTimeString() : '-'}`;
+                content.appendChild(meta);
+                
+                item.appendChild(content);
+
+                const count = document.createElement('div');
+                count.style.fontSize = '0.8rem';
+                count.style.fontWeight = '700';
+                count.style.color = 'var(--success)';
+                count.textContent = `+${r.count || 1}`;
+                item.appendChild(count);
+
+                activityList.appendChild(item);
+            });
+        } else {
+            const empty = document.createElement('p');
+            empty.style.color = 'var(--text-muted)';
+            empty.style.fontSize = '0.85rem';
+            empty.textContent = 'No recent activity.';
+            activityList.appendChild(empty);
+        }
         lucide.createIcons();
     }
 
@@ -193,25 +229,77 @@ async function loadScreens() {
     const tbody = document.querySelector('#my-screens-table tbody');
     if (!tbody || !data) return;
     
-    tbody.innerHTML = data.map(s => `
-        <tr onclick="viewScreenDetail(${s.displayId}, '${s.name.replace(/'/g, "\\'")}')" style="cursor:pointer;">
-            <td>
-                <div style="display:flex; align-items:center; gap:12px;">
-                    <div style="width:40px; height:40px; border-radius:8px; background:#f1f5f9; display:flex; align-items:center; justify-content:center;">
-                        <i data-lucide="tv" size="18" style="color:var(--text-muted);"></i>
-                    </div>
-                    <div>
-                        <div style="font-weight:600;">${s.name}</div>
-                        <div style="font-size:0.75rem; color:var(--text-muted);">${s.address || 'Location'}</div>
-                    </div>
-                </div>
-            </td>
-            <td style="color:var(--text-muted); font-size:0.85rem;">${s.city || '-'}</td>
-            <td style="color:var(--text-muted); font-size:0.85rem;">Mobility</td>
-            <td><span class="status-pill active">Active</span></td>
-            <td><button class="btn btn-glass" style="padding:6px 12px; font-size:0.75rem;">View</button></td>
-        </tr>
-    `).join('');
+    tbody.innerHTML = '';
+    data.forEach(s => {
+        const tr = document.createElement('tr');
+        tr.style.cursor = 'pointer';
+        tr.onclick = () => viewScreenDetail(s.displayId, s.name);
+        
+        const tdInfo = document.createElement('td');
+        const infoWrap = document.createElement('div');
+        infoWrap.style.display = 'flex';
+        infoWrap.style.alignItems = 'center';
+        infoWrap.style.gap = '12px';
+        
+        const iconWrap = document.createElement('div');
+        iconWrap.style.width = '40px';
+        iconWrap.style.height = '40px';
+        iconWrap.style.borderRadius = '8px';
+        iconWrap.style.background = '#f1f5f9';
+        iconWrap.style.display = 'flex';
+        iconWrap.style.alignItems = 'center';
+        iconWrap.style.justifyContent = 'center';
+        const icon = document.createElement('i');
+        icon.setAttribute('data-lucide', 'tv');
+        icon.setAttribute('size', '18');
+        icon.style.color = 'var(--text-muted)';
+        iconWrap.appendChild(icon);
+        infoWrap.appendChild(iconWrap);
+        
+        const textWrap = document.createElement('div');
+        const nameDiv = document.createElement('div');
+        nameDiv.style.fontWeight = '600';
+        nameDiv.textContent = s.name;
+        textWrap.appendChild(nameDiv);
+        const addrDiv = document.createElement('div');
+        addrDiv.style.fontSize = '0.75rem';
+        addrDiv.style.color = 'var(--text-muted)';
+        addrDiv.textContent = s.address || 'Location';
+        textWrap.appendChild(addrDiv);
+        infoWrap.appendChild(textWrap);
+        tdInfo.appendChild(infoWrap);
+        tr.appendChild(tdInfo);
+
+        const tdCity = document.createElement('td');
+        tdCity.style.color = 'var(--text-muted)';
+        tdCity.style.fontSize = '0.85rem';
+        tdCity.textContent = s.city || '-';
+        tr.appendChild(tdCity);
+
+        const tdMobility = document.createElement('td');
+        tdMobility.style.color = 'var(--text-muted)';
+        tdMobility.style.fontSize = '0.85rem';
+        tdMobility.textContent = 'Mobility';
+        tr.appendChild(tdMobility);
+
+        const tdStatus = document.createElement('td');
+        const span = document.createElement('span');
+        span.className = 'status-pill active';
+        span.textContent = 'Active';
+        tdStatus.appendChild(span);
+        tr.appendChild(tdStatus);
+
+        const tdAction = document.createElement('td');
+        const btn = document.createElement('button');
+        btn.className = 'btn btn-glass';
+        btn.style.padding = '6px 12px';
+        btn.style.fontSize = '0.75rem';
+        btn.textContent = 'View';
+        tdAction.appendChild(btn);
+        tr.appendChild(tdAction);
+
+        tbody.appendChild(tr);
+    });
     lucide.createIcons();
     
     if (data.length > 0) viewScreenDetail(data[0].displayId, data[0].name);
@@ -266,16 +354,53 @@ async function loadMarket() {
     const grid = document.getElementById('market-grid');
     if (!grid || !data) return;
 
-    grid.innerHTML = data.map(screen => `
-        <div class="glass-panel" style="margin-bottom:0;">
-            <div style="font-weight:700; font-size:1.1rem; margin-bottom:4px;">${screen.name}</div>
-            <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:1.5rem;"><i data-lucide="map-pin" size="14"></i> ${screen.city || 'Unknown'}</div>
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-                <div style="font-size:0.85rem; font-weight:600; color:var(--accent);">${screen.availableSlots.length} Slots Available</div>
-                <button class="btn btn-blue" style="padding:8px 14px; font-size:0.8rem;" onclick="openBuyModal(${screen.displayId}, '${screen.name.replace(/'/g, "\\'")}', [${screen.availableSlots}])">Select</button>
-            </div>
-        </div>
-    `).join('');
+    grid.innerHTML = '';
+    data.forEach(screen => {
+        const panel = document.createElement('div');
+        panel.className = 'glass-panel';
+        panel.style.marginBottom = '0';
+        
+        const name = document.createElement('div');
+        name.style.fontWeight = '700';
+        name.style.fontSize = '1.1rem';
+        name.style.marginBottom = '4px';
+        name.textContent = screen.name;
+        panel.appendChild(name);
+
+        const loc = document.createElement('div');
+        loc.style.fontSize = '0.8rem';
+        loc.style.color = 'var(--text-muted)';
+        loc.style.marginBottom = '1.5rem';
+        const pin = document.createElement('i');
+        pin.setAttribute('data-lucide', 'map-pin');
+        pin.setAttribute('size', '14');
+        loc.appendChild(pin);
+        loc.appendChild(document.createTextNode(` ${screen.city || 'Unknown'}`));
+        panel.appendChild(loc);
+
+        const footer = document.createElement('div');
+        footer.style.display = 'flex';
+        footer.style.justifyContent = 'space-between';
+        footer.style.alignItems = 'center';
+        
+        const slots = document.createElement('div');
+        slots.style.fontSize = '0.85rem';
+        slots.style.fontWeight = '600';
+        slots.style.color = 'var(--accent)';
+        slots.textContent = `${screen.availableSlots.length} Slots Available`;
+        footer.appendChild(slots);
+
+        const btn = document.createElement('button');
+        btn.className = 'btn btn-blue';
+        btn.style.padding = '8px 14px';
+        btn.style.fontSize = '0.8rem';
+        btn.textContent = 'Select';
+        btn.onclick = () => openBuyModal(screen.displayId, screen.name, screen.availableSlots);
+        footer.appendChild(btn);
+        
+        panel.appendChild(footer);
+        grid.appendChild(panel);
+    });
     lucide.createIcons();
 }
 
@@ -313,12 +438,12 @@ function closeModal() {
 }
 
 async function confirmPurchase() {
-    if (currentSelectedSlots.size === 0) return alert('Select at least one slot.');
+    if (currentSelectedSlots.size === 0) return showToast('Select at least one slot.', 'error');
     const displayId = document.getElementById('modal-display-id').value;
-    const res = await safeFetch('/brandportal/api/slots/purchase', {
+    const res = await safeFetch('/brand/slots/assign', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ displayId: parseInt(displayId), slot_numbers: Array.from(currentSelectedSlots) })
+        body: JSON.stringify({ displayId: parseInt(displayId, 10), slot_numbers: Array.from(currentSelectedSlots) })
     });
     if (res && res.success) {
         closeModal();
@@ -332,18 +457,51 @@ async function loadPoP() {
     const data = await safeFetch('/brandportal/api/proof-of-play');
     const tbody = document.querySelector('#pop-table tbody');
     if (!tbody || !data) return;
-    tbody.innerHTML = data.map(r => `
-        <tr>
-            <td>
-                <div style="font-weight:600;">${r.screenName || 'Display #' + r.displayId}</div>
-                <div style="font-size:0.75rem; color:var(--text-muted);">${r.adName || 'Campaign Media'}</div>
-            </td>
-            <td style="color:var(--text-muted); font-size:0.85rem;">Jubilee Hills</td>
-            <td><strong>${(r.count || 0).toLocaleString()}</strong></td>
-            <td><strong>${(r.count || 0).toLocaleString()}</strong></td>
-            <td><button class="btn btn-glass" style="padding:6px 12px; font-size:0.75rem;">View Playback</button></td>
-        </tr>
-    `).join('');
+    tbody.innerHTML = '';
+    data.forEach(r => {
+        const tr = document.createElement('tr');
+        
+        const tdName = document.createElement('td');
+        const nameDiv = document.createElement('div');
+        nameDiv.style.fontWeight = '600';
+        nameDiv.textContent = r.screenName || 'Display #' + r.displayId;
+        tdName.appendChild(nameDiv);
+        const adDiv = document.createElement('div');
+        adDiv.style.fontSize = '0.75rem';
+        adDiv.style.color = 'var(--text-muted)';
+        adDiv.textContent = r.adName || 'Campaign Media';
+        tdName.appendChild(adDiv);
+        tr.appendChild(tdName);
+
+        const tdLoc = document.createElement('td');
+        tdLoc.style.color = 'var(--text-muted)';
+        tdLoc.style.fontSize = '0.85rem';
+        tdLoc.textContent = 'Jubilee Hills';
+        tr.appendChild(tdLoc);
+
+        const tdCount = document.createElement('td');
+        const strong = document.createElement('strong');
+        strong.textContent = (r.count || 0).toLocaleString();
+        tdCount.appendChild(strong);
+        tr.appendChild(tdCount);
+
+        const tdTotal = document.createElement('td');
+        const strongTotal = document.createElement('strong');
+        strongTotal.textContent = (r.count || 0).toLocaleString();
+        tdTotal.appendChild(strongTotal);
+        tr.appendChild(tdTotal);
+
+        const tdAction = document.createElement('td');
+        const btn = document.createElement('button');
+        btn.className = 'btn btn-glass';
+        btn.style.padding = '6px 12px';
+        btn.style.fontSize = '0.75rem';
+        btn.textContent = 'View Playback';
+        tdAction.appendChild(btn);
+        tr.appendChild(tdAction);
+
+        tbody.appendChild(tr);
+    });
 }
 
 // ─── BILLING ───
@@ -351,12 +509,31 @@ async function loadBilling() {
     const data = await safeFetch('/brandportal/api/invoices');
     const tbody = document.querySelector('#billing-table tbody');
     if (!tbody || !data) return;
-    tbody.innerHTML = data.map(inv => `
-        <tr>
-            <td><strong>#${inv.invoice_number}</strong></td>
-            <td>$${inv.amount.toFixed(2)}</td>
-            <td><span class="status-pill active">${inv.status}</span></td>
-            <td>${inv.due_date || '-'}</td>
-        </tr>
-    `).join('');
+    tbody.innerHTML = '';
+    data.forEach(inv => {
+        const tr = document.createElement('tr');
+        
+        const tdNum = document.createElement('td');
+        const strong = document.createElement('strong');
+        strong.textContent = `#${inv.invoice_number}`;
+        tdNum.appendChild(strong);
+        tr.appendChild(tdNum);
+
+        const tdAmount = document.createElement('td');
+        tdAmount.textContent = `$${inv.amount.toFixed(2)}`;
+        tr.appendChild(tdAmount);
+
+        const tdStatus = document.createElement('td');
+        const span = document.createElement('span');
+        span.className = 'status-pill active';
+        span.textContent = inv.status;
+        tdStatus.appendChild(span);
+        tr.appendChild(tdStatus);
+
+        const tdDue = document.createElement('td');
+        tdDue.textContent = inv.due_date || '-';
+        tr.appendChild(tdDue);
+
+        tbody.appendChild(tr);
+    });
 }

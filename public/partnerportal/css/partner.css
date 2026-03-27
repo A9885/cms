@@ -284,51 +284,6 @@ tr:hover td { background: #f8fafc; }
 .btn-secondary { background: #f1f5f9; color: var(--text-primary); border: 1px solid var(--border); }
 .btn-secondary:hover { background: #e2e8f0; }
 .btn-danger { background: #fee2e2; color: var(--danger); }
-.btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text-secondary); }
-.btn-outline:hover { background: #f8fafc; border-color: var(--text-muted); }
-
-/* ─── Quick Actions ─── */
-.quick-actions {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    gap: 1rem;
-    margin-top: 1.5rem;
-}
-.qa-card {
-    background: var(--bg-surface);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 1.25rem;
-    text-align: center;
-    cursor: pointer;
-    transition: all 0.2s;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 10px;
-}
-.qa-card:hover { border-color: var(--accent); transform: translateY(-3px); box-shadow: 0 4px 12px rgba(99,102,241,0.1); }
-.qa-card i { width: 24px; height: 24px; color: var(--accent); }
-.qa-card span { font-size: 0.78rem; font-weight: 700; color: var(--text-primary); }
-
-/* ─── Search Box ─── */
-.search-box-wrap {
-    position: relative;
-    max-width: 320px;
-    width: 100%;
-}
-.search-box-wrap i {
-    position: absolute;
-    left: 12px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 16px;
-    height: 16px;
-    color: var(--text-muted);
-}
-.search-box-wrap input {
-    padding-left: 36px !important;
-}
 
 /* ─── Forms ─── */
 .form-group { margin-bottom: 1.1rem; }

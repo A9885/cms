@@ -33,10 +33,64 @@ function triggerUpload(slotId, isReplace = false) {
     isReplaceMode = isReplace;
     const mInput = document.getElementById('media-input');
     if (!mInput) {
-        alert('Error: Upload input not found. Please refresh.');
+        showToast('Error: Upload input not found. Please refresh.', 'error');
         return;
     }
     mInput.click();
+}
+
+function showToast(message, type = 'info') {
+    const existing = document.getElementById('m-toast');
+    if (existing) existing.remove();
+    const toast = document.createElement('div');
+    toast.id = 'm-toast';
+    toast.innerText = message;
+    toast.style.cssText = `
+        position:fixed; bottom:20px; right:20px; z-index:9999;
+        background:${type === 'error' ? '#ef4444' : '#2563eb'};
+        color:white; padding:12px 24px; border-radius:8px;
+        box-shadow:0 10px 15px -3px rgba(0,0,0,0.1); font-weight:500;
+        animation: slideIn 0.3s ease;
+    `;
+    if (!document.getElementById('m-toast-anims')) {
+        const style = document.createElement('style');
+        style.id = 'm-toast-anims';
+        style.innerHTML = '@keyframes slideIn { from { transform:translateX(100%); } to { transform:translateX(0); } }';
+        document.head.appendChild(style);
+    }
+    document.body.appendChild(toast);
+    setTimeout(() => { if (toast.parentNode) toast.remove(); }, 4000);
+}
+
+function showConfirm(message) {
+    return new Promise((resolve) => {
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;font-family:inherit;';
+        const modal = document.createElement('div');
+        modal.style.cssText = 'background:white; padding:24px; border-radius:12px; width:350px; box-shadow:0 20px 25px -5px rgba(0,0,0,0.1);';
+        
+        const msg = document.createElement('div');
+        msg.style.cssText = 'margin-bottom:24px; color:#1e293b; font-size:0.95rem; line-height:1.5;';
+        msg.textContent = message;
+        
+        const footer = document.createElement('div');
+        footer.style.cssText = 'display:flex; justify-content:flex-end; gap:12px;';
+        
+        const btnCancel = document.createElement('button');
+        btnCancel.style.cssText = 'background:#f1f5f9; color:#475569; border:none; padding:8px 16px; border-radius:6px; cursor:pointer; font-weight:500;';
+        btnCancel.textContent = 'Cancel';
+        btnCancel.onclick = () => { overlay.remove(); resolve(false); };
+        
+        const btnConfirm = document.createElement('button');
+        btnConfirm.style.cssText = 'background:#ef4444; color:white; border:none; padding:8px 16px; border-radius:6px; cursor:pointer; font-weight:600;';
+        btnConfirm.textContent = 'Delete';
+        btnConfirm.onclick = () => { overlay.remove(); resolve(true); };
+        
+        footer.append(btnCancel, btnConfirm);
+        modal.append(msg, footer);
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+    });
 }
 
 
@@ -81,7 +135,12 @@ async function initDisplays() {
 
     } catch (err) {
         console.error('Init failed:', err);
-        tabsContainer.innerHTML = `<div style="color: red; padding: 1rem;">Setup Error: ${err.message}</div>`;
+        tabsContainer.innerHTML = '';
+        const errDiv = document.createElement('div');
+        errDiv.style.color = 'red';
+        errDiv.style.padding = '1rem';
+        errDiv.textContent = `Setup Error: ${err.message}`;
+        tabsContainer.appendChild(errDiv);
     } finally {
         showLoader(false);
     }
@@ -115,10 +174,24 @@ async function loadSlots(displayId) {
             grid.appendChild(card);
         });
     } catch (err) {
-        grid.innerHTML = `<div style="grid-column: span 5; color: red; padding: 2rem; background: white; border-radius: 8px; border: 1px solid #fee2e2;">
-            <strong>Error:</strong> ${err.message}<br><br>
-            Please check if this display has a default layout with a valid playlist.
-        </div>`;
+        grid.innerHTML = '';
+        const errDiv = document.createElement('div');
+        errDiv.style.gridColumn = 'span 5';
+        errDiv.style.color = 'red';
+        errDiv.style.padding = '2rem';
+        errDiv.style.background = 'white';
+        errDiv.style.borderRadius = '8px';
+        errDiv.style.border = '1px solid #fee2e2';
+        
+        const strong = document.createElement('strong');
+        strong.textContent = 'Error:';
+        errDiv.appendChild(strong);
+        errDiv.appendChild(document.createTextNode(` ${err.message}`));
+        errDiv.appendChild(document.createElement('br'));
+        errDiv.appendChild(document.createElement('br'));
+        errDiv.appendChild(document.createTextNode('Please check if this display has a default layout with a valid playlist.'));
+        
+        grid.appendChild(errDiv);
     } finally {
         showLoader(false);
     }
@@ -145,14 +218,14 @@ async function uploadMedia(slotId, file, duration, replace = false) {
         
         loadSlots(currentDisplayId);
     } catch (err) {
-        alert("Upload Failed: " + err.message);
+        showToast("Upload Failed: " + err.message, "error");
     } finally {
         showLoader(false);
     }
 }
 
 async function deleteMedia(widgetId, slotId) {
-    if (!confirm("Are you sure you want to delete this media?")) return;
+    if (!await showConfirm("Are you sure you want to delete this media?")) return;
     showLoader(true);
     try {
         const btn = document.querySelector(`.tab[data-display-id="${currentDisplayId}"]`);
@@ -164,7 +237,7 @@ async function deleteMedia(widgetId, slotId) {
         if (result.error) throw new Error(result.error);
         loadSlots(currentDisplayId);
     } catch (err) {
-        alert("Delete Failed: " + err.message);
+        showToast("Delete Failed: " + err.message, "error");
     } finally {
         showLoader(false);
     }
@@ -179,45 +252,91 @@ function createSlotCard(slot) {
     const usedPct = Math.min((slot.totalDuration / 13) * 100, 100);
     const barColor = slot.totalDuration >= 13 ? '#ef4444' : (slot.totalDuration > 10 ? '#f59e0b' : '#3b82f6');
 
-    const header = `
-        <div class="slot-header">
-            <span>Slot ${slot.slot}</span>
-            <span class="duration-badge" style="background: ${barColor}20; color: ${barColor}">${slot.totalDuration}s / 13s</span>
-        </div>
-        <div style="height: 4px; background: #e2e8f0; border-radius: 2px; overflow: hidden;">
-            <div style="width: ${usedPct}%; height: 100%; background: ${barColor};"></div>
-        </div>
-    `;
+    // Header
+    const header = document.createElement('div');
+    header.className = 'slot-header';
+    const title = document.createElement('span');
+    title.textContent = `Slot ${slot.slot}`;
+    header.appendChild(title);
+    const badge = document.createElement('span');
+    badge.className = 'duration-badge';
+    badge.style.background = `${barColor}20`;
+    badge.style.color = barColor;
+    badge.textContent = `${slot.totalDuration}s / 13s`;
+    header.appendChild(badge);
+    card.appendChild(header);
 
-    let previewHtml = '';
+    // Progress bar
+    const barContainer = document.createElement('div');
+    barContainer.style.height = '4px';
+    barContainer.style.background = '#e2e8f0';
+    barContainer.style.borderRadius = '2px';
+    barContainer.style.overflow = 'hidden';
+    const bar = document.createElement('div');
+    bar.style.width = `${usedPct}%`;
+    bar.style.height = '100%';
+    bar.style.background = barColor;
+    barContainer.appendChild(bar);
+    card.appendChild(barContainer);
+
+    // Preview
+    const previewBox = document.createElement('div');
+    previewBox.className = 'preview-box';
     if (slot.media.length > 0) {
         const m = slot.media[0];
         const isVideo = m.name?.toLowerCase().endsWith('.mp4');
-        previewHtml = `
-            <div class="preview-box">
-                ${isVideo ? '<div style="color:#64748b; font-size: 2rem;">▶</div>' : `<img src="${m.thumbnail}" alt="preview">`}
-                <div class="media-overlay">${m.name.length > 20 ? m.name.substring(0, 17) + '...' : m.name}</div>
-            </div>
-        `;
+        if (isVideo) {
+            const playIcon = document.createElement('div');
+            playIcon.style.color = '#64748b';
+            playIcon.style.fontSize = '2rem';
+            playIcon.textContent = '▶';
+            previewBox.appendChild(playIcon);
+        } else {
+            const img = document.createElement('img');
+            img.src = m.thumbnail;
+            img.alt = 'preview';
+            previewBox.appendChild(img);
+        }
+        const overlay = document.createElement('div');
+        overlay.className = 'media-overlay';
+        overlay.textContent = m.name.length > 20 ? m.name.substring(0, 17) + '...' : m.name;
+        previewBox.appendChild(overlay);
     } else {
-        previewHtml = `
-            <div class="preview-box" style="border-style: dashed;">
-                <span style="color: #cbd5e1; font-size: 0.8rem; font-weight: 500;">Empty Slot</span>
-            </div>
-        `;
+        previewBox.style.borderStyle = 'dashed';
+        const emptyText = document.createElement('span');
+        emptyText.style.color = '#cbd5e1';
+        emptyText.style.fontSize = '0.8rem';
+        emptyText.style.fontWeight = '500';
+        emptyText.textContent = 'Empty Slot';
+        previewBox.appendChild(emptyText);
     }
+    card.appendChild(previewBox);
 
-    const actions = `
-        <div class="slot-actions">
-            ${slot.totalDuration < 13 ? `<button class="btn btn-primary btn-full" onclick="triggerUpload(${slot.slot})">+ Add Slide</button>` : ''}
-            ${slot.media.length > 0 ? `
-                <button class="btn btn-replace" onclick="triggerUpload(${slot.slot}, true)">Replace</button>
-                <button class="btn btn-delete" onclick="deleteMedia(${slot.media[0].widgetId}, ${slot.slot})">Delete</button>
-            ` : ''}
-        </div>
-    `;
+    // Actions
+    const actions = document.createElement('div');
+    actions.className = 'slot-actions';
+    if (slot.totalDuration < 13) {
+        const addBtn = document.createElement('button');
+        addBtn.className = 'btn btn-primary btn-full';
+        addBtn.textContent = '+ Add Slide';
+        addBtn.onclick = () => triggerUpload(slot.slot);
+        actions.appendChild(addBtn);
+    }
+    if (slot.media.length > 0) {
+        const replaceBtn = document.createElement('button');
+        replaceBtn.className = 'btn btn-replace';
+        replaceBtn.textContent = 'Replace';
+        replaceBtn.onclick = () => triggerUpload(slot.slot, true);
+        actions.appendChild(replaceBtn);
 
-    card.innerHTML = header + previewHtml + actions;
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'btn btn-delete';
+        deleteBtn.textContent = 'Delete';
+        deleteBtn.onclick = () => deleteMedia(slot.media[0].widgetId, slot.slot);
+        actions.appendChild(deleteBtn);
+    }
+    card.appendChild(actions);
+
     return card;
 }
 

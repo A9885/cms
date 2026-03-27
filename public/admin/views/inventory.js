@@ -159,10 +159,7 @@ App.registerView('inventory', {
                     </div>
                     <div class="inv-card-actions">
                         <span class="inv-sync-badge" id="inv-sync-badge">🔄 Auto-sync every 5 min</span>
-                        <select id="inv-partner-filter" style="padding:5px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:0.75rem;width:150px;outline:none;">
-                            <option value="">All Partners</option>
-                        </select>
-                        <input type="text" id="inv-search" placeholder="🔍 Search screens..." style="padding:5px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:0.75rem;width:160px;outline:none;">
+                        <input type="text" id="inv-search" placeholder="🔍 Search screens..." style="padding:5px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:0.75rem;width:170px;outline:none;">
                         <button class="btn btn-secondary" style="font-size:0.72rem;" onclick="window.InvView.loadScreens()">↻ Refresh</button>
                         <button id="inv-sync-all-btn" class="btn btn-primary" style="background:linear-gradient(135deg,#2ea44f,#1a7f37);font-size:0.72rem;" onclick="window.InvView.forceSyncAll()">⚡ Force Sync All</button>
                     </div>
@@ -211,20 +208,6 @@ App.registerView('inventory', {
         this._navStack = 'screens';
         this._selectedScreen = null;
         this._selectedMedia = null;
-        
-        // Load Partners for filter
-        const partners = await fetch('/admin/api/partners').then(r => r.json());
-        const pSelect = document.getElementById('inv-partner-filter');
-        if (pSelect && Array.isArray(partners)) {
-            partners.forEach(p => {
-                const opt = document.createElement('option');
-                opt.value = p.id;
-                opt.textContent = p.name;
-                pSelect.appendChild(opt);
-            });
-            pSelect.onchange = () => this.loadScreens();
-        }
-
         await Promise.all([
             this.loadScreens(),
             this.loadMediaSummary()
@@ -279,75 +262,63 @@ App.registerView('inventory', {
     // ── Load Screens ─────────────────────────────────────────────────────────
     async loadScreens() {
         const wrap = document.getElementById('inv-screens-wrap');
-        const partnerId = document.getElementById('inv-partner-filter')?.value;
-
         if (wrap && wrap.innerHTML.indexOf('inv-screen-table') === -1) {
             wrap.innerHTML = '<div class="inv-loading">Loading screens...</div>';
         }
 
         try {
-            // Fetch from our local screens API which enriches with Partner info
-            let screens = await fetch('/admin/api/screens?t=' + Date.now()).then(r => r.json());
-            
-            if (partnerId) {
-                screens = screens.filter(s => s.partner_id == partnerId);
-            }
-
-            this._screens = {};
-            screens.forEach(s => {
-                if (s.xibo_display_id) this._screens[s.xibo_display_id] = s;
-            });
+            const locRes = await fetch('/xibo/displays/locations?t=' + Date.now()).then(r => r.json());
+            this._screens = locRes;
+            const dIds = Object.keys(locRes);
 
             const subtitle = document.getElementById('inv-screen-subtitle');
-            if (subtitle) subtitle.textContent = screens.length + ' screen' + (screens.length !== 1 ? 's' : '') + ' found';
+            if (subtitle) subtitle.textContent = dIds.length + ' screen' + (dIds.length !== 1 ? 's' : '') + ' found';
 
-            if (screens.length === 0) {
-                if (wrap) wrap.innerHTML = '<div class="inv-empty">📺 No screens found.</div>';
+            if (dIds.length === 0) {
+                if (wrap) wrap.innerHTML = '<div class="inv-empty">📺 No screens found in Xibo.</div>';
                 return;
             }
 
-            // Fetch slot counts in parallel for linked screens
+            // Fetch slot counts in parallel
             const slotCounts = {};
-            await Promise.all(screens.map(async s => {
-                if (!s.xibo_display_id) return;
+            await Promise.all(dIds.map(async dId => {
                 try {
-                    const slots = await fetch('/xibo/slots/display/' + s.xibo_display_id + '?t=' + Date.now()).then(r => r.json());
-                    slotCounts[s.xibo_display_id] = Array.isArray(slots) ? slots.filter(sl => sl.media && sl.media.length > 0).length : 0;
-                } catch { slotCounts[s.xibo_display_id] = 0; }
+                    const slots = await fetch('/xibo/slots/display/' + dId + '?t=' + Date.now()).then(r => r.json());
+                    slotCounts[dId] = Array.isArray(slots) ? slots.filter(s => s.media && s.media.length > 0).length : 0;
+                } catch { slotCounts[dId] = 0; }
             }));
 
             let rows = '';
-            for (const s of screens) {
-                const dId = s.xibo_display_id;
+            for (const dId of dIds) {
+                const d = locRes[dId];
                 const used = slotCounts[dId] || 0;
                 const pct = Math.round((used / this.MAX_SLOTS) * 100);
                 const fillCls = pct >= 100 ? 'full' : pct >= 80 ? 'high' : '';
-                
-                // Status mapping from our local DB
-                let statusText = s.status || 'Offline';
-                let badgeCls = 'inv-badge-offline';
-                if (statusText === 'Online') badgeCls = 'inv-badge-online';
-                
-                const onlineBadge = `<span class="${badgeCls}"><span class="inv-badge-dot"></span>${statusText}</span>`;
+                const onlineBadge = d.online
+                    ? '<span class="inv-badge-online"><span class="inv-badge-dot"></span>Online</span>'
+                    : '<span class="inv-badge-offline"><span class="inv-badge-dot"></span>Offline</span>';
 
-                let locHtml = this._esc(s.city || '—');
-                if (s.address) locHtml += `<div style="font-size:0.7rem;color:#94a3b8;margin-top:1px;">${this._esc(s.address)}</div>`;
+                let locHtml = '—';
+                if (d.lat && d.lng) {
+                    const mUrl = 'https://maps.google.com/?q=' + d.lat + ',' + d.lng;
+                    locHtml = '<a class="inv-loc-link" href="' + mUrl + '" target="_blank" onclick="event.stopPropagation()">📍 ' + d.lat.toFixed(4) + ', ' + d.lng.toFixed(4) + '</a>';
+                } else if (d.address) {
+                    locHtml = this._esc(d.address);
+                }
+                if (d.timezone) locHtml += '<div style="font-size:0.7rem;color:#94a3b8;margin-top:1px;">' + this._esc(d.timezone) + '</div>';
 
-                const lastSeen = s.updated_at ? new Date(s.updated_at).toLocaleString() : '—';
+                const lastSeen = d.lastAccessed ? new Date(d.lastAccessed + ' UTC').toLocaleString() : 'Never';
 
                 rows += `
                 <tr>
                     <td>
-                        <div style="font-weight:700;font-size:0.85rem;">${this._esc(s.name)}</div>
-                        <div style="font-size:0.72rem;color:#94a3b8;margin-top:2px;">ID: ${s.id}${dId ? ' · Xibo: ' + dId : ''}</div>
+                        <div style="font-weight:700;font-size:0.85rem;">${this._esc(d.name)}</div>
+                        <div style="font-size:0.72rem;color:#94a3b8;margin-top:2px;">ID: ${dId}${d.device ? ' · ' + this._esc(d.device) : ''}</div>
                     </td>
-                    <td>
-                        <div style="font-weight:600;font-size:0.8rem;color:var(--accent);">${this._esc(s.partner_name || 'Unassigned')}</div>
-                        <div style="font-size:0.7rem;color:#94a3b8;margin-top:2px;">${this._esc(s.city || '—')}</div>
-                    </td>
+                    <td>${locHtml}</td>
                     <td>
                         ${onlineBadge}
-                        <div style="font-size:0.7rem;color:#94a3b8;margin-top:3px;">Updated: ${this._esc(lastSeen)}</div>
+                        <div style="font-size:0.7rem;color:#94a3b8;margin-top:3px;">Last seen: ${this._esc(lastSeen)}</div>
                     </td>
                     <td>
                         <div style="font-weight:700;">${used}/${this.MAX_SLOTS}</div>
@@ -355,14 +326,14 @@ App.registerView('inventory', {
                         <div style="font-size:0.68rem;color:#94a3b8;margin-top:2px;">${pct}% used</div>
                     </td>
                     <td>
-                        ${dId ? `<button class="btn btn-primary" style="font-size:0.72rem;" onclick="window.InvView.selectScreen('${dId}')">View Slots →</button>` : `<span style="font-size:0.7rem;color:#94a3b8;">Not Linked</span>`}
+                        <button class="btn btn-primary" style="font-size:0.72rem;" onclick="window.InvView.selectScreen('${dId}')">View Slots →</button>
                     </td>
                 </tr>`;
             }
 
             if (wrap) wrap.innerHTML = `
                 <table class="inv-screen-table">
-                    <thead><tr><th>Screen</th><th>Partner / City</th><th>Status</th><th>Slots Used</th><th>Action</th></tr></thead>
+                    <thead><tr><th>Screen</th><th>Location</th><th>Status</th><th>Slots Used</th><th>Action</th></tr></thead>
                     <tbody id="inv-screen-tbody">${rows}</tbody>
                 </table>`;
 
@@ -403,7 +374,7 @@ App.registerView('inventory', {
 
             let html = '';
             for (let i = 1; i <= this.MAX_SLOTS; i++) {
-                const slot = Array.isArray(this._slots) ? this._slots.find(s => s.slot == i) : null;
+                const slot = Array.isArray(this._slots) ? this._slots.find(s => Number(s.slot_number) === Number(i)) : null;
                 const hasMedia = slot && slot.media && slot.media.length > 0;
 
                 if (hasMedia) {

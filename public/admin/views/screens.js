@@ -237,16 +237,38 @@ App.registerView('screens', {
         const pAdd = document.getElementById('add-screen-partner');
         const pEdit = document.getElementById('edit-screen-partner-select');
         
-        const pOptions = this.partnersData.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
-        if (pFilter) pFilter.innerHTML = '<option value="">All Partners</option>' + pOptions;
-        if (pAdd) pAdd.innerHTML = '<option value="">-- Select Partner --</option>' + pOptions;
-        if (pEdit) pEdit.innerHTML = '<option value="">-- No Partner --</option>' + pOptions;
+        [pFilter, pAdd, pEdit].forEach(select => {
+            if (!select) return;
+            select.innerHTML = '';
+            const defaultOpt = document.createElement('option');
+            defaultOpt.value = '';
+            defaultOpt.textContent = select === pFilter ? 'All Partners' : (select === pAdd ? '-- Select Partner --' : '-- No Partner --');
+            select.appendChild(defaultOpt);
+            
+            this.partnersData.forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = p.id;
+                opt.textContent = p.name;
+                select.appendChild(opt);
+            });
+        });
 
         // Populate Cities Filter
         const cities = [...new Set(this.localScreens.map(s => s.city).filter(Boolean))];
         const cFilter = document.getElementById('filter-city');
-        if (cFilter) cFilter.innerHTML = '<option value="">All Cities</option>' + 
-            cities.map(c => `<option value="${c}">${c}</option>`).join('');
+        if (cFilter) {
+            cFilter.innerHTML = '';
+            const allOpt = document.createElement('option');
+            allOpt.value = '';
+            allOpt.textContent = 'All Cities';
+            cFilter.appendChild(allOpt);
+            cities.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c;
+                opt.textContent = c;
+                cFilter.appendChild(opt);
+            });
+        }
 
         // Setup Create Screen Form
         const btnOpenAdd = document.getElementById('btn-open-create-screen');
@@ -261,13 +283,13 @@ App.registerView('screens', {
                 const city = document.getElementById('add-screen-city').value;
                 const address = document.getElementById('add-screen-address').value;
                 const partner_id = document.getElementById('add-screen-partner').value;
-                if (!name) return alert('Name is required');
+                if (!name) return App.showToast('Name is required', 'error');
                 btnSubmitAdd.innerText = 'Creating...';
                 try {
                     await window.Api.post('/screens', { name, city, address, partner_id });
                     document.getElementById('create-screen-modal').classList.remove('active');
                     this.mount(container);
-                } catch (err) { alert(err.message); }
+                } catch (err) { App.showToast(err.message, 'error'); }
                 finally { btnSubmitAdd.innerText = 'Create Screen'; }
             };
         }
@@ -292,7 +314,7 @@ App.registerView('screens', {
                 const matchQ = s.name.toLowerCase().includes(q) || (s.city || '').toLowerCase().includes(q);
                 const matchC = !city || s.city === city;
                 const matchS = !status || (status === 'Unlinked' ? !isLinked : curSt === status);
-                const matchP = !pId || s.partner_id == pId;
+                const matchP = !pId || String(s.partner_id) === String(pId);
                 return matchQ && matchC && matchS && matchP;
             });
             this.renderTable(filtered);
@@ -315,7 +337,7 @@ App.registerView('screens', {
         const tbody = document.getElementById('screens-table-body');
         if (!tbody) return;
         
-        let html = '';
+        tbody.innerHTML = '';
         screens.forEach(s => {
             const xibo = this.allXiboDisplays.find(xd => xd.displayId === s.xibo_display_id);
             const isLinked = !!s.xibo_display_id;
@@ -330,19 +352,49 @@ App.registerView('screens', {
                 badgeClass = 'warning'; // Orange for unlinked
             }
 
-            html += `
-                <tr onclick="Views.screens.showDetails(${s.id})" style="cursor:pointer;" class="screen-row" data-id="${s.id}">
-                    <td>
-                        <div style="font-weight: 600;">${s.name}</div>
-                        <div style="font-size: 0.7rem; color: var(--text-muted)">ID: ${s.id} ${isLinked ? '· Linked' : ''}</div>
-                    </td>
-                    <td style="font-size:0.8rem;">${s.city || '—'}</td>
-                    <td><span class="badge ${badgeClass}">${statusText}</span></td>
-                </tr>
-            `;
+            const tr = document.createElement('tr');
+            tr.className = 'screen-row';
+            tr.dataset.id = s.id;
+            tr.style.cursor = 'pointer';
+            tr.onclick = () => this.showDetails(s.id);
+
+            const tdName = document.createElement('td');
+            const nameDiv = document.createElement('div');
+            nameDiv.style.fontWeight = '600';
+            nameDiv.textContent = s.name;
+            tdName.appendChild(nameDiv);
+            const idDiv = document.createElement('div');
+            idDiv.style.fontSize = '0.7rem';
+            idDiv.style.color = 'var(--text-muted)';
+            idDiv.textContent = `ID: ${s.id}${isLinked ? ' · Linked' : ''}`;
+            tdName.appendChild(idDiv);
+            tr.appendChild(tdName);
+
+            const tdCity = document.createElement('td');
+            tdCity.style.fontSize = '0.8rem';
+            tdCity.textContent = s.city || '—';
+            tr.appendChild(tdCity);
+
+            const tdStatus = document.createElement('td');
+            const span = document.createElement('span');
+            span.className = `badge ${badgeClass}`;
+            span.textContent = statusText;
+            tdStatus.appendChild(span);
+            tr.appendChild(tdStatus);
+
+            tbody.appendChild(tr);
         });
-        if (screens.length === 0) html = '<tr><td colspan="3" style="text-align:center;padding:30px;color:var(--text-muted);">No screens.</td></tr>';
-        tbody.innerHTML = html;
+        if (screens.length === 0) {
+            const tr = document.createElement('tr');
+            const td = document.createElement('td');
+            td.colSpan = 3;
+            td.style.textAlign = 'center';
+            td.style.padding = '30px';
+            td.style.color = 'var(--text-muted)';
+            td.textContent = 'No screens.';
+            tr.appendChild(td);
+            tbody.appendChild(tr);
+        }
     },
 
     async showDetails(id) {
@@ -386,20 +438,64 @@ App.registerView('screens', {
 
         // PoP
         const pBody = document.getElementById('det-pop-body');
-        pBody.innerHTML = '<tr><td colspan="3" style="text-align:center;padding:10px;">Loading...</td></tr>';
+        pBody.innerHTML = '';
         if (isLinked) {
+            const loadingTd = document.createElement('td');
+            loadingTd.colSpan = 3;
+            loadingTd.style.textAlign = 'center';
+            loadingTd.style.padding = '10px';
+            loadingTd.textContent = 'Loading...';
+            const loadingTr = document.createElement('tr');
+            loadingTr.appendChild(loadingTd);
+            pBody.appendChild(loadingTr);
+
             try {
                 const logs = await window.Api.get(`/screens/${id}/proof-of-play`);
+                pBody.innerHTML = '';
                 if (!logs || logs.length === 0) {
-                    pBody.innerHTML = '<tr><td colspan="3" style="text-align:center;padding:10px;color:var(--text-muted);">No logs found.</td></tr>';
+                    const emptyTd = document.createElement('td');
+                    emptyTd.colSpan = 3;
+                    emptyTd.style.textAlign = 'center';
+                    emptyTd.style.padding = '10px';
+                    emptyTd.style.color = 'var(--text-muted)';
+                    emptyTd.textContent = 'No logs found.';
+                    const emptyTr = document.createElement('tr');
+                    emptyTr.appendChild(emptyTd);
+                    pBody.appendChild(emptyTr);
                 } else {
-                    pBody.innerHTML = logs.map(l => `
-                        <tr><td>${new Date(l.playedAt).toLocaleTimeString()}</td><td>${l.adName || 'Ad'}</td><td>${l.count || 1}</td></tr>
-                    `).join('');
+                    logs.forEach(l => {
+                        const tr = document.createElement('tr');
+                        const tdTime = document.createElement('td');
+                        tdTime.textContent = new Date(l.playedAt).toLocaleTimeString();
+                        tr.appendChild(tdTime);
+                        const tdAd = document.createElement('td');
+                        tdAd.textContent = l.adName || 'Ad';
+                        tr.appendChild(tdAd);
+                        const tdCount = document.createElement('td');
+                        tdCount.textContent = l.count || 1;
+                        tr.appendChild(tdCount);
+                        pBody.appendChild(tr);
+                    });
                 }
-            } catch (e) { pBody.innerHTML = '<tr><td colspan="3">Failed to load logs.</td></tr>'; }
+            } catch (e) { 
+                pBody.innerHTML = '';
+                const errTd = document.createElement('td');
+                errTd.colSpan = 3;
+                errTd.textContent = 'Failed to load logs.';
+                const errTr = document.createElement('tr');
+                errTr.appendChild(errTd);
+                pBody.appendChild(errTr);
+            }
         } else {
-            pBody.innerHTML = '<tr><td colspan="3" style="text-align:center;padding:10px;color:var(--text-muted);">Link screen to view performance.</td></tr>';
+            const emptyTd = document.createElement('td');
+            emptyTd.colSpan = 3;
+            emptyTd.style.textAlign = 'center';
+            emptyTd.style.padding = '10px';
+            emptyTd.style.color = 'var(--text-muted)';
+            emptyTd.textContent = 'Link screen to view performance.';
+            const emptyTr = document.createElement('tr');
+            emptyTr.appendChild(emptyTd);
+            pBody.appendChild(emptyTr);
         }
 
         // Actions
@@ -411,8 +507,8 @@ App.registerView('screens', {
             b.innerText = 'Syncing...';
             try {
                 await window.Api.post(`/screens/${id}/sync`);
-                alert('Force sync requested');
-            } catch (err) { alert('Sync fail'); }
+                App.showToast('Force sync requested', 'success');
+            } catch (err) { App.showToast('Sync fail', 'error'); }
             finally { b.innerText = 'Force Sync'; }
         };
 
@@ -426,29 +522,41 @@ App.registerView('screens', {
         const modal = document.getElementById('link-xibo-modal');
         const select = document.getElementById('link-xibo-select');
         
+        select.innerHTML = '';
         if (this.xiboDisplays.length === 0) {
-            select.innerHTML = '<option value="">-- No available Xibo displays found --</option>';
+            const opt = document.createElement('option');
+            opt.value = '';
+            opt.textContent = '-- No available Xibo displays found --';
+            select.appendChild(opt);
         } else {
-            select.innerHTML = '<option value="">-- Choose Connected Player --</option>' + 
-                this.xiboDisplays.map(d => `<option value="${d.displayId}">${d.name} (ID:${d.displayId})</option>`).join('');
+            const defaultOpt = document.createElement('option');
+            defaultOpt.value = '';
+            defaultOpt.textContent = '-- Choose Connected Player --';
+            select.appendChild(defaultOpt);
+            this.xiboDisplays.forEach(d => {
+                const opt = document.createElement('option');
+                opt.value = d.displayId;
+                opt.textContent = `${d.name} (ID:${d.displayId})`;
+                select.appendChild(opt);
+            });
         }
         
         modal.classList.add('active');
 
         document.getElementById('btn-submit-link').onclick = async () => {
             const displayId = select.value;
-            if (!displayId) return alert('Select a player');
+            if (!displayId) return App.showToast('Select a player', 'error');
             
             try {
                 await window.Api.put(`/screens/${screen.id}`, {
                     ...screen,
-                    xibo_display_id: parseInt(displayId),
+                    xibo_display_id: parseInt(displayId, 10),
                     status: 'Linked'
                 });
                 modal.classList.remove('active');
                 this.mount(document.getElementById('app'));
-                alert('Screen linked successfully!');
-            } catch (err) { alert('Link fail: ' + err.message); }
+                App.showToast('Screen linked successfully!', 'success');
+            } catch (err) { App.showToast('Link fail: ' + err.message, 'error'); }
         };
     },
 
@@ -473,16 +581,16 @@ App.registerView('screens', {
                 await window.Api.put(`/screens/${screen.id}`, body);
                 document.getElementById('edit-screen-modal').classList.remove('active');
                 this.mount(document.getElementById('app'));
-            } catch (err) { alert('Save failed'); }
+            } catch (err) { App.showToast('Save failed', 'error'); }
         };
 
         document.getElementById('btn-delete-screen').onclick = async () => {
-            if (!confirm('Permanent delete?')) return;
+            if (!await App.showConfirm('Permanent delete?')) return;
             try {
                 await window.Api.delete(`/screens/${screen.id}`);
                 document.getElementById('edit-screen-modal').classList.remove('active');
                 this.mount(document.getElementById('app'));
-            } catch (err) { alert('Delete failed'); }
+            } catch (err) { App.showToast('Delete failed', 'error'); }
         };
     }
 });

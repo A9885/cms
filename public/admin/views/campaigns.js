@@ -5,7 +5,7 @@ App.registerView('campaigns', {
             <div class="card">
                 <div class="table-header">
                     <h3 style="font-size: 1rem; font-weight: 600;">Active Campaigns</h3>
-                    <button class="btn btn-primary" onclick="alert('Create campaign maps to Xibo Scheduling UI for MVP')">+ Create Campaign</button>
+                    <button class="btn btn-primary" onclick="App.showToast('Create campaign maps to Xibo Scheduling UI for MVP')">+ Create Campaign</button>
                 </div>
                 <div class="table-wrap" style="border: none; border-radius: 0;">
                     <table>
@@ -28,24 +28,52 @@ App.registerView('campaigns', {
 
     async mount(container) {
         const campaigns = await Api.get('/campaigns/recent');
-        let html = '';
+        const tbody = document.getElementById('campaigns-table-body');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+
         if (campaigns && campaigns.length > 0) {
             campaigns.forEach(c => {
-                html += `
-                    <tr>
-                        <td style="font-weight: 500;">
-                            <div>${c.name}</div>
-                            <div style="font-size: 0.70rem; color: var(--text-muted);">ID: ${c.id}</div>
-                        </td>
-                        <td>${c.brandName || 'Local Upload'}</td>
-                        <td>${c.isLayoutSpecific == 1 ? 'Specific Screen' : 'Global / Multiple'}</td>
-                        <td><span class="badge active">${c.status || 'Active'}</span></td>
-                    </tr>
-                `;
+                const tr = document.createElement('tr');
+                
+                const tdCampaign = document.createElement('td');
+                tdCampaign.style.fontWeight = '500';
+                const nameDiv = document.createElement('div');
+                nameDiv.textContent = c.name;
+                tdCampaign.appendChild(nameDiv);
+                const idDiv = document.createElement('div');
+                idDiv.style.fontSize = '0.70rem';
+                idDiv.style.color = 'var(--text-muted)';
+                idDiv.textContent = `ID: ${c.id}`;
+                tdCampaign.appendChild(idDiv);
+                tr.appendChild(tdCampaign);
+
+                const tdBrand = document.createElement('td');
+                tdBrand.textContent = c.brandName || 'Local Upload';
+                tr.appendChild(tdBrand);
+
+                const tdScreens = document.createElement('td');
+                tdScreens.textContent = Number(c.isLayoutSpecific) === 1 ? 'Specific Screen' : 'Global / Multiple';
+                tr.appendChild(tdScreens);
+
+                const tdStatus = document.createElement('td');
+                const span = document.createElement('span');
+                span.className = 'badge active';
+                span.textContent = c.status || 'Active';
+                tdStatus.appendChild(span);
+                tr.appendChild(tdStatus);
+
+                tbody.appendChild(tr);
             });
         } else {
-            html = '<tr><td colspan="4" style="text-align: center; color: var(--text-muted);">No campaign activity found or failed to fetch from Xibo.</td></tr>';
+            const tr = document.createElement('tr');
+            const td = document.createElement('td');
+            td.colSpan = 4;
+            td.style.textAlign = 'center';
+            td.style.color = 'var(--text-muted)';
+            td.textContent = 'No campaign activity found or failed to fetch from Xibo.';
+            tr.appendChild(td);
+            tbody.appendChild(tr);
         }
-        document.getElementById('campaigns-table-body').innerHTML = html;
     }
 });

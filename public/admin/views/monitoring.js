@@ -29,26 +29,62 @@ App.registerView('monitoring', {
 
     async mount(container) {
         const screensMap = await Api.getXiboDisplays();
-        let html = '';
-        
-        for (const [id, s] of Object.entries(screensMap)) {
-            const isOnline = s.online;
-            const statusBadge = isOnline ? '<span class="badge online">Online</span>' : '<span class="badge offline">Offline</span>';
-            const internetStatus = isOnline ? '<span style="color: var(--success); font-weight: 600;">Good</span>' : '<span style="color: var(--danger); font-weight: 600;">Lost</span>';
-            const lastSync = s.lastAccessed ? new Date(s.lastAccessed + ' UTC').toLocaleString() : 'Never';
+        const tbody = document.getElementById('monitoring-table-body');
+        if (!tbody) return;
+        tbody.innerHTML = '';
 
-            html += `
-                <tr>
-                    <td style="font-weight: 600;">${s.name}</td>
-                    <td>${statusBadge}</td>
-                    <td style="color: var(--text-muted); font-size: 0.85rem;">${lastSync}</td>
-                    <td>${internetStatus}</td>
-                    <td><button class="btn btn-secondary" style="padding: 4px 8px; font-size: 0.75rem;">Ping Device</button></td>
-                </tr>
-            `;
+        const entries = Object.entries(screensMap);
+        if (entries.length === 0) {
+            const tr = document.createElement('tr');
+            const td = document.createElement('td');
+            td.colSpan = 5;
+            td.style.textAlign = 'center';
+            td.style.color = 'var(--text-muted)';
+            td.textContent = 'No screens monitored';
+            tr.appendChild(td);
+            tbody.appendChild(tr);
+            return;
         }
 
-        if(html === '') html = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">No screens monitored</td></tr>';
-        document.getElementById('monitoring-table-body').innerHTML = html;
+        for (const [id, s] of entries) {
+            const tr = document.createElement('tr');
+            
+            const tdName = document.createElement('td');
+            tdName.style.fontWeight = '600';
+            tdName.textContent = s.name;
+            tr.appendChild(tdName);
+
+            const tdStatus = document.createElement('td');
+            const statusSpan = document.createElement('span');
+            statusSpan.className = `badge ${s.online ? 'online' : 'offline'}`;
+            statusSpan.textContent = s.online ? 'Online' : 'Offline';
+            tdStatus.appendChild(statusSpan);
+            tr.appendChild(tdStatus);
+
+            const tdSync = document.createElement('td');
+            tdSync.style.color = 'var(--text-muted)';
+            tdSync.style.fontSize = '0.85rem';
+            tdSync.textContent = s.lastAccessed ? new Date(s.lastAccessed + ' UTC').toLocaleString() : 'Never';
+            tr.appendChild(tdSync);
+
+            const tdInternet = document.createElement('td');
+            const internetSpan = document.createElement('span');
+            internetSpan.style.fontWeight = '600';
+            internetSpan.style.color = s.online ? 'var(--success)' : 'var(--danger)';
+            internetSpan.textContent = s.online ? 'Good' : 'Lost';
+            tdInternet.appendChild(internetSpan);
+            tr.appendChild(tdInternet);
+
+            const tdAction = document.createElement('td');
+            const btn = document.createElement('button');
+            btn.className = 'btn btn-secondary';
+            btn.style.padding = '4px 8px';
+            btn.style.fontSize = '0.75rem';
+            btn.textContent = 'Ping Device';
+            tdAction.appendChild(btn);
+            tr.appendChild(tdAction);
+
+            tbody.appendChild(tr);
+        }
     }
 });

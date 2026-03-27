@@ -7,9 +7,9 @@ async function check() {
         const now = new Date().toISOString().split('.')[0].replace('T', ' ');
         const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('.')[0].replace('T', ' ');
 
-        // Fetch absolute latest 20 records for ANY media/widget/display across whole network
+        // Fetch absolute latest 20 records for ANY media/widget/display across whole network (parallelized)
         const types = ['media', 'widget', 'layout'];
-        for (const type of types) {
+        await Promise.all(types.map(async (type) => {
             console.log(`Checking type: ${type}...`);
             const stats = await xibo.getStats(type, { length: 20 }); 
             if (stats && stats.length > 0) {
@@ -20,7 +20,7 @@ async function check() {
             } else {
                 console.log(`No records found for ${type}.`);
             }
-        }
+        }));
 
         // Check Display Profile Global Stats setting
         const heads = await xibo.getHeaders();

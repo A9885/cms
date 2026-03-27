@@ -1,6 +1,10 @@
 const axios = require('axios');
 const FormData = require('form-data');
 
+/**
+ * Service for interacting with the Xibo CMS API.
+ * Handles authentication, display management, stats retrieval, and more.
+ */
 class XiboService {
   constructor() {
     this.baseUrl = process.env.XIBO_BASE_URL;
@@ -10,6 +14,12 @@ class XiboService {
     this.tokenExpiry = null;
   }
 
+  /**
+   * Obtain an OAuth2 access token using client credentials.
+   * Caches the token until it expires.
+   * @returns {Promise<string>} The access token.
+   * @throws {Error} If token retrieval fails.
+   */
   async getAccessToken() {
     if (this.cachedToken && this.tokenExpiry && Date.now() < this.tokenExpiry) {
       return this.cachedToken;
@@ -34,53 +44,61 @@ class XiboService {
     }
   }
 
+  /**
+   * Get the Authorization header for API requests.
+   * @returns {Promise<{Authorization: string}>}
+   */
   async getHeaders() {
     const token = await this.getAccessToken();
     return { Authorization: `Bearer ${token}` };
   }
 
+  /**
+   * Fetch all displays from Xibo.
+   * @param {Object} params - Query parameters for the API.
+   * @returns {Promise<Array>} List of displays.
+   */
   async getDisplays(params = {}) {
     const headers = await this.getHeaders();
     const resp = await axios.get(`${this.baseUrl}/api/display`, { headers, params });
     return resp.data;
   }
 
+  /**
+   * Update a Xibo display's properties.
+   * @param {number|string} displayId - The Xibo ID of the display.
+   * @param {Object} updates - New values for display properties.
+   * @returns {Promise<Object>} The updated display data.
+   */
   async updateDisplay(displayId, updates) {
     const headers = await this.getHeaders();
     try {
-      // Fetch full display data first
       const displays = await this.getDisplays();
-      const display = displays.find(d => d.displayId === parseInt(displayId));
+      const display = displays.find(d => d.displayId === parseInt(displayId, 10));
       
       if (!display) throw new Error(`Display ${displayId} not found`);
 
       const params = new URLSearchParams();
-      // Fields to skip because they cause validation errors or are read-only in Xibo v4
-      const skipFields = [
+      const skipFields = new Set([
         'displayId', 'lastAccessed', 'status', 'isLoggedIn', 
         'orientation', 'resolution', 'clientAddress', 'lastReported', 
         'version', 'isHardwareKeyValidated', 'screenShotModifiedDt',
         'overrideConfig', 'bandwidthLimit', 'bandwidthLimitFormatted',
         'createdDt', 'modifiedDt', 'folderId', 'permissionsFolderId', 'auditingUntil'
-      ];
+      ]);
       
-      Object.keys(display).forEach(key => {
-        if (skipFields.includes(key)) return;
-        
-        // Use updated value if provided, otherwise keep existing
-        let val = updates.hasOwnProperty(key) ? updates[key] : display[key];
-        
-        // Xibo v4 requires 'name' instead of 'display' in PUT
+      for (const [key, value] of Object.entries(display)) {
+        if (skipFields.has(key)) continue;
+        const val = updates.hasOwnProperty(key) ? updates[key] : value;
         if (key === 'display') {
           params.append('name', val);
           params.append('display', val);
-          return;
+          continue;
         }
-
         if (val !== null && val !== undefined) {
           params.append(key, val);
         }
-      });
+      }
 
       const resp = await axios.put(`${this.baseUrl}/api/display/${displayId}`, params, {
         headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' }
@@ -92,11 +110,16 @@ class XiboService {
     }
   }
 
+  /**
+   * Enable or update the auditing period for a display.
+   * @param {number|string} displayId
+   * @param {string} auditingUntil - ISO timestamp or formatted string.
+   * @returns {Promise<Object|null>}
+   */
   async updateDisplayAuditing(displayId, auditingUntil) {
     try {
-      // Quick check if already enabled
       const displays = await this.getDisplays();
-      const display = displays.find(d => d.displayId === parseInt(displayId));
+      const display = displays.find(d => d.displayId === parseInt(displayId, 10));
       if (display?.auditingUntil && new Date(display.auditingUntil) >= new Date(auditingUntil.replace(' ', 'T'))) {
         return { message: 'Auditing already enabled' };
       }
@@ -110,6 +133,12 @@ class XiboService {
     }
   }
 
+  /**
+   * Update display coordinate/address metadata.
+   * @param {number|string} displayId
+   * @param {Object} location - { latitude, longitude, address }
+   * @returns {Promise<Object|null>}
+   */
   async updateDisplayLocation(displayId, { latitude, longitude, address }) {
     try {
       const updates = {};
@@ -126,12 +155,23 @@ class XiboService {
     }
   }
 
+  /**
+   * Fetch files/media from the Xibo Library.
+   * @param {Object} params - { start, length }
+   * @returns {Promise<Array>}
+   */
   async getLibrary(params = { start: 0, length: 150 }) {
     const headers = await this.getHeaders();
     const resp = await axios.get(`${this.baseUrl}/api/library`, { headers, params });
     return resp.data;
   }
 
+  /**
+   * Fetch Proof of Play stats.
+   * @param {string} type - 'media', 'widget', or 'layout'
+   * @param {Object} additionalParams - { fromDt, toDt, length }
+   * @returns {Promise<Array>}
+   */
   async getStats(type, additionalParams = {}) {
     const headers = await this.getHeaders();
     const resp = await axios.get(`${this.baseUrl}/api/stats`, {
@@ -141,14 +181,24 @@ class XiboService {
     return resp.data;
   }
 
+  /**
+   * Fetch playlists from Xibo.
+   * @param {Object} params
+   * @returns {Promise<Array>}
+   */
   async getPlaylists(params = {}) {
     const headers = await this.getHeaders();
     const resp = await axios.get(`${this.baseUrl}/api/playlist`, { headers, params });
     return resp.data;
   }
 
+  /**
+   * LEGACY: Register a display using an activation number/hardware key.
+   * @param {string} name - Friendly name for the screen.
+   * @param {string} hardwareKey - Activation key from the player.
+   * @returns {Promise<Object>}
+   */
   async addDisplay(name, hardwareKey) {
-    // Legacy method retained but now delegates to registerDisplay after finding by license key
     console.log(`[XiboService] Searching for display with hardwareKey: ${hardwareKey}`);
     const displays = await this.getDisplays();
     const keyLower = (hardwareKey || '').trim().toLowerCase();
@@ -168,8 +218,10 @@ class XiboService {
   }
 
   /**
-   * Register (and optionally rename) a Xibo display by its numeric displayId.
-   * Authorizes it if it is currently unlicensed.
+   * Authorize and rename a brand-new Xibo display.
+   * @param {number} displayId
+   * @param {string} name
+   * @returns {Promise<Object>}
    */
   async registerDisplay(displayId, name) {
     console.log(`[XiboService] Registering display ${displayId} as "${name}"...`);
@@ -178,7 +230,6 @@ class XiboService {
       const display = displays.find(d => d.displayId === displayId);
       if (!display) throw new Error(`Display with ID ${displayId} not found in Xibo.`);
 
-      // Authorize if needed, always set name
       const updates = { display: name };
       if (display.licensed !== 1) {
         updates.licensed = 1;
@@ -188,7 +239,6 @@ class XiboService {
       try {
         return await this.updateDisplay(displayId, updates);
       } catch (updateErr) {
-        // If rename/auth fails, return the display as-is (it's already accessible)
         console.warn(`[XiboService] updateDisplay failed (non-fatal): ${updateErr.message}`);
         return { ...display, display: name };
       }
@@ -198,19 +248,29 @@ class XiboService {
     }
   }
 
+  /**
+   * Fetch all campaigns from Xibo.
+   * @param {Object} params
+   * @returns {Promise<Array>}
+   */
   async getCampaigns(params = {}) {
     const headers = await this.getHeaders();
     const resp = await axios.get(`${this.baseUrl}/api/campaign`, { headers, params });
     return resp.data;
   }
 
+  /**
+   * Enable or disable stats collection for a media file or layout.
+   * @param {string} type - 'media' or 'layout'
+   * @param {number} id - Xibo internal ID.
+   * @param {boolean} enabled
+   */
   async setStatCollection(type, id, enabled = true) {
     const headers = await this.getHeaders();
     const endpoint = type === 'layout' 
       ? `${this.baseUrl}/api/layout/setenablestat/${id}`
       : `${this.baseUrl}/api/library/setenablestat/${id}`;
     
-    // For media, value is 'On', 'Off', or 'Inherit'. For layouts, it's 1 or 0.
     let value = enabled ? (type === 'layout' ? 1 : 'On') : (type === 'layout' ? 0 : 'Off');
     
     try {

@@ -14,14 +14,13 @@ App.registerView('partners', {
                             <tr>
                                 <th>Partner Name</th>
                                 <th>Company / City</th>
-                                <th>Screens</th>
                                 <th>Rev. Share</th>
                                 <th>Status</th>
                                 <th style="text-align: right;">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="partners-table-body">
-                            <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Loading partners...</td></tr>
+                            <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Loading partners...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -83,49 +82,89 @@ App.registerView('partners', {
     },
 
     async loadPartners() {
-        const [partners, stats] = await Promise.all([
-            Api.get('/partners'),
-            Api.get('/partners/stats')
-        ]);
-        
+        const partners = await Api.get('/partners');
         this.partnersData = partners;
-        const statsMap = {};
-        if (Array.isArray(stats)) {
-            stats.forEach(s => { statsMap[s.id] = s.screen_count; });
-        }
+        const tbody = document.getElementById('partners-table-body');
+        if (!tbody) return;
+        tbody.innerHTML = '';
 
-        let html = '';
         if (partners && partners.length > 0) {
             partners.forEach(p => {
+                const tr = document.createElement('tr');
+                
+                const tdName = document.createElement('td');
+                tdName.style.fontWeight = '500';
+                const nameDiv = document.createElement('div');
+                nameDiv.textContent = p.name;
+                tdName.appendChild(nameDiv);
+                const emailDiv = document.createElement('div');
+                emailDiv.style.fontSize = '0.75rem';
+                emailDiv.style.color = 'var(--text-muted)';
+                emailDiv.textContent = p.email || '-';
+                tdName.appendChild(emailDiv);
+                tr.appendChild(tdName);
+
+                const tdCompany = document.createElement('td');
+                const companyDiv = document.createElement('div');
+                companyDiv.textContent = p.company || '-';
+                tdCompany.appendChild(companyDiv);
+                const cityDiv = document.createElement('div');
+                cityDiv.style.fontSize = '0.75rem';
+                cityDiv.style.color = 'var(--text-muted)';
+                cityDiv.textContent = p.city || '-';
+                tdCompany.appendChild(cityDiv);
+                tr.appendChild(tdCompany);
+
+                const tdRev = document.createElement('td');
+                tdRev.textContent = `${p.revenue_share_percentage}%`;
+                tr.appendChild(tdRev);
+
+                const tdStatus = document.createElement('td');
                 const badgeClass = p.status.toLowerCase();
-                const screenCount = statsMap[p.id] || 0;
-                html += `
-                    <tr>
-                        <td style="font-weight: 500;">
-                            <div>${p.name}</div>
-                            <div style="font-size: 0.75rem; color: var(--text-muted)">${p.email || '-'}</div>
-                        </td>
-                        <td>
-                            <div>${p.company || '-'}</div>
-                            <div style="font-size: 0.75rem; color: var(--text-muted)">${p.city || '-'}</div>
-                        </td>
-                        <td>
-                            <div style="font-weight: 700; color: var(--accent);">${screenCount}</div>
-                            <div style="font-size: 0.7rem; color: var(--text-muted)">Assigned</div>
-                        </td>
-                        <td>${p.revenue_share_percentage}%</td>
-                        <td><span class="badge ${badgeClass}">${p.status}</span></td>
-                        <td style="text-align: right;">
-                             <button class="icon-btn" onclick="Views.partners.showModal(${p.id})" title="Edit"><i data-lucide="edit-2" style="width:14px;"></i></button>
-                             <button class="icon-btn" onclick="Views.partners.deletePartner(${p.id})" title="Delete" style="color:#ef4444;"><i data-lucide="trash-2" style="width:14px;"></i></button>
-                        </td>
-                    </tr>
-                `;
+                const span = document.createElement('span');
+                span.className = `badge ${badgeClass}`;
+                span.textContent = p.status;
+                tdStatus.appendChild(span);
+                tr.appendChild(tdStatus);
+
+                const tdActions = document.createElement('td');
+                tdActions.style.textAlign = 'right';
+                
+                const editBtn = document.createElement('button');
+                editBtn.className = 'icon-btn';
+                editBtn.title = 'Edit';
+                editBtn.onclick = () => this.showModal(p.id);
+                const editIcon = document.createElement('i');
+                editIcon.setAttribute('data-lucide', 'edit-2');
+                editIcon.style.width = '14px';
+                editBtn.appendChild(editIcon);
+                tdActions.appendChild(editBtn);
+
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'icon-btn';
+                deleteBtn.title = 'Delete';
+                deleteBtn.style.color = '#ef4444';
+                deleteBtn.onclick = () => this.deletePartner(p.id);
+                const deleteIcon = document.createElement('i');
+                deleteIcon.setAttribute('data-lucide', 'trash-2');
+                deleteIcon.style.width = '14px';
+                deleteBtn.appendChild(deleteIcon);
+                tdActions.appendChild(deleteBtn);
+
+                tr.appendChild(tdActions);
+                tbody.appendChild(tr);
             });
         } else {
-            html = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 40px;">No partners found.</td></tr>';
+            const tr = document.createElement('tr');
+            const td = document.createElement('td');
+            td.colSpan = 5;
+            td.style.textAlign = 'center';
+            td.style.color = 'var(--text-muted)';
+            td.style.padding = '40px';
+            td.textContent = 'No partners found.';
+            tr.appendChild(td);
+            tbody.appendChild(tr);
         }
-        document.getElementById('partners-table-body').innerHTML = html;
         lucide.createIcons();
     },
 
@@ -168,7 +207,7 @@ App.registerView('partners', {
             status: document.getElementById('partner-status').value
         };
 
-        if(!payload.name) return alert('Name is required');
+        if(!payload.name) return App.showToast('Name is required', 'error');
 
         let res;
         if (this.editingId) {
@@ -178,7 +217,7 @@ App.registerView('partners', {
         }
 
         if (res.error) {
-            alert(res.error);
+            App.showToast(res.error, 'error');
         } else {
             this.closeModal();
             await this.loadPartners();
@@ -186,10 +225,10 @@ App.registerView('partners', {
     },
 
     async deletePartner(id) {
-        if (!confirm('Are you sure you want to delete this partner?')) return;
+        if (!await App.showConfirm('Are you sure you want to delete this partner?')) return;
         const res = await Api.delete(`/partners/${id}`);
         if (res.error) {
-            alert(res.error);
+            App.showToast(res.error, 'error');
         } else {
             await this.loadPartners();
         }
