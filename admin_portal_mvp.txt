@@ -1,0 +1,250 @@
+Below is a clean MVP structure for your Admin Dashboard (similar clarity to your Brand portal). I organized it so your product, design, and developers can easily implement it. I also added a few important admin features that are usually required but missing in MVPs. 🚀
+
+🖥️ Admin Portal – MVP Structure
+1️⃣ Admin Dashboard (Overview)
+Top KPI Cards
+	•	Total Screens: 120
+	•	Screens Online: 114
+	•	Active Campaigns: 38
+	•	Available Ad Slots: 260
+	•	Monthly Revenue: ₹8,40,000
+	•	Total Brands: 52
+	•	Total Partners: 18
+Charts
+	•	📈 Daily Ad Plays
+	•	📊 Screen Utilization Rate
+	•	💰 Revenue Trend
+Recent Alerts
+	•	⚠️ Screen HYD-12 Offline
+	•	⏳ Campaign ending tomorrow
+	•	⚠️ Screen MUM-05 not synced for 2 hours
+Recent Campaign Activity
+Campaign
+Brand
+Screen
+Action
+Time
+Gym Offer
+ABC Gym
+HYD-01
+Started
+10:45 AM
+Movie Trailer
+Film Studio
+HYD-05
+Updated
+09:30 AM
+Hospital Ad
+XYZ Hospital
+HYD-12
+Paused
+Yesterday
+
+2️⃣ Screens Management
+Pages
+	•	Screens List
+	•	Add Screen
+	•	Screen Details
+
+Screens List Layout
+SCREENS
+
+Search | Filter by City | Filter by Status | Filter by Partner
+
+Screen ID   Location        Partner      Orientation   Resolution   Status
+HYD-01      Mall Entrance   Partner A    Landscape     4K           Online
+HYD-02      Cinema Lobby    Partner B    Portrait      HD           Offline
+HYD-03      Bus Stop        Partner C    Landscape     HD           Online
+
+[Add Screen]
+
+Screen Details Page
+Screen Information
+	•	Screen ID
+	•	Location
+	•	City
+	•	Partner
+	•	Orientation (Portrait / Landscape)
+	•	Resolution (HD / 4K)
+	•	Device ID
+	•	Last Sync Time
+	•	Internet Status
+	•	Power Status
+Usage Data
+	•	Total Plays Today
+	•	Active Campaigns
+	•	Available Slots
+	•	Screen Utilization %
+Map Location
+📍 Embedded map showing exact screen location
+
+Functions
+• Add screen• Edit screen details• Assign partner• Activate / deactivate screen• Monitor screen health• View last device sync• View active campaigns on screen
+
+3️⃣ Brands Management
+Pages
+	•	Brands List
+	•	Brand Profile
+	•	Brand Campaigns
+
+Brands List Layout
+BRANDS
+
+Search | Filter by Industry | Status
+
+Brand Name       Industry      Campaigns    Status
+ABC Gym          Fitness       3            Active
+XYZ Hospital     Healthcare    5            Active
+City Mall        Retail        2            Pending
+
+[View Profile]
+
+Brand Profile Page
+Brand Information
+	•	Company name
+	•	Industry
+	•	Contact person
+	•	Email
+	•	Phone
+	•	Account status
+Brand Metrics
+	•	Total campaigns
+	•	Total screens used
+	•	Total spend
+	•	Total plays
+
+Functions
+• Approve brand account• View brand campaigns• Edit brand profile• Disable account• View billing history
+
+4️⃣ Partners Management
+Pages
+	•	Partners List
+	•	Partner Profile
+	•	Partner Screens
+	•	Partner Earnings
+
+Partner Profile
+Partner Information
+	•	Partner name
+	•	Company
+	•	City
+	•	Contact details
+	•	Registration status
+Partner Stats
+	•	Total screens owned
+	•	Revenue generated
+	•	Campaigns running
+	•	Average screen utilization
+
+Functions
+• Approve partner registration• Assign screens• Track partner revenue• Manage payout details• Suspend partner
+
+5️⃣ Campaign Management
+Pages
+	•	Campaign List
+	•	Create Campaign
+	•	Campaign Details
+
+Campaign Table Layout
+CAMPAIGNS
+
+Search | Filter by Brand | Filter by Status
+
+Campaign        Brand        Screen    Slot   Start Date   Status
+Gym Offer       ABC Gym      HYD-01    3      01 Feb       Active
+Movie Trailer   Film Studio  HYD-05    8      02 Feb       Active
+Hospital Ad     XYZ Hosp.    HYD-02    5      03 Feb       Paused
+
+Campaign Details Page
+Campaign Info
+	•	Campaign name
+	•	Brand
+	•	Creative file
+	•	Start date
+	•	End date
+Assigned Screens
+	•	Screen ID
+	•	Slot number
+	•	Play frequency
+Performance
+	•	Total ad plays
+	•	Screens running campaign
+	•	Estimated impressions
+
+Functions
+• Create campaign• Assign screens• Assign slot (1–20)• Start / pause / stop campaign• Edit campaign schedule
+
+6️⃣ Creative Library
+CREATIVE LIBRARY
+Creative List
+Creative Name
+Type
+Duration
+Uploaded By
+Gym Offer Video
+Video
+10s
+ABC Gym
+Hospital Promo
+Image
+-
+XYZ Hospital
+
+Functions
+• Upload creative• Preview video / image• Replace creative• Delete creative• View creative usage (which campaigns use it)
+
+7️⃣ Analytics Page
+Key Metrics
+📊 Total Ad Plays
+📺 Screen Utilization
+💰 Revenue per Screen
+🤝 Revenue per Partner
+📈 Campaign Performance
+
+Charts
+	•	Ad plays by day
+	•	Revenue by city
+	•	Top performing screens
+	•	Top performing brands
+
+8️⃣ Billing & Payments
+Functions
+• Generate invoices• Track advertiser payments• Calculate partner revenue share• Export financial reports
+
+Billing Table
+Invoice
+Brand
+Amount
+Status
+Date
+INV-1021
+ABC Gym
+₹25,000
+Paid
+Feb 05
+INV-1022
+XYZ Hospital
+₹18,000
+Pending
+Feb 06
+
+9️⃣ System Monitoring (Important for Admin)
+This is very useful for real DOOH networks.
+Screen Health Monitoring
+Screen
+Status
+Last Sync
+Internet
+HYD-01
+Online
+2 mins ago
+Good
+HYD-12
+Offline
+3 hours
+Lost
+
+🔟 Admin Settings
+• User role management• Add admin users• Permission control• System logs• Notification settings
+
+

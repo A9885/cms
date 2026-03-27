@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Brand Portal - SIGNTRAL</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="/brandportal/css/brand.css">
+    <!-- Charts and Maps -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body>
+
+    <!-- SIDEBAR -->
+    <nav class="sidebar">
+        <div class="brand-logo">
+            <i data-lucide="activity"></i>
+            <span>SIGNTRAL</span>
+        </div>
+
+        <ul class="nav-links">
+            <li class="nav-item active" data-target="dashboard"><i data-lucide="layout-dashboard"></i> Dashboard</li>
+            <li class="nav-item" data-target="screens"><i data-lucide="monitor"></i> Screens</li>
+            <li class="nav-item" data-target="reports"><i data-lucide="file-text"></i> Reports</li>
+            <li class="nav-item" data-target="market"><i data-lucide="shopping-cart"></i> Marketplace</li>
+            <li class="nav-item" data-target="billing"><i data-lucide="credit-card"></i> Subscription</li>
+            <li class="nav-item" data-target="account"><i data-lucide="user"></i> Account</li>
+        </ul>
+
+        <div class="user-profile">
+            <div class="avatar"><span id="user-initial">B</span></div>
+            <div class="user-info">
+                <div class="user-name" id="user-display-name" style="color:#fff; font-size:0.9rem; font-weight:600;">Brand Name</div>
+                <div class="user-role" style="color:var(--sidebar-text); font-size:0.75rem;">Brand Account</div>
+            </div>
+            <div class="logout-btn" onclick="logout()" title="Logout" style="color:var(--sidebar-text); cursor:pointer;">
+                <i data-lucide="log-out" size="18"></i>
+            </div>
+        </div>
+    </nav>
+
+    <!-- MAIN CONTENT -->
+    <main class="main-wrapper">
+
+        <!-- DASHBOARD -->
+        <section id="dashboard" class="view-section active">
+            <div class="page-header">
+                <h1 class="page-title">Dashboard</h1>
+                <div class="search-bar">
+                    <i data-lucide="search"></i>
+                    <input type="text" placeholder="Search...">
+                </div>
+            </div>
+
+            <!-- Key Metric Cards -->
+            <div class="metrics-grid">
+                <div class="metric-card blue">
+                    <div class="metric-header"><i data-lucide="check-square"></i> Subscribed Screens</div>
+                    <div class="metric-value" id="dash-active-screens">0</div>
+                    <div class="metric-footer"><span>Total Screens: <span id="dash-total-screens">0</span></span></div>
+                </div>
+                <div class="metric-card dark">
+                    <div class="metric-header"><i data-lucide="bar-chart-2"></i> Total Plays</div>
+                    <div class="metric-value" id="dash-total-plays">0</div>
+                    <div class="metric-footer"><span>+12% from last week</span></div>
+                </div>
+                <div class="metric-card orange">
+                    <div class="metric-header"><i data-lucide="zap"></i> Current Plan</div>
+                    <div class="metric-value" id="dash-current-plan">Premium</div>
+                    <div class="metric-footer"><span>Next billing: April 15</span></div>
+                </div>
+            </div>
+
+            <div class="dashboard-main-grid">
+                <div class="glass-panel" style="padding: 1.5rem;">
+                    <div class="panel-header">
+                        <h2 class="panel-title">Plays Over Time</h2>
+                        <a href="#" style="color:var(--accent); font-size:0.85rem; font-weight:600;">View all ></a>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="performance-chart"></canvas>
+                    </div>
+                </div>
+
+                <div class="glass-panel" style="padding: 1.5rem;">
+                    <div class="panel-header">
+                        <h2 class="panel-title">Recent Activity</h2>
+                        <a href="#" style="color:var(--accent); font-size:0.85rem; font-weight:600;">View more ></a>
+                    </div>
+                    <div id="screens-map" style="height: 180px; margin-bottom: 1.5rem;"></div>
+                    <div id="recent-activity-list">
+                        <!-- Activity items injected here -->
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- SCREENS -->
+        <section id="screens" class="view-section">
+            <div class="page-header">
+                <h1 class="page-title">Subscribed Screens</h1>
+                <div class="header-actions" style="display:flex; gap:10px;">
+                    <button class="btn btn-blue" onclick="document.querySelector('.nav-item[data-target=market]').click()">Add Screen</button>
+                    <button class="btn btn-primary" onclick="window.print()"><i data-lucide="download"></i> Download</button>
+                </div>
+            </div>
+
+            <div class="dashboard-main-grid">
+                <div class="glass-panel" style="padding:0;">
+                    <div style="padding: 1.5rem; display:flex; justify-content:space-between; align-items:center;">
+                        <div class="search-bar" style="width: 250px;">
+                            <i data-lucide="search"></i>
+                            <input type="text" placeholder="Search screens...">
+                        </div>
+                        <div style="display:flex; gap:10px;">
+                            <select class="btn btn-glass" style="padding:8px 12px; font-size:0.8rem;">
+                                <option>Screen</option>
+                            </select>
+                            <select class="btn btn-glass" style="padding:8px 12px; font-size:0.8rem;">
+                                <option>City</option>
+                            </select>
+                            <select class="btn btn-glass" style="padding:8px 12px; font-size:0.8rem;">
+                                <option>Status</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="table-responsive">
+                        <table id="my-screens-table">
+                            <thead>
+                                <tr>
+                                    <th>Screen</th>
+                                    <th>City</th>
+                                    <th>Type</th>
+                                    <th>Status</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="glass-panel" id="screen-detail-panel" style="padding:1.5rem;">
+                    <div id="large-screens-map" style="height: 250px; margin-bottom: 1.5rem;"></div>
+                    <div class="detail-stats">
+                        <div style="margin-bottom:1.5rem;">
+                            <span style="color:var(--text-muted); font-size:0.85rem; font-weight:600;">Total Plays</span>
+                            <div style="font-size:1.8rem; font-weight:700; margin-top:4px;" id="detail-total-plays">8,240</div>
+                            <div style="height:80px; margin-top:10px;">
+                                <canvas id="sparkline-chart"></canvas>
+                            </div>
+                        </div>
+                        <div style="display:flex; gap:12px; flex-direction:column;">
+                            <div class="activity-item" style="border:none; padding:8px 0;">
+                                <i data-lucide="info" size="16" style="color:var(--text-muted);"></i>
+                                <span style="font-size:0.85rem; color:var(--text-muted);">Xibo Screen ID: <span id="detail-display-id" style="color:var(--text-primary);">0</span></span>
+                            </div>
+                            <div class="activity-item" style="border:none; padding:8px 0;">
+                                <i data-lucide="eye" size="16" style="color:var(--text-muted);"></i>
+                                <span style="font-size:0.85rem; color:var(--text-muted);">10,000 Views For Week</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- REPORTS -->
+        <section id="reports" class="view-section">
+            <div class="page-header">
+                <h1 class="page-title">Reports (Proof of Play)</h1>
+                <button class="btn btn-primary"><i data-lucide="download"></i> Download Report</button>
+            </div>
+            <div class="glass-panel">
+                <div class="table-responsive">
+                    <table id="pop-table">
+                        <thead>
+                            <tr>
+                                <th>Screen</th>
+                                <th>Location</th>
+                                <th>Plays</th>
+                                <th>Total Plays</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- MARKET / BILLING / ACCOUNT PLACEHOLDERS -->
+        <section id="market" class="view-section">
+             <div class="page-header">
+                <h1 class="page-title">Marketplace</h1>
+            </div>
+            <div class="glass-panel" id="market-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.5rem;">
+                <!-- Market items -->
+            </div>
+        </section>
+
+        <section id="billing" class="view-section">
+            <div class="page-header">
+                <h1 class="page-title">Subscription & Billing</h1>
+            </div>
+            <div class="glass-panel">
+                <div class="table-responsive">
+                    <table id="billing-table">
+                        <thead>
+                            <tr>
+                                <th>Invoice</th>
+                                <th>Amount</th>
+                                <th>Status</th>
+                                <th>Date</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <section id="account" class="view-section">
+            <div class="page-header">
+                <h1 class="page-title">Account & Support</h1>
+            </div>
+            <div class="account-grid">
+                <div class="glass-panel">
+                    <h2 class="panel-title">Company Profile</h2>
+                    <div class="form-group">
+                        <label>Company Name</label>
+                        <input type="text" class="form-control" id="acc-company-name" value="Brand Name Pvt Ltd">
+                    </div>
+                </div>
+                <div class="glass-panel">
+                    <h2 class="panel-title">Submit a Query</h2>
+                    <div class="form-group">
+                        <label>Issue Type</label>
+                        <select class="form-control">
+                            <option>Technical Issue</option>
+                            <option>Billing</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Message</label>
+                        <textarea class="form-control" rows="4" placeholder="Describe your issue..."></textarea>
+                    </div>
+                    <button class="btn btn-blue">Submit</button>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Buy Slot Modal -->
+    <div class="modal-overlay" id="buy-modal">
+        <div class="modal" style="background:#fff; padding:2rem; border-radius:var(--radius-lg);">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
+                <h2 class="panel-title">Select Slots</h2>
+                <i data-lucide="x" class="modal-close" onclick="closeModal()" style="cursor:pointer;"></i>
+            </div>
+            <p style="color:var(--text-muted); margin-bottom: 15px;">Choosing slots on <strong id="modal-screen-name" style="color:var(--text-primary)"></strong></p>
+            
+            <input type="hidden" id="modal-display-id">
+            <div class="slots-grid" id="modal-slots-grid" style="display:grid; grid-template-columns:repeat(5, 1fr); gap:10px;">
+                <!-- Dynamically populated -->
+            </div>
+
+            <div style="margin-top: 2rem; display: flex; justify-content: flex-end; gap: 10px;">
+                <button class="btn btn-glass" onclick="closeModal()">Cancel</button>
+                <button class="btn btn-blue" id="confirm-buy-btn" onclick="confirmPurchase()">
+                    Launch Campaign
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        /* Specific Slot Styles for Purchase */
+        .slot-item {
+            padding: 10px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            text-align: center;
+            cursor: pointer;
+            font-weight: 600;
+            transition: 0.2s;
+        }
+        .slot-item:hover { border-color: var(--accent); }
+        .slot-item.selected { background: var(--accent); color: #fff; border-color: var(--accent); }
+        .slot-item.unavailable { opacity: 0.4; cursor: not-allowed; background: #f1f5f9; }
+    </style>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/brandportal/js/app.js"></script>
+    <script>
+        // Tab switching logic
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', () => {
+                document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+                document.querySelectorAll('.view-section').forEach(v => v.classList.remove('active'));
+                
+                item.classList.add('active');
+                const target = item.getAttribute('data-target');
+                document.getElementById(target).classList.add('active');
+                
+                // Trigger map resize if needed
+                if (target === 'dashboard' || target === 'screens') {
+                    if (window.dashMap) dashMap.invalidateSize();
+                    if (window.detailMap) detailMap.invalidateSize();
+                }
+            });
+        });
+    </script>
+</body>
+</html>

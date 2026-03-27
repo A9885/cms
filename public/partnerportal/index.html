@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Partner Portal - SIGNTRAL</title>
+    <meta name="description" content="SIGNTRAL Partner Portal - Monitor your screen performance, earnings, and inventory.">
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <!-- Icons -->
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+
+    <!-- Leaflet Maps -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- Portal CSS -->
+    <link rel="stylesheet" href="/partnerportal/css/partner.css">
+</head>
+<body>
+
+<div class="portal-layout">
+
+    <!-- ═══ SIDEBAR ═══ -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-brand">
+            <div class="brand-logo">
+                <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+                    <rect width="28" height="28" rx="8" fill="#6366f1"/>
+                    <path d="M6 8h16M6 14h10M6 20h13" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+                </svg>
+            </div>
+            <div>
+                <div class="brand-name">SIGNTRAL</div>
+                <div class="brand-role">Partner Portal</div>
+            </div>
+        </div>
+
+        <nav class="sidebar-nav">
+            <a href="#" class="nav-item active" data-view="dashboard" id="nav-dashboard">
+                <i data-lucide="layout-dashboard"></i>
+                <span>Dashboard</span>
+            </a>
+            <a href="#" class="nav-item" data-view="screens" id="nav-screens">
+                <i data-lucide="monitor"></i>
+                <span>My Screens</span>
+                <span class="nav-badge" id="badge-screens">—</span>
+            </a>
+            <a href="#" class="nav-item" data-view="earnings" id="nav-earnings">
+                <i data-lucide="bar-chart-2"></i>
+                <span>Earnings</span>
+            </a>
+            <a href="#" class="nav-item" data-view="support" id="nav-support">
+                <i data-lucide="life-buoy"></i>
+                <span>Support</span>
+            </a>
+        </nav>
+
+        <div class="sidebar-bottom">
+            <a href="#" class="nav-item" data-view="profile" id="nav-profile">
+                <i data-lucide="user-circle"></i>
+                <span>Profile</span>
+            </a>
+            <a href="/auth/logout" class="nav-item nav-logout">
+                <i data-lucide="log-out"></i>
+                <span>Logout</span>
+            </a>
+        </div>
+    </aside>
+
+    <!-- ═══ MAIN CONTENT ═══ -->
+    <main class="main-wrap">
+
+        <!-- Top Header -->
+        <header class="top-bar">
+            <div class="top-bar-left">
+                <h1 id="page-title">Dashboard</h1>
+            </div>
+            <div class="top-bar-right">
+                <div class="partner-chip" id="partner-chip">
+                    <div class="partner-avatar" id="partner-avatar">P</div>
+                    <div>
+                        <div id="partner-name-display" style="font-size:0.85rem;font-weight:700;color:#0f172a;">Loading...</div>
+                        <div id="partner-email-display" style="font-size:0.7rem;color:#64748b;">Partner</div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- View Container -->
+        <div class="view-wrap" id="view-wrap">
+            <div class="loader-center" id="global-loader">
+                <div class="spinner"></div>
+            </div>
+        </div>
+
+    </main>
+</div>
+
+<script src="/partnerportal/js/app.js"></script>
+</body>
+</html>

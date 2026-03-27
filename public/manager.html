@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Screen Playlist Manager - Xibo CMS</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <style>
+        :root {
+            --primary: #2563eb;
+            --bg-dark: #f8fafc;
+            --card-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+        }
+
+        body {
+            background-color: var(--bg-dark);
+            margin: 0;
+            font-family: 'Inter', sans-serif;
+        }
+
+        /* Nav Bar */
+        .navbar {
+            background: #1e293b;
+            color: white;
+            padding: 1rem 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 2rem;
+            list-style: none;
+            margin: 0;
+            padding: 0;
+        }
+
+        .nav-links li {
+            font-weight: 500;
+            padding-bottom: 4px;
+            cursor: pointer;
+            opacity: 0.8;
+            transition: opacity 0.2s;
+        }
+
+        .nav-links li:hover, .nav-links li.active {
+            opacity: 1;
+            border-bottom: 2px solid var(--primary);
+        }
+
+        .logout-btn {
+            background: #334155;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+
+        /* Dashboard Container */
+        .container {
+            max-width: 1200px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+        }
+
+        .header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .header svg { width: 32px; height: 32px; }
+
+        /* Screen Tabs */
+        .tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .tab {
+            background: white;
+            padding: 0.75rem 2rem;
+            border-radius: 8px 8px 0 0;
+            border: 1px solid #e2e8f0;
+            border-bottom: none;
+            cursor: pointer;
+            font-weight: 600;
+            color: #64748b;
+        }
+
+        .tab.active {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+
+        .screen-info {
+            background: white;
+            padding: 1rem 1.5rem;
+            border-radius: 0 8px 8px 8px;
+            border: 1px solid #e2e8f0;
+            margin-bottom: 2rem;
+            display: flex;
+            gap: 2rem;
+            color: #475569;
+        }
+
+        .status-online { color: #10b981; font-weight: 600; }
+
+        /* Slot Grid */
+        .slot-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 1rem;
+        }
+
+        .slot-card {
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            box-shadow: var(--card-shadow);
+            transition: transform 0.2s;
+        }
+
+        .slot-card:hover { transform: translateY(-2px); }
+
+        .slot-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: #64748b;
+        }
+
+        .duration-badge {
+            font-size: 0.75rem;
+            padding: 2px 8px;
+            background: #f1f5f9;
+            border-radius: 12px;
+        }
+
+        .preview-box {
+            width: 100%;
+            height: 100px;
+            background: #f1f5f9;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            border: 2px dashed #e2e8f0;
+            position: relative;
+        }
+
+        .preview-box img, .preview-box video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .media-overlay {
+            position: absolute;
+            background: rgba(0,0,0,0.6);
+            color: white;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 4px;
+            font-size: 0.65rem;
+            text-align: center;
+        }
+
+        .slot-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.5rem;
+            margin-top: auto;
+        }
+
+        .btn {
+            border: none;
+            padding: 0.5rem;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: filter 0.2s;
+        }
+
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-replace { background: #f1f5f9; color: var(--primary); border: 1px solid #e2e8f0; }
+        .btn-delete { background: #fee2e2; color: #ef4444; }
+
+        .btn:hover { filter: brightness(0.9); }
+        .btn-full { grid-column: span 2; }
+
+        /* Loader */
+        #loader {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255,255,255,0.8);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+
+    <nav class="navbar">
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <div class="logo-circle" style="width:30px; height:30px; background:white; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#1e293b; font-weight:bold;">S</div>
+            <span style="font-weight:bold; font-size:1.2rem;">SignTral</span>
+        </div>
+        <ul class="nav-links">
+            <li class="active">Screens</li>
+            <li>Brands</li>
+            <li>Partners</li>
+            <li>Campaigns</li>
+        </ul>
+        <div class="logout-btn">Logout</div>
+    </nav>
+
+    <div class="container">
+        <div class="header">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-monitor-play"><path d="m10 10 5 3-5 3v-6Z"/><rect width="20" height="14" x="2" y="3" rx="2"/><path d="M12 17v4"/><path d="M8 21h8"/></svg>
+            <h1>Screen Playlist Manager</h1>
+        </div>
+
+        <div class="tabs" id="screen-tabs">
+            <!-- Tabs will be injected here -->
+        </div>
+
+        <div class="screen-info">
+            <div>Location: <strong id="screen-location">Mall Entrance</strong></div>
+            <div>Status: <span id="screen-status" class="status-online">Online</span></div>
+        </div>
+
+        <h3 id="playlist-title">Screen 1 Playlist</h3>
+
+        <div class="slot-grid" id="slot-grid">
+            <!-- Slots will be injected here -->
+        </div>
+    </div>
+
+    <div id="loader">Processing...</div>
+
+    <!-- Hidden File Input -->
+    <input type="file" id="media-input" style="display:none" accept="image/*,video/*">
+
+    <script src="manager.js"></script>
+</body>
+</html>

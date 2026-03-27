@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Xibo Admin Portal</title>
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="css/admin.css">
+
+    <!-- Lightweight Icons (Feather or Boxicons logic) -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+    <div class="admin-layout">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <i data-lucide="monitor" class="logo-icon"></i>
+                <h2>Admin Portal</h2>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="#dashboard" class="nav-item active" data-view="dashboard">
+                    <i data-lucide="layout-dashboard"></i> Dashboard
+                </a>
+                <a href="#screens" class="nav-item" data-view="screens">
+                    <i data-lucide="tv"></i> Screens
+                </a>
+                <a href="#inventory" class="nav-item" data-view="inventory">
+                    <i data-lucide="grid"></i> Inventory (Slots)
+                </a>
+                <a href="#analytics" class="nav-item" data-view="analytics">
+                    <i data-lucide="bar-chart-3"></i> Analytics (Proof of Play)
+                </a>
+                <a href="#brands" class="nav-item" data-view="brands">
+                    <i data-lucide="briefcase"></i> Brands
+                </a>
+                <a href="#partners" class="nav-item" data-view="partners">
+                    <i data-lucide="users"></i> Partners
+                </a>
+                <a href="#campaigns" class="nav-item" data-view="campaigns">
+                    <i data-lucide="calendar"></i> Campaigns
+                </a>
+                <a href="#creative" class="nav-item" data-view="creative">
+                    <i data-lucide="image"></i> Creative Library
+                </a>
+
+                <a href="#billing" class="nav-item" data-view="billing">
+                    <i data-lucide="credit-card"></i> Billing & Payments
+                </a>
+                <a href="#monitoring" class="nav-item" data-view="monitoring">
+                    <i data-lucide="activity"></i> System Monitoring
+                </a>
+                <a href="#settings" class="nav-item" data-view="settings">
+                    <i data-lucide="settings"></i> Settings
+                </a>
+            </nav>
+            <div class="sidebar-footer">
+                <a href="/manager.html" class="nav-item">
+                    <i data-lucide="external-link"></i> Upload Portal
+                </a>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <header class="top-header">
+                <div class="header-title" id="dynamic-header-title">Admin Dashboard</div>
+
+                <div class="header-actions">
+                    <i data-lucide="search" style="color: var(--text-muted); width: 16px;"></i>
+                    <input type="text" placeholder="Search...">
+                    <div class="user-profile"
+                        style="margin-left: 10px; border-left: 1px solid var(--border); padding-left: 15px;">
+                        <img src="https://ui-avatars.com/api/?name=Alan+Cooper&background=random" alt="User">
+                        <div class="user-info">
+                            <span class="name">Alan Cooper</span>
+                            <span class="email">admin@signtral.com</span>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Dynamic View Container -->
+            <div id="view-container" class="view-container">
+                <!-- Views injected here by app.js -->
+            </div>
+        </main>
+    </div>
+
+    <!-- Application Logic -->
+    <script src="js/api.js"></script>
+    <script src="js/app.js"></script>
+
+    <!-- Inject JS logic -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+
+    <!-- View Components -->
+    <script src="views/dashboard.js"></script>
+    <script src="views/inventory.js"></script>
+    <script src="views/screens.js"></script>
+    <script src="views/brands.js"></script>
+    <script src="views/partners.js"></script>
+    <script src="views/campaigns.js"></script>
+    <script src="views/creative.js"></script>
+    <script src="views/analytics.js"></script>
+    <script src="views/billing.js"></script>
+    <script src="views/monitoring.js"></script>
+    <script src="views/settings.js"></script>
+
+    <script>
+        // Initialize Lucide Icons
+        lucide.createIcons();
+    </script>
+</body>
+
+</html>

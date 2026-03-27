@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Login - SIGNTRAL</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body { margin: 0; padding: 0; font-family: 'Inter', sans-serif; background: #f4f6f8; display: flex; align-items: center; justify-content: center; height: 100vh; }
+        .login-box { background: #fff; padding: 2.5rem; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); width: 350px; text-align: center; }
+        .logo-container { margin-bottom: 2rem; display: flex; align-items: center; justify-content: center; gap: 10px; color: #1e3a8a; }
+        .logo-container h1 { font-size: 1.5rem; font-weight: 700; margin: 0; letter-spacing: 1px; text-transform: uppercase; }
+        .form-group { margin-bottom: 1.25rem; text-align: left; }
+        .form-group label { display: block; font-size: 0.8rem; font-weight: 600; color: #4a5568; margin-bottom: 6px; }
+        .form-control { width: 100%; padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.9rem; font-family: inherit; box-sizing: border-box; }
+        .form-control:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+        .btn-primary { width: 100%; background: linear-gradient(135deg, #1e3a8a, #2563eb); color: #fff; padding: 10px; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; transition: 0.2s; font-size: 0.9rem; margin-top: 10px; }
+        .btn-primary:hover { filter: brightness(1.1); }
+        .error-msg { color: #ef4444; font-size: 0.8rem; margin-top: 10px; display: none; }
+    </style>
+</head>
+<body>
+    <div class="login-box">
+        <div class="logo-container">
+            <i data-lucide="monitor"></i>
+            <h1>SIGNTRAL Admin</h1>
+        </div>
+        <form id="login-form">
+            <div class="form-group">
+                <label>Username</label>
+                <input type="text" class="form-control" id="username" required>
+            </div>
+            <div class="form-group">
+                <label>Password</label>
+                <input type="password" class="form-control" id="password" required>
+            </div>
+            <button type="submit" class="btn-primary" id="login-btn">Secure Login</button>
+            <div class="error-msg" id="error-msg"></div>
+        </form>
+    </div>
+
+    <script>
+        lucide.createIcons();
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('login-btn');
+            const err = document.getElementById('error-msg');
+            btn.innerText = 'Authenticating...';
+            btn.disabled = true;
+            err.style.display = 'none';
+
+            try {
+                const res = await fetch('/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        username: document.getElementById('username').value,
+                        password: document.getElementById('password').value
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    if (data.user.role === 'Brand') {
+                        window.location.href = '/brandportal/index.html';
+                    } else {
+                        window.location.href = '/admin/index.html';
+                    }
+                } else {
+                    err.innerText = data.error || 'Login failed';
+                    err.style.display = 'block';
+                }
+            } catch (e) {
+                err.innerText = 'Network error. Try again.';
+                err.style.display = 'block';
+            } finally {
+                btn.innerText = 'Secure Login';
+                btn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>
