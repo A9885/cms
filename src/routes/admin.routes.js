@@ -309,6 +309,11 @@ router.put('/screens/:id', async (req, res) => {
 /** DELETE /api/admin/screens/:id - Delete screen from the local records. */
 router.delete('/screens/:id', async (req, res) => {
     try {
+        const screen = await dbGet('SELECT xibo_display_id FROM screens WHERE id = ?', [req.params.id]);
+        if (screen && screen.xibo_display_id) {
+            await dbRun('DELETE FROM slots WHERE displayId = ?', [screen.xibo_display_id]);
+            await dbRun('DELETE FROM screen_partners WHERE displayId = ?', [screen.xibo_display_id]);
+        }
         await dbRun(`DELETE FROM screens WHERE id = ?`, [req.params.id]);
         res.json({ success: true });
     } catch(err) { res.status(500).json({ error: err.message }); }

@@ -3,8 +3,30 @@ const loader = document.getElementById('loader');
 let activeSlotId = null;
 let isReplaceMode = false;
 // --- Initialization ---
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     console.log('Manager UI Initialized');
+
+    // Auth Check
+    try {
+        const authRes = await fetch('/auth/me');
+        if (!authRes.ok) {
+            window.location.href = '/admin/login.html';
+            return;
+        }
+    } catch (e) {
+        window.location.href = '/admin/login.html';
+        return;
+    }
+
+    // Logout Handling
+    const logoutBtn = document.querySelector('.logout-btn');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', async () => {
+            await fetch('/auth/logout', { method: 'POST' });
+            window.location.href = '/admin/login.html';
+        });
+    }
+
     initDisplays();
 
     // File Selection Handling
@@ -135,6 +157,10 @@ async function initDisplays() {
 
     } catch (err) {
         console.error('Init failed:', err);
+        if (err.message.includes('401')) {
+            window.location.href = '/admin/login.html';
+            return;
+        }
         tabsContainer.innerHTML = '';
         const errDiv = document.createElement('div');
         errDiv.style.color = 'red';

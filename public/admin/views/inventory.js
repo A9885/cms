@@ -374,32 +374,40 @@ App.registerView('inventory', {
 
             let html = '';
             for (let i = 1; i <= this.MAX_SLOTS; i++) {
-                const slot = Array.isArray(this._slots) ? this._slots.find(s => Number(s.slot_number) === Number(i)) : null;
+                const slot = Array.isArray(this._slots) ? this._slots.find(s => Number(s.slot) === Number(i)) : null;
                 const hasMedia = slot && slot.media && slot.media.length > 0;
 
                 if (hasMedia) {
                     const m = slot.media[0];
                     const name = (m.name || 'Media').replace(/^Slot_\d+_\d+_/, '');
                     const mSummary = this._mediaSummary[m.mediaId] || { totalPlays: 0 };
+                    const thumbUrl = `/xibo/proxy/thumbnail/${m.mediaId}`;
+                    const durDisplay = m.duration ? m.duration + 's' : '—';
+                    
                     html += `
-                    <div class="inv-slot-card inv-slot-reserved" onclick="window.InvView.selectMedia(${i}, ${JSON.stringify(m).replace(/"/g, '&quot;')})">
+                    <div class="inv-slot-card inv-slot-reserved" onclick="window.InvView.selectMedia(${i}, ${JSON.stringify(m).replace(/"/g, '&quot;')})" style="background: white; border-radius: 12px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);">
+                        <div style="position: relative; height: 80px; margin: -12px -12px 10px -12px; background: #e2e8f0; border-bottom: 1px solid #f1f5f9;">
+                            <img src="${thumbUrl}" style="width: 100%; height: 100%; object-fit: cover; border-radius: 10px 10px 0 0;">
+                            <div style="position: absolute; bottom: 4px; right: 4px; background: rgba(0,0,0,0.6); color: white; font-size: 0.6rem; padding: 1px 4px; border-radius: 4px;">${durDisplay}</div>
+                        </div>
                         <div class="inv-slot-num">Slot ${i}</div>
-                        <div class="inv-slot-name" title="${this._esc(name)}">${this._esc(name)}</div>
-                        <div class="inv-slot-id">ID: ${m.mediaId || '—'}</div>
-                        <div class="inv-slot-plays">${mSummary.totalPlays.toLocaleString()} total plays →</div>
+                        <div class="inv-slot-name" style="color: #1e293b; font-size: 0.8rem; margin-top: 4px;" title="${this._esc(name)}">${this._esc(name)}</div>
+                        <div class="inv-slot-plays" style="margin-top: 6px; font-size: 0.7rem; color: var(--accent); border-top: 1px solid #f1f5f9; padding-top: 6px;">
+                            ${mSummary.totalPlays.toLocaleString()} plays Recorded
+                        </div>
                     </div>`;
                 } else {
                     html += `
-                    <div class="inv-slot-card empty">
+                    <div class="inv-slot-card empty" style="border-style: dashed; background: #f8fafc; border-color: #cbd5e1;">
                         <div class="inv-slot-num">Slot ${i}</div>
-                        <div class="inv-slot-name" style="color:#cbd5e1;font-style:italic;">Empty</div>
+                        <div class="inv-slot-name" style="color:#94a3b8; font-size: 0.75rem; font-style: italic; margin-top: 4px;">Empty Slot</div>
                     </div>`;
                 }
             }
 
-            const usedCount = this._slots.filter(s => s.media && s.media.length > 0).length;
+            const usedCount = (Array.isArray(this._slots) ? this._slots.filter(s => s.media && s.media.length > 0) : []).length;
             const sub = document.getElementById('inv-slots-subtitle');
-            if (sub) sub.textContent = usedCount + ' of ' + this.MAX_SLOTS + ' slots in use · Click a slot to view Proof of Play';
+            if (sub) sub.textContent = usedCount + ' of ' + this.MAX_SLOTS + ' slots in use · Total loop duration: ' + this._slots.reduce((acc, s) => acc + (s.totalDuration || 0), 0) + 's';
 
             if (grid) grid.innerHTML = html;
         } catch (e) {

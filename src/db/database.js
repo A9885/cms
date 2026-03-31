@@ -19,14 +19,23 @@ const db = new sqlite3.Database(dbPath, (err) => {
             password_hash TEXT NOT NULL,
             role TEXT DEFAULT 'Admin',
             brand_id INTEGER,
+            partner_id INTEGER,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (brand_id) REFERENCES brands(id)
+            FOREIGN KEY (brand_id) REFERENCES brands(id),
+            FOREIGN KEY (partner_id) REFERENCES partners(id)
         )
     `, (err) => {
         // Migration: Add brand_id to existing users table if missing
         db.run("ALTER TABLE users ADD COLUMN brand_id INTEGER", (err) => {
             if (err && !err.message.includes('duplicate column name')) {
                 console.error('[DB] Migration Error (users.brand_id):', err.message);
+            }
+        });
+        
+        // Migration: Add partner_id to existing users table if missing
+        db.run("ALTER TABLE users ADD COLUMN partner_id INTEGER", (err) => {
+            if (err && !err.message.includes('duplicate column name')) {
+                console.error('[DB] Migration Error (users.partner_id):', err.message);
             }
         });
         

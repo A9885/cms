@@ -33,12 +33,13 @@ App.registerView('screens', {
                             <thead>
                                 <tr>
                                     <th>Screen Name</th>
-                                    <th>City</th>
+                                     <th>City</th>
                                     <th>Connection</th>
+                                    <th style="text-align: right; padding-right: 20px;">Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="screens-table-body">
-                                <tr><td colspan="3" style="text-align: center; padding: 40px; color: var(--text-muted);">Loading screens...</td></tr>
+                                <tr><td colspan="4" style="text-align: center; padding: 40px; color: var(--text-muted);">Loading screens...</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -105,6 +106,7 @@ App.registerView('screens', {
                         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-top:20px;">
                             <button class="btn btn-secondary" id="btn-edit-screen">Edit Info</button>
                             <button class="btn btn-primary" id="btn-sync-screen">Force Sync</button>
+                            <button class="btn btn-secondary" style="grid-column: span 2; background:#fee2e2; color:#b91c1c; border:none; padding:10px; font-weight:600;" id="btn-detail-delete-screen">Delete Screen</button>
                         </div>
                     </div>
                     <div id="detail-placeholder" style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; color:var(--text-muted); text-align:center; padding:2rem;">
@@ -382,12 +384,26 @@ App.registerView('screens', {
             tdStatus.appendChild(span);
             tr.appendChild(tdStatus);
 
+            const tdActions = document.createElement('td');
+            tdActions.style.textAlign = 'right';
+            tdActions.style.paddingRight = '20px';
+            const delBtn = document.createElement('button');
+            delBtn.className = 'btn-icon';
+            delBtn.style.color = '#ef4444';
+            delBtn.innerHTML = '<i data-lucide="trash-2" style="width:16px;"></i>';
+            delBtn.onclick = (e) => {
+                e.stopPropagation();
+                this.deleteScreen(s.id, s.name);
+            };
+            tdActions.appendChild(delBtn);
+            tr.appendChild(tdActions);
+
             tbody.appendChild(tr);
         });
         if (screens.length === 0) {
             const tr = document.createElement('tr');
             const td = document.createElement('td');
-            td.colSpan = 3;
+            td.colSpan = 4;
             td.style.textAlign = 'center';
             td.style.padding = '30px';
             td.style.color = 'var(--text-muted)';
@@ -397,7 +413,20 @@ App.registerView('screens', {
         }
     },
 
+    async deleteScreen(id, name) {
+        if (!await App.showConfirm(`Permanent delete for "${name}"? This will remove all local records.`)) return;
+        try {
+            await window.Api.delete(`/screens/${id}`);
+            App.showToast('Screen deleted', 'success');
+            // Refresh the view
+            this.mount(document.getElementById('app'));
+        } catch (err) {
+            App.showToast('Delete failed', 'error');
+        }
+    },
+
     async showDetails(id) {
+        id = parseInt(id, 10);
         const screen = this.localScreens.find(s => s.id === id);
         if (!screen) return;
 
@@ -500,6 +529,8 @@ App.registerView('screens', {
 
         // Actions
         document.getElementById('btn-edit-screen').onclick = () => this.openEditModal(screen);
+        document.getElementById('btn-detail-delete-screen').onclick = () => this.deleteScreen(id, screen.name);
+        
         document.getElementById('btn-sync-screen').disabled = !isLinked;
         document.getElementById('btn-sync-screen').onclick = async () => {
             const b = document.getElementById('btn-sync-screen');

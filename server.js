@@ -19,7 +19,7 @@ app.set('io', io);
 
 const PORT = process.env.PORT || 3000;
 
-const XIBO_BASE_URL   = process.env.XIBO_BASE_URL;
+const XIBO_BASE_URL   = (process.env.XIBO_BASE_URL || '').replace(/\/$/, '');
 const XIBO_CLIENT_ID  = process.env.XIBO_CLIENT_ID;
 const XIBO_CLIENT_SECRET = process.env.XIBO_CLIENT_SECRET;
 
@@ -38,22 +38,26 @@ const authRoutes = require('./src/routes/auth.routes');
 app.use('/auth', authRoutes);
 
 // Mount Protected Admin APIs
+// Mount Protected Admin APIs
 const adminRoutes = require('./src/routes/admin.routes');
 const { authMiddleware } = require('./src/middleware/auth.middleware');
 app.use('/admin/api', authMiddleware, adminRoutes);
 
+// Protect Xibo proxy routes
+app.use('/xibo', authMiddleware);
+
 // Mount Protected Brand APIs
 const brandRoutes = require('./src/routes/brand.routes');
 app.use('/brandportal/api', authMiddleware, (req, res, next) => {
-    if (req.user.role !== 'Brand') return res.status(403).json({ error: 'Access denied' });
-    if (!req.user.brand_id) return res.status(400).json({ error: 'No brand assigned to this user' });
+    if (req.user.role !== 'Brand' && req.user.role !== 'SuperAdmin') return res.status(403).json({ error: 'Access denied' });
+    if (!req.user.brand_id && req.user.role === 'Brand') return res.status(400).json({ error: 'No brand assigned to this user' });
     next();
 }, brandRoutes);
 
 // Mount Protected Partner APIs
 const partnerRoutes = require('./src/routes/partner.routes');
 app.use('/partnerportal/api', authMiddleware, (req, res, next) => {
-    if (req.user.role !== 'Partner' && req.user.role !== 'Admin') return res.status(403).json({ error: 'Access denied' });
+    if (req.user.role !== 'Partner' && req.user.role !== 'Admin' && req.user.role !== 'SuperAdmin') return res.status(403).json({ error: 'Access denied' });
     if (!req.user.partner_id && req.user.role === 'Partner') return res.status(400).json({ error: 'No partner assigned to this user' });
     next();
 }, partnerRoutes);
@@ -72,37 +76,13 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-// ─── OAuth2 Token Cache ───────────────────────────────────────────────────────
-let cachedToken = null;
-let tokenExpiry = null;
-
+// Use xiboService for authentication
 async function getAccessToken() {
-  if (cachedToken && tokenExpiry && Date.now() < tokenExpiry) {
-    return cachedToken;
-  }
-  const params = new URLSearchParams();
-  params.append('grant_type', 'client_credentials');
-  params.append('client_id', XIBO_CLIENT_ID);
-  params.append('client_secret', XIBO_CLIENT_SECRET);
-
-  try {
-    const response = await axios.post(
-      `${XIBO_BASE_URL}/api/authorize/access_token`,
-      params,
-      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
-    );
-    cachedToken = response.data.access_token;
-    tokenExpiry = Date.now() + (response.data.expires_in - 60) * 1000;
-    return cachedToken;
-  } catch (err) {
-    const msg = err.response?.data || err.message;
-    throw new Error(`Failed to obtain Xibo access token: ${JSON.stringify(msg)}`);
-  }
+  return await xiboService.getAccessToken();
 }
 
 async function authHeader() {
-  const token = await getAccessToken();
-  return { Authorization: `Bearer ${token}` };
+  return await xiboService.getHeaders();
 }
 
 /**
@@ -509,6 +489,15 @@ app.post('/xibo/upload', upload.single('file'), async (req, res) => {
       
       // Additional Step: Enable Stat tracking for this specific media
       await xiboService.setStatCollection('media', mediaId, true);
+
+      // --- PIPELINE FIX: Link media to brand for Proof of Play ---
+      if (req.user && req.user.brand_id) {
+          await require('./src/db/database').dbRun(
+              'INSERT OR REPLACE INTO media_brands (mediaId, brand_id) VALUES (?, ?)',
+              [mediaId, req.user.brand_id]
+          );
+          console.log(`[POST /xibo/upload] Linked mediaId ${mediaId} to brand ${req.user.brand_id}`);
+      }
 
       console.log('Step 1 complete - mediaId:', mediaId, '| filename:', uniqueFileName);
     } catch (err) {
@@ -989,52 +978,66 @@ async function synchronizeMainLoop(displayId, displayGroupId) {
     const existingWidgets = mainLoop?.widgets || [];
 
     // 3. Ensure all 20 slot playlists are linked as sub-playlists
-    const slotPromises = [];
     for (let i = 1; i <= MAX_SLOTS; i++) {
-        slotPromises.push((async (index) => {
-            const slotPlaylistId = await getSlotPlaylistForDisplay(displayId, index);
-            const widgetName = `Slot ${index}`;
+        const index = i;
+        const slotPlaylistId = await getSlotPlaylistForDisplay(displayId, index);
+        const widgetName = `Slot ${index}`;
 
-            const alreadyLinked = existingWidgets.find(w => {
-                if (w.name && w.name.startsWith(`Slot ${index}:`)) return true;
-                const opts = w.widgetOptions || [];
-                const spOpt = opts.find(o => o.option === 'subPlaylists');
-                if (spOpt && spOpt.value) {
-                    try {
-                        const linked = JSON.parse(spOpt.value);
-                        return linked.some(l => l.playlistId === slotPlaylistId);
-                    } catch (e) {}
-                }
-                return false;
-            });
-            
-            if (!alreadyLinked) {
+        const alreadyLinked = existingWidgets.find(w => {
+            if (w.name && w.name.startsWith(`Slot ${index}:`)) return true;
+            const opts = w.widgetOptions || [];
+            const spOpt = opts.find(o => o.option === 'subPlaylists');
+            if (spOpt && spOpt.value) {
                 try {
-                    const createResp = await axios.post(`${XIBO_BASE_URL}/api/playlist/widget/subplaylist/${mainLoopId}`, 
-                        "", 
+                    const linked = JSON.parse(spOpt.value);
+                    return linked.some(l => l.playlistId === slotPlaylistId);
+                } catch (e) {}
+            }
+            return false;
+        });
+        
+        if (!alreadyLinked) {
+            try {
+                const createResp = await axios.post(`${XIBO_BASE_URL}/api/playlist/widget/subplaylist/${mainLoopId}`, 
+                    "", 
+                    { headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' } }
+                );
+                
+                const wId = createResp.data.widgetId;
+                if (wId) {
+                    const putParams = new URLSearchParams();
+                    putParams.set('name', `${widgetName}: Link`);
+                    putParams.set('subPlaylists', JSON.stringify([{ playlistId: slotPlaylistId, spots: 1 }]));
+                    
+                    await axios.put(`${XIBO_BASE_URL}/api/playlist/widget/${wId}`, 
+                        putParams.toString(),
                         { headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' } }
                     );
-                    
-                    const wId = createResp.data.widgetId;
-                    if (wId) {
-                        const putParams = new URLSearchParams();
-                        putParams.set('name', `${widgetName}: Link`);
-                        putParams.set('subPlaylists', JSON.stringify([{ playlistId: slotPlaylistId, spots: 1 }]));
-                        
-                        await axios.put(`${XIBO_BASE_URL}/api/playlist/widget/${wId}`, 
-                            putParams.toString(),
-                            { headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' } }
-                        );
-                    }
-                } catch (err) {
-                    console.warn(`Failed to link slot ${index}:`, err.response?.data || err.message);
                 }
+            } catch (err) {
+                console.warn(`Failed to link slot ${index}:`, err.response?.data || err.message);
             }
-        })(i));
+        }
     }
-    await Promise.all(slotPromises);
 
-    // 4. Ensure Main Loop is scheduled on the Display/DisplayGroup
+    // 4. Clean orphan widgets from Main Loop, then schedule it as a Playlist event (eventTypeId 8)
+    // This is the approach that actually works on this Xibo version to cycle all slot content.
+
+    // Remove any orphan sub-playlist widgets (not named "Slot X: Link")
+    const mlRefreshResp = await axios.get(`${XIBO_BASE_URL}/api/playlist`, {
+        headers, params: { name: mainLoopName, embed: 'widgets' }
+    });
+    const mlRefreshed = mlRefreshResp.data?.find(p => (p.playlist === mainLoopName || p.name === mainLoopName));
+    const allWidgets = mlRefreshed?.widgets || [];
+    const orphanWidgets = allWidgets.filter(w => w.name && !w.name.match(/^Slot \d+: Link$/));
+    for (const ow of orphanWidgets) {
+        await axios.delete(`${XIBO_BASE_URL}/api/playlist/widget/${ow.widgetId}`, { headers }).catch(() => {});
+    }
+    if (orphanWidgets.length > 0) {
+        console.log(`Cleaned ${orphanWidgets.length} orphan widgets from ${mainLoopName}`);
+    }
+
+    // Resolve syncId (displayGroupId for the display)
     let syncId = displayGroupId;
     if (!syncId || syncId === 'undefined' || syncId === 'null') {
         try {
@@ -1047,45 +1050,51 @@ async function synchronizeMainLoop(displayId, displayGroupId) {
         } catch(e) { syncId = displayId; }
     }
 
-    const schedResp = await axios.get(`${XIBO_BASE_URL}/api/schedule`, {
-        headers,
-        params: { displayGroupId: syncId }
-    });
-    
-    const isScheduled = (schedResp.data || []).find(s => 
-        Number(s.eventTypeId) === 8 && 
-        (String(s.campaignId) === String(mainLoopId) || (s.campaign && s.campaign.includes(`${mainLoopId}`)))
+    // Check if a Playlist-type schedule already exists for this display group
+    const schedResp = await axios.get(`${XIBO_BASE_URL}/api/schedule`, { headers, params: { displayGroupId: syncId } });
+    const existingPlaylistSchedule = (schedResp.data || []).find(s =>
+        Number(s.eventTypeId) === 8 &&
+        (s.campaign?.includes(mainLoopName) || s.campaign?.includes(`_${mainLoopId}`))
     );
-    
-    if (!isScheduled) {
-        console.log(`Scheduling Main Loop for Display ${displayId} on Group ${syncId}...`);
+
+    if (!existingPlaylistSchedule) {
+        // Delete any stale single-image layout schedules before creating the correct one
+        const staleLayoutSchedules = (schedResp.data || []).filter(s => Number(s.eventTypeId) === 1);
+        for (const stale of staleLayoutSchedules) {
+            await axios.delete(`${XIBO_BASE_URL}/api/schedule/${stale.eventId}`, { headers }).catch(() => {});
+            console.log(`Removed stale layout schedule EventID: ${stale.eventId}`);
+        }
+
+        console.log(`Scheduling Main Loop Playlist for Display ${displayId} on Group ${syncId}...`);
         const now = new Date();
         const start = now.toISOString().replace('T', ' ').substring(0, 19);
-        const end = "2036-01-01 00:00:00";
-        
-        const params = new URLSearchParams();
-        params.append('eventTypeId', 8);
-        params.append('playlistId', mainLoopId);
-        params.append('displayGroupIds[]', syncId);
-        params.append('fromDt', start);
-        params.append('toDt', end);
-        params.append('isPriority', 0);
-        params.append('displayOrder', 1);
 
-        await axios.post(`${XIBO_BASE_URL}/api/schedule`, params.toString(), {
+        const schedParams = new URLSearchParams();
+        schedParams.append('eventTypeId', 8);        // 8 = Playlist event type
+        schedParams.append('playlistId', mainLoopId);
+        schedParams.append('displayGroupIds[]', syncId);
+        schedParams.append('fromDt', start);
+        schedParams.append('toDt', '2036-01-01 00:00:00');
+        schedParams.append('isPriority', 1);
+        schedParams.append('displayOrder', 1);
+
+        await axios.post(`${XIBO_BASE_URL}/api/schedule`, schedParams.toString(), {
             headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' }
         }).then(r => {
-            const msg = `Schedule created successfully: EventID ${r.data.eventId}\n`;
+            const msg = `Schedule created: EventID ${r.data.eventId} (playlist_${mainLoopName})\n`;
             console.log(msg);
             fs.appendFileSync(path.join(__dirname, 'sched_debug.log'), msg);
         }).catch(e => {
-            const msg = `Schedule failed: ${JSON.stringify(e.response?.data || e.message)}\n`;
-            console.error(msg);
-            fs.appendFileSync(path.join(__dirname, 'sched_debug.log'), msg);
+            console.error('Schedule failed:', e.response?.data?.message || e.message);
         });
     } else {
-        console.log(`Main Loop is already scheduled (EventID: ${isScheduled.eventId})`);
+        console.log(`Main Loop already scheduled (EventID: ${existingPlaylistSchedule.eventId})`);
     }
+
+    // Always trigger display sync to push updated slot content immediately
+    await axios.post(`${XIBO_BASE_URL}/api/displaygroup/${syncId}/action/collectNow`, '', {
+        headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' }
+    }).catch(() => {});
 }
 
 
@@ -1182,6 +1191,17 @@ app.post('/xibo/slots/add', upload.single('file'), async (req, res) => {
       try {
         await xiboService.setStatCollection('media', mediaId, true);
         console.log(`[Slots] Enabled stat collection for mediaId=${mediaId}`);
+
+        // --- PIPELINE FIX: Link media to brand assigned to this slot ---
+        const { dbGet, dbRun } = require('./src/db/database');
+        const slotRecord = await dbGet('SELECT brand_id FROM slots WHERE displayId = ? AND slot_number = ?', [displayId, slotId]);
+        if (slotRecord && slotRecord.brand_id) {
+            await dbRun('INSERT OR REPLACE INTO media_brands (mediaId, brand_id) VALUES (?, ?)', [mediaId, slotRecord.brand_id]);
+            console.log(`[Slots] Linked mediaId ${mediaId} to brand ${slotRecord.brand_id} via slot ${slotId}`);
+        } else if (req.user && req.user.brand_id) {
+            // Fallback for brand portal direct uploads
+            await dbRun('INSERT OR REPLACE INTO media_brands (mediaId, brand_id) VALUES (?, ?)', [mediaId, req.user.brand_id]);
+        }
       } catch (statErr) {
         // Non-fatal — log and continue. Stats may still work via widget-level stats.
         console.warn(`[Slots] Could not enable stat for mediaId=${mediaId}:`, statErr.message);

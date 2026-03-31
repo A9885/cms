@@ -7,7 +7,7 @@ const FormData = require('form-data');
  */
 class XiboService {
   constructor() {
-    this.baseUrl = process.env.XIBO_BASE_URL;
+    this.baseUrl = (process.env.XIBO_BASE_URL || '').replace(/\/$/, '');
     this.clientId = process.env.XIBO_CLIENT_ID;
     this.clientSecret = process.env.XIBO_CLIENT_SECRET;
     this.cachedToken = null;

@@ -63,6 +63,8 @@
                 if (data.success) {
                     if (data.user.role === 'Brand') {
                         window.location.href = '/brandportal/index.html';
+                    } else if (data.user.role === 'Partner') {
+                        window.location.href = '/partnerportal/index.html';
                     } else {
                         window.location.href = '/admin/index.html';
                     }

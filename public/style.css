@@ -190,6 +190,23 @@ h2, h3 {
   display: none;
 }
 
+.btn-icon {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+  color: var(--text-secondary);
+}
+
+.btn-icon:hover {
+  background: rgba(0,0,0,0.05);
+}
+
 /* Dashboard Grid for Summary Cards */
 .stats-grid {
   display: grid;
