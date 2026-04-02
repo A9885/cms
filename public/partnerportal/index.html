@@ -67,7 +67,7 @@
                 <i data-lucide="user-circle"></i>
                 <span>Profile</span>
             </a>
-            <a href="/auth/logout" class="nav-item nav-logout">
+            <a href="#" class="nav-item nav-logout" onclick="fetch('/auth/logout',{method:'POST'}).then(()=>{window.location.href='/admin/login.html'})">
                 <i data-lucide="log-out"></i>
                 <span>Logout</span>
             </a>

@@ -38,11 +38,30 @@ class ScreenService {
         if (d.licensed === 0) status = 'PendingAuth';
         else if (d.loggedIn) status = 'Online';
         
+        // --- PoP SELF-HEALING: Verify recording permissions for ALL displays (Core Fix) ---
+        const now = new Date();
+        const auditDate = d.auditingUntil ? new Date(d.auditingUntil + ' UTC') : null;
+        const needsAuditFix = !auditDate || auditDate < new Date(now.getTime() + 86400000); // If expired or expiring in < 24h
+        const needsStatsFix = d.statsEnabled === 0 || d.statsEnabled === '0' || d.statsEnabled === false;
+
+        if (needsAuditFix || needsStatsFix) {
+            console.log(`[ScreenService] Self-Healing Display ${d.display} (Needs Fix: Audit=${needsAuditFix}, Stats=${needsStatsFix})`);
+            try {
+                // Extend to 2027 to be safe
+                await xiboService.updateDisplayAuditing(d.displayId, '2027-12-31 00:00:00');
+            } catch (e) {
+                console.warn(`[ScreenService] Self-Healing failed for ${d.displayId}:`, e.message);
+            }
+        }
+
         if (!existing) {
+          console.log(`[ScreenService] NEW Display detected: ${d.display} (ID: ${d.displayId}). Provisioning slots...`);
           const byName = await dbGet('SELECT id FROM screens WHERE name = ? AND xibo_display_id IS NULL', [d.display]);
           if (byName) await dbRun('UPDATE screens SET xibo_display_id = ?, status = ? WHERE id = ?', [d.displayId, status, byName.id]);
           else await dbRun(`INSERT INTO screens (name, xibo_display_id, status) VALUES (?, ?, ?)`, [d.display || 'Unknown', d.displayId, status]);
-        } else await dbRun('UPDATE screens SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [status, existing.id]);
+        } else {
+          await dbRun('UPDATE screens SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [status, existing.id]);
+        }
         
         await this.provisionSlots(d.displayId);
       }
@@ -62,6 +81,7 @@ class ScreenService {
         const address = [geo.city, geo.principalSubdivision, geo.countryName].filter(Boolean).join(', ');
         if (address !== (display.address || '').trim()) {
           await xiboService.updateDisplayLocation(display.displayId, { latitude: lat, longitude: lon, address });
+          await dbRun('UPDATE screens SET latitude = ?, longitude = ?, address = ?, updated_at = CURRENT_TIMESTAMP WHERE xibo_display_id = ?', [lat, lon, address, display.displayId]);
         }
       }
     } catch (e) { console.warn(`[ScreenService] GPS geocode failed for ${display.display}:`, e.message); }
@@ -78,9 +98,35 @@ class ScreenService {
       const geo = res.data;
       if (geo?.status === 'success') {
         const address = `${geo.city}, ${geo.regionName}, ${geo.country}`;
-        await xiboService.updateDisplayLocation(display.displayId, { latitude: parseFloat(geo.lat), longitude: parseFloat(geo.lon), address });
+        const lat = parseFloat(geo.lat), lon = parseFloat(geo.lon);
+        await xiboService.updateDisplayLocation(display.displayId, { latitude: lat, longitude: lon, address });
+        await dbRun('UPDATE screens SET latitude = ?, longitude = ?, address = ?, updated_at = CURRENT_TIMESTAMP WHERE xibo_display_id = ?', [lat, lon, address, display.displayId]);
       }
     } catch (e) { console.warn(`[ScreenService] Geo-IP failed for ${display.display}:`, e.message); }
+  }
+
+  /**
+   * Synchronize a specific display's location (GPS or Geo-IP).
+   * @param {number|string} displayId Xibo Display ID
+   */
+  async syncLocation(displayId) {
+    try {
+      const displays = await xiboService.getDisplays({ displayId });
+      const d = displays.find(disp => String(disp.displayId) === String(displayId));
+      if (!d) return;
+
+      if (d.latitude && d.longitude && (parseFloat(d.latitude) !== 0 || parseFloat(d.longitude) !== 0)) {
+        console.log(`[ScreenService] Syncing GPS Location for ${d.display}`);
+        await this._resolveAddressFromGPS(d);
+        // Also update local screens table if it was null
+        await dbRun('UPDATE screens SET latitude = ?, longitude = ? WHERE xibo_display_id = ? AND (latitude IS NULL OR latitude = 0)', [d.latitude, d.longitude, displayId]);
+      } else {
+        console.log(`[ScreenService] GPS missing for ${d.display}. Attempting Geo-IP fallback...`);
+        await this._resolveLocationFromIP(d);
+      }
+    } catch (err) {
+      console.error(`[ScreenService] syncLocation FAILED for ${displayId}:`, err.message);
+    }
   }
 
   /**
@@ -91,13 +137,8 @@ class ScreenService {
     try {
       const displays = await xiboService.getDisplays();
       for (const d of displays) {
-        if (d.latitude && d.longitude) {
-          await this._resolveAddressFromGPS(d);
-          await new Promise(r => setTimeout(r, 500)); // Throttle
-        } else {
-          await this._resolveLocationFromIP(d);
-          await new Promise(r => setTimeout(r, 1000)); // Throttle
-        }
+        await this.syncLocation(d.displayId);
+        await new Promise(r => setTimeout(r, 1000)); // Throttle
       }
       console.log(`[${new Date().toISOString()}] [ScreenService] Sync complete.`);
     } catch (err) { console.error('[ScreenService] syncAllLocations failed:', err.message); }

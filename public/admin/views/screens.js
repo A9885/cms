@@ -8,7 +8,7 @@ App.registerView('screens', {
                     </div>
                     <div class="table-header-actions">
                         <button class="btn btn-secondary" id="btn-view-map">Map View</button>
-                        <button class="btn btn-success" style="background: #10b981; color: white;" onclick="window.open('https://signtral.xibo.cloud/display/view', 'XiboReg', 'width=1100,height=800,left=150,top=100,popup=1')"><i data-lucide="monitor" style="width:14px; margin-right:4px;"></i>Register Xibo Display</button>
+                        <button class="btn btn-success" style="background: #10b981; color: white;" onclick="window.open('https://signt.signcdn.com/display/view', 'XiboReg', 'width=1100,height=800,left=150,top=100,popup=1')"><i data-lucide="monitor" style="width:14px; margin-right:4px;"></i>Register Xibo Display</button>
                         <button class="btn btn-primary" id="btn-open-create-screen">+ Add Screen</button>
                     </div>
                 </div>
@@ -48,7 +48,7 @@ App.registerView('screens', {
                 <!-- Right Side: Details -->
                 <div id="screen-detail-panel" class="detail-panel">
                     <div id="detail-active-view" style="display:none;">
-                        <div class="detail-header">
+                        <div class="detail-header" style="border-bottom:none; padding-bottom:10px;">
                             <div style="display:flex; justify-content:space-between; align-items:start;">
                                 <div>
                                     <h3 id="det-name" style="margin:0;">—</h3>
@@ -56,6 +56,15 @@ App.registerView('screens', {
                                 </div>
                                 <span id="det-status-badge" class="status-pill active">Online</span>
                             </div>
+                        </div>
+
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; padding: 0 20px 20px 20px; border-bottom: 1px solid var(--border);">
+                            <button class="btn btn-secondary" style="font-size:0.8rem; height:36px; display:flex; align-items:center; justify-content:center; gap:6px;" id="btn-edit-screen">
+                                <i data-lucide="edit-3" style="width:14px;"></i> Edit Info
+                            </button>
+                            <button class="btn btn-primary" style="font-size:0.8rem; height:36px; display:flex; align-items:center; justify-content:center; gap:6px;" id="btn-sync-screen">
+                                <i data-lucide="refresh-cw" style="width:14px;"></i> Force Sync
+                            </button>
                         </div>
 
                         <div class="detail-section">
@@ -103,10 +112,10 @@ App.registerView('screens', {
                             </div>
                         </div>
 
-                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-top:20px;">
-                            <button class="btn btn-secondary" id="btn-edit-screen">Edit Info</button>
-                            <button class="btn btn-primary" id="btn-sync-screen">Force Sync</button>
-                            <button class="btn btn-secondary" style="grid-column: span 2; background:#fee2e2; color:#b91c1c; border:none; padding:10px; font-weight:600;" id="btn-detail-delete-screen">Delete Screen</button>
+                        <div style="margin-top:20px; padding: 0 20px 20px 20px;">
+                            <button class="btn btn-secondary" style="width:100%; background:#fef2f2; color:#b91c1c; border:1px solid #fee2e2; padding:10px; font-weight:600; font-size:0.8rem; display:flex; align-items:center; justify-content:center; gap:8px;" id="btn-detail-delete-screen">
+                                <i data-lucide="trash-2" style="width:14px;"></i> Delete Screen
+                            </button>
                         </div>
                     </div>
                     <div id="detail-placeholder" style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; color:var(--text-muted); text-align:center; padding:2rem;">
@@ -138,6 +147,16 @@ App.registerView('screens', {
                                 <select id="add-screen-partner" class="form-control">
                                     <option value="">-- Select Partner --</option>
                                 </select>
+                            </div>
+                        </div>
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                            <div class="form-group">
+                                <label>Latitude</label>
+                                <input type="number" step="any" id="add-screen-lat" placeholder="17.3850" class="form-control">
+                            </div>
+                            <div class="form-group">
+                                <label>Longitude</label>
+                                <input type="number" step="any" id="add-screen-lng" placeholder="78.4867" class="form-control">
                             </div>
                         </div>
                         <div class="form-group">
@@ -174,6 +193,16 @@ App.registerView('screens', {
                                 <select id="edit-screen-partner-select" class="form-control">
                                     <option value="">-- No Partner --</option>
                                 </select>
+                            </div>
+                        </div>
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                            <div class="form-group">
+                                <label>Latitude</label>
+                                <input type="number" step="any" id="edit-screen-lat" class="form-control">
+                            </div>
+                            <div class="form-group">
+                                <label>Longitude</label>
+                                <input type="number" step="any" id="edit-screen-lng" class="form-control">
                             </div>
                         </div>
                         <div class="form-group">
@@ -227,7 +256,7 @@ App.registerView('screens', {
             window.Api.get('/partners'),
             window.Api.getXiboAvailableDisplays()
         ]);
-        
+
         this.localScreens = screens || [];
         this.partnersData = partners || [];
         this.xiboDisplays = (xiboDisplays || []).filter(d => !this.localScreens.some(s => s.xibo_display_id === d.displayId));
@@ -238,7 +267,7 @@ App.registerView('screens', {
         const pFilter = document.getElementById('filter-partner');
         const pAdd = document.getElementById('add-screen-partner');
         const pEdit = document.getElementById('edit-screen-partner-select');
-        
+
         [pFilter, pAdd, pEdit].forEach(select => {
             if (!select) return;
             select.innerHTML = '';
@@ -246,7 +275,7 @@ App.registerView('screens', {
             defaultOpt.value = '';
             defaultOpt.textContent = select === pFilter ? 'All Partners' : (select === pAdd ? '-- Select Partner --' : '-- No Partner --');
             select.appendChild(defaultOpt);
-            
+
             this.partnersData.forEach(p => {
                 const opt = document.createElement('option');
                 opt.value = p.id;
@@ -288,7 +317,9 @@ App.registerView('screens', {
                 if (!name) return App.showToast('Name is required', 'error');
                 btnSubmitAdd.innerText = 'Creating...';
                 try {
-                    await window.Api.post('/screens', { name, city, address, partner_id });
+                    const lat = document.getElementById('add-screen-lat').value || null;
+                    const lng = document.getElementById('add-screen-lng').value || null;
+                    await window.Api.post('/screens', { name, city, address, partner_id, latitude: lat, longitude: lng });
                     document.getElementById('create-screen-modal').classList.remove('active');
                     this.mount(container);
                 } catch (err) { App.showToast(err.message, 'error'); }
@@ -312,7 +343,7 @@ App.registerView('screens', {
                 const xibo = this.allXiboDisplays.find(xd => xd.displayId === s.xibo_display_id);
                 const isLinked = !!s.xibo_display_id;
                 const curSt = xibo ? (xibo.loggedIn ? 'Online' : 'Offline') : (isLinked ? 'Offline' : 'Unlinked');
-                
+
                 const matchQ = s.name.toLowerCase().includes(q) || (s.city || '').toLowerCase().includes(q);
                 const matchC = !city || s.city === city;
                 const matchS = !status || (status === 'Unlinked' ? !isLinked : curSt === status);
@@ -338,14 +369,14 @@ App.registerView('screens', {
     renderTable(screens) {
         const tbody = document.getElementById('screens-table-body');
         if (!tbody) return;
-        
+
         tbody.innerHTML = '';
         screens.forEach(s => {
             const xibo = this.allXiboDisplays.find(xd => xd.displayId === s.xibo_display_id);
             const isLinked = !!s.xibo_display_id;
             let statusText = 'Not Linked';
             let badgeClass = 'offline'; // Gray/Red for unlinked
-            
+
             if (isLinked) {
                 const online = xibo ? xibo.loggedIn : false;
                 statusText = online ? 'Online' : 'Offline';
@@ -457,13 +488,17 @@ App.registerView('screens', {
         document.getElementById('perf-section').style.opacity = isLinked ? '1' : '0.5';
 
         // Map
+        const lat = screen.latitude || 17.3850;
+        const lng = screen.longitude || 78.4867;
+        const zoom = (screen.latitude && screen.longitude) ? 14 : 11;
+
         if (!this.detMap) {
-            this.detMap = L.map('det-map', { zoomControl: false }).setView([17.3850, 78.4867], 13);
+            this.detMap = L.map('det-map', { zoomControl: false }).setView([lat, lng], zoom);
             L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png').addTo(this.detMap);
         }
         if (this.detMarker) this.detMap.removeLayer(this.detMarker);
-        this.detMarker = L.marker([17.3850, 78.4867]).addTo(this.detMap);
-        this.detMap.setView([17.3850, 78.4867], 13);
+        this.detMarker = L.marker([lat, lng]).addTo(this.detMap);
+        this.detMap.setView([lat, lng], zoom);
 
         // PoP
         const pBody = document.getElementById('det-pop-body');
@@ -506,7 +541,7 @@ App.registerView('screens', {
                         pBody.appendChild(tr);
                     });
                 }
-            } catch (e) { 
+            } catch (e) {
                 pBody.innerHTML = '';
                 const errTd = document.createElement('td');
                 errTd.colSpan = 3;
@@ -530,15 +565,27 @@ App.registerView('screens', {
         // Actions
         document.getElementById('btn-edit-screen').onclick = () => this.openEditModal(screen);
         document.getElementById('btn-detail-delete-screen').onclick = () => this.deleteScreen(id, screen.name);
-        
+
         document.getElementById('btn-sync-screen').disabled = !isLinked;
         document.getElementById('btn-sync-screen').onclick = async () => {
             const b = document.getElementById('btn-sync-screen');
             if (!isLinked) return;
             b.innerText = 'Syncing...';
             try {
+                // 1. Sync Content/Scheduling
                 await window.Api.post(`/screens/${id}/sync`);
-                App.showToast('Force sync requested', 'success');
+                
+                // 2. Sync Location (GPS/IP)
+                await window.Api.post(`/screens/${id}/sync-location`);
+                
+                App.showToast('Sync & Location refresh complete', 'success');
+                
+                // Refresh local data to show new coordinates
+                const refreshed = await window.Api.get('/screens');
+                if (refreshed) {
+                    this.localScreens = refreshed;
+                    this.showDetails(id);
+                }
             } catch (err) { App.showToast('Sync fail', 'error'); }
             finally { b.innerText = 'Force Sync'; }
         };
@@ -552,7 +599,7 @@ App.registerView('screens', {
     openLinkModal(screen) {
         const modal = document.getElementById('link-xibo-modal');
         const select = document.getElementById('link-xibo-select');
-        
+
         select.innerHTML = '';
         if (this.xiboDisplays.length === 0) {
             const opt = document.createElement('option');
@@ -571,13 +618,13 @@ App.registerView('screens', {
                 select.appendChild(opt);
             });
         }
-        
+
         modal.classList.add('active');
 
         document.getElementById('btn-submit-link').onclick = async () => {
             const displayId = select.value;
             if (!displayId) return App.showToast('Select a player', 'error');
-            
+
             try {
                 await window.Api.put(`/screens/${screen.id}`, {
                     ...screen,
@@ -596,6 +643,8 @@ App.registerView('screens', {
         document.getElementById('edit-screen-name').value = screen.name;
         document.getElementById('edit-screen-city').value = screen.city || '';
         document.getElementById('edit-screen-address').value = screen.address || '';
+        document.getElementById('edit-screen-lat').value = screen.latitude || '';
+        document.getElementById('edit-screen-lng').value = screen.longitude || '';
         document.getElementById('edit-screen-partner-select').value = screen.partner_id || '';
         document.getElementById('edit-screen-notes').value = screen.notes || '';
         document.getElementById('edit-screen-modal').classList.add('active');
@@ -605,6 +654,8 @@ App.registerView('screens', {
                 name: document.getElementById('edit-screen-name').value,
                 city: document.getElementById('edit-screen-city').value,
                 address: document.getElementById('edit-screen-address').value,
+                latitude: document.getElementById('edit-screen-lat').value || null,
+                longitude: document.getElementById('edit-screen-lng').value || null,
                 partner_id: document.getElementById('edit-screen-partner-select').value || null,
                 notes: document.getElementById('edit-screen-notes').value
             };

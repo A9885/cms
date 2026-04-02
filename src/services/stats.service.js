@@ -43,6 +43,17 @@ class StatsService {
     return { data: [] };
   }
 
+  _formatLocal(d) {
+    const pad = (n) => n.toString().padStart(2, '0');
+    const year = d.getFullYear();
+    const month = pad(d.getMonth() + 1);
+    const day = pad(d.getDate());
+    const hours = pad(d.getHours());
+    const minutes = pad(d.getMinutes());
+    const seconds = pad(d.getSeconds());
+    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+  }
+
   async _buildWidgetCache() {
     const now = Date.now();
     if (_widgetCache && (now - _widgetCacheTime) < WIDGET_CACHE_TTL_MS) return _widgetCache;
@@ -90,10 +101,11 @@ class StatsService {
    */
   async _fetchRawPlaybackRecords(mediaId, params) {
     const [mResAll, widgetCache] = await Promise.all([
-      this._getStatsWithRetry('media', params),
+      this._getStatsWithRetry('media', { ...params, 'mediaId[]': [mediaId] }),
       this._buildWidgetCache()
     ]);
     
+    // Server-side filtering is safer, but we keep local fallback for Slot_X_ naming
     const mData = (mResAll.data || mResAll || []).filter(r => 
       String(r.mediaId) === String(mediaId) || (r.media || '').startsWith(`Slot_${mediaId}_`)
     );
@@ -120,19 +132,34 @@ class StatsService {
 
   async getRecentStats() {
     const now = Date.now();
-    if (this._recentStatsCache && (now - this._recentStatsCacheTime) < 60000) return this._recentStatsCache;
+    // Cache for 2 minutes — drastically reduces Xibo API calls and portal lag
+    if (this._recentStatsCache && (now - this._recentStatsCacheTime) < 120000) return this._recentStatsCache;
     
     try {
-      const thirtyDaysAgo = new Date(Date.now() - 2592000000).toISOString().split('.')[0].replace('T', ' ');
-      const nowStr = new Date().toISOString().split('.')[0].replace('T', ' ');
-      const params = { fromDt: thirtyDaysAgo, toDt: nowStr, length: 5000 };
+      // Use local date strings for Xibo (it expects CMS local time, e.g. IST)
+      const now = new Date();
+      const thirtyDaysAgo = new Date(now.getTime() - 2592000000);
+      
+      const thirtyDaysAgoStr = this._formatLocal(thirtyDaysAgo);
+      const nowStr = this._formatLocal(now);
+      
+      const yesterday = new Date(now.getTime() - 86400000);
+      const yesterdayStr = this._formatLocal(yesterday);
 
-      const [mediaRes, widgetRes] = await Promise.all([
+      const params = { fromDt: thirtyDaysAgoStr, toDt: nowStr, length: 5000 };
+
+      // --- HYBRID FIX: Fetch both Aggregated and Raw Logs (Core Fix) ---
+      const [mediaRes, widgetRes, rawRes] = await Promise.all([
         this._getStatsWithRetry('media', params),
-        this._getStatsWithRetry('widget', params)
+        this._getStatsWithRetry('widget', params),
+        this._getStatsWithRetry('raw', { fromDt: yesterdayStr, toDt: nowStr, length: 2000 }).catch(() => ({ data: [] }))
       ]);
 
-      const allRaw = [...(mediaRes.data || mediaRes || []), ...(widgetRes.data || widgetRes || [])];
+      const allRaw = [
+        ...(mediaRes.data || mediaRes || []), 
+        ...(widgetRes.data || widgetRes || []),
+        ...(rawRes.data || rawRes || [])
+      ];
       const seen = new Set();
       const deduped = allRaw.filter(r => {
         const key = `${r.type}|${r.displayId}|${r.widgetId}|${r.start}`;
@@ -153,16 +180,33 @@ class StatsService {
         if (playedAt && !playedAt.endsWith('Z')) playedAt += 'Z';
 
         let brandName = 'Local/Unlinked', slotNumber = '-';
+
+        // 1. Identify slot from filename or layout (most accurate)
+        const nameMatch = (r.media || r.layout || '').match(/(?:Slot_|S)(\d+)_/i);
+        if (nameMatch) slotNumber = parseInt(nameMatch[1], 10);
+
         const mapping = mediaMappings.find(m => String(m.mediaId) === String(r.mediaId));
         if (mapping) {
           const brand = brandsList.find(b => String(b.id) === String(mapping.brand_id));
           if (brand) {
             brandName = brand.name;
-            const slot = slotMappings.find(s => String(s.displayId) === String(r.displayId) && String(s.brand_id) === String(brand.id));
-            if (slot) slotNumber = slot.slot_number;
+            if (slotNumber === '-') {
+                const slot = slotMappings.find(s => String(s.displayId) === String(r.displayId) && String(s.brand_id) === String(brand.id));
+                if (slot) slotNumber = slot.slot_number;
+            }
           }
         }
-        return { adName, displayName: r.display || `Display ${r.displayId}`, displayId: r.displayId, playedAt, count: r.numberPlays || 1, brandName, slot: slotNumber, source: 'Xibo API' };
+        return { 
+          mediaId: r.mediaId,
+          adName, 
+          displayName: r.display || `Display ${r.displayId}`, 
+          displayId: r.displayId, 
+          playedAt, 
+          count: r.numberPlays || 1, 
+          brandName, 
+          slot: slotNumber, 
+          source: 'Xibo API' 
+        };
       });
 
       results.sort((a, b) => new Date(b.playedAt) - new Date(a.playedAt));
@@ -184,33 +228,69 @@ class StatsService {
 
     const fetchPromise = (async () => {
       try {
-        const ninetyDaysAgo = new Date(Date.now() - 7776000000).toISOString().split('.')[0].replace('T', ' ');
-        const nowStr = new Date().toISOString().split('.')[0].replace('T', ' ');
-        const params = { fromDt: ninetyDaysAgo, toDt: nowStr, length: 5000 };
+        const now = new Date();
+        const ninetyDaysAgo = new Date(now.getTime() - 7776000000);
+        
+        const ninetyDaysAgoStr = this._formatLocal(ninetyDaysAgo);
+        const nowStr = this._formatLocal(now);
+        const params = { fromDt: ninetyDaysAgoStr, toDt: nowStr, length: 10000 };
 
         const allRecords = await this._fetchRawPlaybackRecords(mediaId, params);
+        
+        // --- HYBRID FIX: Merge Raw Logs for Today (Bypass Xibo Aggregator Delay) ---
+        // If XTR hasn't run today, we search for type=raw for the last 2 hours
+        const twoHoursAgo = new Date(Date.now() - 7200000);
+        const twoHoursAgoStr = this._formatLocal(twoHoursAgo);
+        const rawRes = await this._getStatsWithRetry('raw', { fromDt: twoHoursAgoStr, toDt: nowStr, length: 1000 }).catch(() => ({ data: [] }));
+        const rawHits = (rawRes.data || rawRes || []).filter(r => 
+          (String(r.mediaId) === String(mediaId) || (r.media || '').startsWith(`Slot_${mediaId}_`)) &&
+          new Date(r.start || r.fromDt) > twoHoursAgo
+        );
+        
+        const mergedRecords = [...allRecords];
+        const seenKeys = new Set(allRecords.map(r => `${r.displayId}|${r.start}`));
+        rawHits.forEach(r => {
+            const key = `${r.displayId}|${r.start}`;
+            if (!seenKeys.has(key)) {
+                mergedRecords.push(r);
+                seenKeys.add(key);
+            }
+        });
+
         const [mediaMapping, slotMappings] = await Promise.all([
           dbGet('SELECT * FROM media_brands WHERE mediaId = ?', [mediaId]),
           dbAll('SELECT * FROM slots')
         ]);
+        
+        let lastCheckIn = null;
+        if (mediaMapping) {
+          const sMatch = slotMappings.find(s => String(s.brand_id) === String(mediaMapping.brand_id));
+          if (sMatch) {
+            const displays = await xiboService.getDisplays();
+            const d = displays.find(disp => String(disp.displayId) === String(sMatch.displayId));
+            if (d) lastCheckIn = d.lastAccessed;
+          }
+        }
+        
         const brand = mediaMapping ? await dbGet('SELECT name FROM brands WHERE id = ?', [mediaMapping.brand_id]) : null;
 
-        const history = allRecords.map(r => {
+        const history = mergedRecords.map(r => {
           let time = r.start || r.statDate || r.fromDt;
           if (time && !time.endsWith('Z')) time += 'Z';
+          
           let slot = '-';
-          if (mediaMapping) {
+          const nameMatch = (r.media || r.layout || '').match(/(?:Slot_|S)(\d+)_/i);
+          if (nameMatch) {
+            slot = parseInt(nameMatch[1], 10);
+          } else if (mediaMapping) {
             const sMatch = slotMappings.find(s => String(s.displayId) === String(r.displayId) && String(s.brand_id) === String(mediaMapping.brand_id));
             if (sMatch) slot = sMatch.slot_number;
           }
-          if (slot === '-') {
-            const match = (r.media || '').match(/Slot_(\d+)/i);
-            if (match) slot = parseInt(match[1], 10);
-          }
+
           return { time, display: r.display || `Display ${r.displayId}`, slot, brandName: brand ? brand.name : 'Unlinked' };
         }).filter(r => r.time).sort((a, b) => new Date(b.time) - new Date(a.time));
 
-        const result = { mediaId, playCount: allRecords.reduce((sum, r) => sum + (r.numberPlays || 1), 0), history };
+        const result = { mediaId, playCount: allRecords.reduce((sum, r) => sum + (r.numberPlays || 1), 0), history, lastCheckIn };
         _statResultCache.set(cacheKey, { result, ts: Date.now(), promise: null });
         return result;
       } catch (err) {
@@ -225,11 +305,12 @@ class StatsService {
 
   async getLiveSnapshot() {
     const now = Date.now();
+    // Cache live snapshot for 30 seconds
     if (this._liveSnapshotCache && (now - this._liveSnapshotCacheTime) < 30000) return this._liveSnapshotCache;
     try {
       const fifteenMinsAgo = new Date(Date.now() - 900000).toISOString().split('.')[0].replace('T', ' ');
       const nowStr = new Date().toISOString().split('.')[0].replace('T', ' ');
-      const params = { fromDt: fifteenMinsAgo, toDt: nowStr, length: 500 };
+      const params = { fromDt: fifteenMinsAgo, toDt: nowStr, length: 1500 };
 
       const [mediaRes, widgetRes, mediaMappings, brandsList] = await Promise.all([
         this._getStatsWithRetry('media', params),
@@ -257,6 +338,19 @@ class StatsService {
       this._liveSnapshotCacheTime = Date.now();
       return snapshot;
     } catch (err) { return {}; }
+  }
+
+  invalidateCache() {
+    _widgetCache = null;
+    _widgetCacheTime = 0;
+    _statResultCache.clear();
+    this._recentStatsCache = null;
+    this._recentStatsCacheTime = 0;
+    this._allMediaStatsCache = null;
+    this._allMediaStatsCacheTime = 0;
+    this._liveSnapshotCache = null;
+    this._liveSnapshotCacheTime = 0;
+    console.log('[StatsService] All caches invalidated.');
   }
 
   invalidateWidgetCache() {
@@ -313,8 +407,7 @@ class StatsService {
           await Promise.all(media.map(m => xiboService.setStatCollection('media', m.mediaId, true).catch(() => {})));
         }
       }));
-      this.invalidateWidgetCache();
-      _statResultCache.clear();
+      this.invalidateCache();
       return { success: true };
     } catch (err) { throw err; }
   }

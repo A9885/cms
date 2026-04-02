@@ -1,174 +1,208 @@
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
-const fs = require('fs');
+const mysql = require('mysql2/promise');
+const bcrypt = require('bcryptjs');
 
-const dbDir = path.join(__dirname, '../../data');
-if (!fs.existsSync(dbDir)) {
-    fs.mkdirSync(dbDir, { recursive: true });
+const dbConfig = {
+    host: process.env.DB_HOST || '127.0.0.1',
+    user: process.env.DB_USER || 'root',
+    password: process.env.DB_PASSWORD || ''
+};
+const dbName = process.env.DB_NAME || 'xibo_crm';
+
+let pool;
+
+const getPool = async () => {
+    if (pool) return pool;
+    try {
+        pool = mysql.createPool({ ...dbConfig, database: dbName });
+        await pool.query('SELECT 1'); // Test connection
+    } catch (err) {
+        if (err.code === 'ER_BAD_DB_ERROR') {
+            console.log(`[DB] Database ${dbName} not found. Creating it...`);
+            const tempConn = await mysql.createConnection(dbConfig);
+            await tempConn.query(`CREATE DATABASE IF NOT EXISTS \`${dbName}\``);
+            await tempConn.end();
+            pool = mysql.createPool({ ...dbConfig, database: dbName });
+        } else {
+            console.error('[DB] Database connection failed:', err.message);
+            // Don't throw here to prevent server crash during boot if MySQL is offline
+        }
+    }
+    return pool;
+};
+
+async function initSchema() {
+    try {
+        const p = await getPool();
+        if (!p) return;
+        
+        console.log('[DB] Checking MySQL Schema...');
+
+        await p.query(`
+            CREATE TABLE IF NOT EXISTS brands (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                industry VARCHAR(255),
+                contact_person VARCHAR(255),
+                email VARCHAR(255),
+                phone VARCHAR(255),
+                status VARCHAR(100) DEFAULT 'Pending',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        await p.query(`
+            CREATE TABLE IF NOT EXISTS partners (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                company VARCHAR(255),
+                city VARCHAR(255),
+                email VARCHAR(255),
+                phone VARCHAR(255),
+                address TEXT,
+                status VARCHAR(100) DEFAULT 'Pending',
+                revenue_share_percentage INT DEFAULT 50,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        // Safe migration: add address column if missing
+        try { await p.query("ALTER TABLE partners ADD COLUMN address TEXT"); } catch(e) {}
+
+        await p.query(`
+            CREATE TABLE IF NOT EXISTS users (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                username VARCHAR(255) UNIQUE NOT NULL,
+                password_hash VARCHAR(255) NOT NULL,
+                role VARCHAR(255) DEFAULT 'Admin',
+                brand_id INT,
+                partner_id INT,
+                force_password_reset BOOLEAN DEFAULT FALSE,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (brand_id) REFERENCES brands(id) ON DELETE SET NULL,
+                FOREIGN KEY (partner_id) REFERENCES partners(id) ON DELETE SET NULL
+            )
+        `);
+        
+        try {
+            await p.query("ALTER TABLE users ADD COLUMN force_password_reset BOOLEAN DEFAULT FALSE");
+        } catch(e) {
+            // Ignored if column already exists
+        }
+
+        const [users] = await p.query("SELECT COUNT(*) as c FROM users");
+        if (users[0].c === 0) {
+            const hash = bcrypt.hashSync('admin123', 10);
+            await p.query("INSERT INTO users (username, password_hash, role) VALUES ('admin', ?, 'SuperAdmin')", [hash]);
+            console.log('[DB] Created default user: admin / admin123');
+        }
+
+        await p.query(`
+            CREATE TABLE IF NOT EXISTS invoices (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                invoice_number VARCHAR(255) NOT NULL UNIQUE,
+                brand_id INT,
+                amount DECIMAL(10,2) NOT NULL,
+                status VARCHAR(100) DEFAULT 'Pending',
+                due_date DATE,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (brand_id) REFERENCES brands(id) ON DELETE SET NULL
+            )
+        `);
+
+        await p.query(`
+            CREATE TABLE IF NOT EXISTS screen_partners (
+                displayId INT PRIMARY KEY,
+                partner_id INT,
+                FOREIGN KEY (partner_id) REFERENCES partners(id) ON DELETE SET NULL
+            )
+        `);
+
+        await p.query(`
+            CREATE TABLE IF NOT EXISTS slots (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                displayId INT NOT NULL,
+                slot_number INT NOT NULL,
+                brand_id INT,
+                status VARCHAR(100) DEFAULT 'Available',
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE(displayId, slot_number),
+                FOREIGN KEY (brand_id) REFERENCES brands(id) ON DELETE SET NULL
+            )
+        `);
+
+        await p.query(`
+            CREATE TABLE IF NOT EXISTS media_brands (
+                mediaId INT PRIMARY KEY,
+                brand_id INT,
+                FOREIGN KEY (brand_id) REFERENCES brands(id) ON DELETE SET NULL
+            )
+        `);
+
+        await p.query(`
+            CREATE TABLE IF NOT EXISTS screens (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                city VARCHAR(255),
+                address TEXT,
+                latitude DOUBLE,
+                longitude DOUBLE,
+                timezone VARCHAR(255) DEFAULT 'Asia/Kolkata',
+                partner_id INT,
+                xibo_display_id INT,
+                xibo_display_group_id INT,
+                status VARCHAR(100) DEFAULT 'Pending',
+                notes TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                FOREIGN KEY (partner_id) REFERENCES partners(id) ON DELETE SET NULL
+            )
+        `);
+
+        console.log('[DB] Connected to MySQL database successfully.');
+
+    } catch (err) {
+        console.error('[DB] Initialize Error:', err.message);
+    }
 }
 
-const dbPath = path.join(dbDir, 'admin_portal.sqlite');
-const db = new sqlite3.Database(dbPath, (err) => {
-    if (err) {
-        console.error('[DB] Could not connect to database:', err.message);
-    } else {
-        db.run(`
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            role TEXT DEFAULT 'Admin',
-            brand_id INTEGER,
-            partner_id INTEGER,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (brand_id) REFERENCES brands(id),
-            FOREIGN KEY (partner_id) REFERENCES partners(id)
-        )
-    `, (err) => {
-        // Migration: Add brand_id to existing users table if missing
-        db.run("ALTER TABLE users ADD COLUMN brand_id INTEGER", (err) => {
-            if (err && !err.message.includes('duplicate column name')) {
-                console.error('[DB] Migration Error (users.brand_id):', err.message);
-            }
-        });
-        
-        // Migration: Add partner_id to existing users table if missing
-        db.run("ALTER TABLE users ADD COLUMN partner_id INTEGER", (err) => {
-            if (err && !err.message.includes('duplicate column name')) {
-                console.error('[DB] Migration Error (users.partner_id):', err.message);
-            }
-        });
-        
-        if (err) console.error('[DB] Users Table Error:', err.message);
-        else {
-            // Insert default super admin if none exists
-            db.get('SELECT COUNT(*) as c FROM users', (e, row) => {
-                if (!e && row.c === 0) {
-                    const bcrypt = require('bcryptjs');
-                    const hash = bcrypt.hashSync('admin123', 10);
-                    db.run("INSERT INTO users (username, password_hash, role) VALUES ('admin', ?, 'SuperAdmin')", [hash]);
-                    console.log('[DB] Created default user: admin / admin123');
-                }
-            });
-        }
-    });
+// Automatically init the schema on load
+initSchema();
 
-    console.log('[DB] Connected to SQLite database at', dbPath);
-    }
-});
+/**
+ * SQLite Translation layer for MySQL code compatibility.
+ */
+const transformSql = (sql) => {
+    // MySQL uses REPLACE INTO instead of INSERT OR REPLACE INTO
+    let result = sql.replace(/INSERT OR REPLACE INTO/gi, 'REPLACE INTO');
+    result = result.replace(/INSERT OR IGNORE INTO/gi, 'INSERT IGNORE INTO');
+    return result;
+};
 
-// Initialize Schema
-db.serialize(() => {
-    // BRANDS TABLE
-    db.run(`CREATE TABLE IF NOT EXISTS brands (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        industry TEXT,
-        contact_person TEXT,
-        email TEXT,
-        phone TEXT,
-        status TEXT DEFAULT 'Pending',
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`);
+const dbRun = async (sql, params = []) => {
+    const p = await getPool();
+    if (!p) throw new Error('Database not connected');
+    const [result] = await p.query(transformSql(sql), params);
+    return { id: result.insertId, changes: result.affectedRows };
+};
 
-    // PARTNERS TABLE
-    db.run(`CREATE TABLE IF NOT EXISTS partners (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        company TEXT,
-        city TEXT,
-        email TEXT,
-        phone TEXT,
-        status TEXT DEFAULT 'Pending',
-        revenue_share_percentage INTEGER DEFAULT 50,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`);
+const dbAll = async (sql, params = []) => {
+    const p = await getPool();
+    if (!p) throw new Error('Database not connected');
+    const [rows] = await p.query(transformSql(sql), params);
+    return rows;
+};
 
-    // INVOICES TABLE
-    db.run(`CREATE TABLE IF NOT EXISTS invoices (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        invoice_number TEXT NOT NULL UNIQUE,
-        brand_id INTEGER,
-        amount DECIMAL(10,2) NOT NULL,
-        status TEXT DEFAULT 'Pending',
-        due_date DATE,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (brand_id) REFERENCES brands(id)
-    )`);
-
-    // SCREEN ASSIGNMENTS (Linking Screens to Partners)
-    // displayId matches Xibo displayId
-    db.run(`CREATE TABLE IF NOT EXISTS screen_partners (
-        displayId INTEGER PRIMARY KEY,
-        partner_id INTEGER,
-        FOREIGN KEY (partner_id) REFERENCES partners(id)
-    )`);
-
-    // SLOTS TABLE (Phase 4: Dedicated Screen Slots)
-    db.run(`CREATE TABLE IF NOT EXISTS slots (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        displayId INTEGER NOT NULL,
-        slot_number INTEGER NOT NULL,
-        brand_id INTEGER,
-        status TEXT DEFAULT 'Available',
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(displayId, slot_number),
-        FOREIGN KEY (brand_id) REFERENCES brands(id)
-    )`);
-
-    // MEDIA TO BRAND MAPPING (Phase 4.1: Slot-level PoP Tracking)
-    db.run(`CREATE TABLE IF NOT EXISTS media_brands (
-        mediaId INTEGER PRIMARY KEY,
-        brand_id INTEGER,
-        FOREIGN KEY (brand_id) REFERENCES brands(id)
-    )`);
-
-    // LOCAL SCREENS TABLE
-    // Allows admins to create/manage screen records independently of Xibo.
-    // xibo_display_id can be set later once the player connects and registers.
-    db.run(`CREATE TABLE IF NOT EXISTS screens (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        city TEXT,
-        address TEXT,
-        latitude REAL,
-        longitude REAL,
-        timezone TEXT DEFAULT 'Asia/Kolkata',
-        partner_id INTEGER,
-        xibo_display_id INTEGER,
-        xibo_display_group_id INTEGER,
-        status TEXT DEFAULT 'Pending',
-        notes TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (partner_id) REFERENCES partners(id)
-    )`);
-});
-
-// Wrapper to use Promises with sqlite3
-const dbRun = (sql, params = []) => new Promise((resolve, reject) => {
-    db.run(sql, params, function (err) {
-        if (err) reject(err);
-        else resolve({ id: this.lastID, changes: this.changes });
-    });
-});
-
-const dbAll = (sql, params = []) => new Promise((resolve, reject) => {
-    db.all(sql, params, (err, rows) => {
-        if (err) reject(err);
-        else resolve(rows);
-    });
-});
-
-const dbGet = (sql, params = []) => new Promise((resolve, reject) => {
-    db.get(sql, params, (err, row) => {
-        if (err) reject(err);
-        else resolve(row);
-    });
-});
+const dbGet = async (sql, params = []) => {
+    const p = await getPool();
+    if (!p) throw new Error('Database not connected');
+    const [rows] = await p.query(transformSql(sql), params);
+    return rows.length > 0 ? rows[0] : undefined;
+};
 
 module.exports = {
-    db,
+    db: {
+        getPool // exported in case of direct access needs
+    },
     dbRun,
     dbAll,
     dbGet

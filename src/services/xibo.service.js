@@ -60,7 +60,14 @@ class XiboService {
    */
   async getDisplays(params = {}) {
     const headers = await this.getHeaders();
-    const resp = await axios.get(`${this.baseUrl}/api/display`, { headers, params });
+    // --- PIPELINE FIX: Ensure recording permissions are always visible ---
+    const finalParams = { ...params };
+    const currentEmbed = (finalParams.embed || '').split(',').filter(Boolean);
+    if (!currentEmbed.includes('statsEnabled')) currentEmbed.push('statsEnabled');
+    if (!currentEmbed.includes('auditUntil')) currentEmbed.push('auditUntil');
+    finalParams.embed = currentEmbed.join(',');
+
+    const resp = await axios.get(`${this.baseUrl}/api/display`, { headers, params: finalParams });
     return resp.data;
   }
 
@@ -84,16 +91,22 @@ class XiboService {
         'orientation', 'resolution', 'clientAddress', 'lastReported', 
         'version', 'isHardwareKeyValidated', 'screenShotModifiedDt',
         'overrideConfig', 'bandwidthLimit', 'bandwidthLimitFormatted',
-        'createdDt', 'modifiedDt', 'folderId', 'permissionsFolderId', 'auditingUntil'
+        'createdDt', 'modifiedDt', 'folderId', 'permissionsFolderId',
+        'auditingUntil', 'statsEnabled'
       ]);
       
-      for (const [key, value] of Object.entries(display)) {
+      // --- PIPELINE FIX: Ensure new fields like statsEnabled are always included ---
+      const allKeys = new Set([...Object.keys(display), ...Object.keys(updates)]);
+      
+      for (const key of allKeys) {
         if (skipFields.has(key)) continue;
-        const val = updates.hasOwnProperty(key) ? updates[key] : value;
-        if (key === 'display') {
-          params.append('name', val);
-          params.append('display', val);
-          continue;
+        const val = updates.hasOwnProperty(key) ? updates[key] : display[key];
+        
+        if (key === 'display' || key === 'name') {
+           if (!params.has('display')) {
+             params.append('display', updates.display || updates.name || display.display || display.name);
+           }
+           continue;
         }
         if (val !== null && val !== undefined) {
           params.append(key, val);
@@ -260,6 +273,28 @@ class XiboService {
   }
 
   /**
+   * Fetch all layouts from Xibo.
+   * @param {Object} params
+   * @returns {Promise<Array>}
+   */
+  async getLayouts(params = {}) {
+    const headers = await this.getHeaders();
+    const resp = await axios.get(`${this.baseUrl}/api/layout`, { headers, params });
+    return resp.data;
+  }
+
+  /**
+   * Fetch all schedules from Xibo.
+   * @param {Object} params
+   * @returns {Promise<Array>}
+   */
+  async getSchedules(params = {}) {
+    const headers = await this.getHeaders();
+    const resp = await axios.get(`${this.baseUrl}/api/schedule`, { headers, params });
+    return resp.data;
+  }
+
+  /**
    * Enable or disable stats collection for a media file or layout.
    * @param {string} type - 'media' or 'layout'
    * @param {number} id - Xibo internal ID.
@@ -285,6 +320,60 @@ class XiboService {
         console.error(`[XiboService] Failed to set stats for ${type} ID ${id}:`, err.response?.data || err.message);
       }
     }
+  }
+
+  /**
+   * Force a display to send its current playback statistics to the CMS immediately via XMR.
+   * @param {number} displayId
+   * @returns {Promise<boolean>}
+   */
+  async forceCollectDisplayStats(displayId) {
+    try {
+      const headers = await this.getHeaders();
+      await axios.post(`${this.baseUrl}/api/display/${displayId}/command/collect_stats`, {}, { headers });
+      console.log(`[XiboService] Sent Collect Stats command to display ${displayId}`);
+      return true;
+    } catch (err) {
+      console.error(`[XiboService] Failed to force stats collection for ${displayId}:`, err.message);
+      return false;
+    }
+  }
+
+  /**
+   * Verified PoP: Ensures the Xibo Statistics Aggregation background task is enabled.
+   * This task moves hits from raw logs into aggregated media reports.
+   */
+  async verifyGlobalStatsTask() {
+    try {
+      const headers = await this.getHeaders();
+      const tasksRes = await axios.get(`${this.baseUrl}/api/task?length=200`, { headers });
+      const tasks = tasksRes.data || [];
+      const aggregationTask = tasks.find(t => t.name?.includes('Aggregation') || t.class?.includes('Aggregation'));
+      
+      if (!aggregationTask) {
+        console.warn('[XiboService] Aggregation task NOT FOUND in Xibo CMS.');
+        return;
+      }
+
+      if (aggregationTask.isActive !== 1) {
+        console.log(`[XiboService] PoP RESTORE: Enabling Xibo Aggregation Task (${aggregationTask.taskId})...`);
+        const params = new URLSearchParams();
+        params.append('isActive', '1');
+        params.append('schedule', '*/5 * * * *'); // Every 5 minutes for real-time aggregation
+        await axios.put(`${this.baseUrl}/api/task/${aggregationTask.taskId}`, params, {
+          headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' }
+        });
+      }
+    } catch (err) {
+      console.error('[XiboService] Failed to verify global stats task:', err.message);
+    }
+  }
+
+  /**
+   * Helper: Directly update display auditing window.
+   */
+  async updateDisplayAuditing(displayId, auditingUntil) {
+    return await this.updateDisplay(displayId, { statsEnabled: 1, auditUntil: auditingUntil });
   }
 }
 

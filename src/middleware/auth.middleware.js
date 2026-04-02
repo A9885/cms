@@ -17,10 +17,26 @@ if (!JWT_SECRET) {
  * @param {import('express').NextFunction} next 
  */
 const authMiddleware = (req, res, next) => {
-    // Check cookies or Authorization header
-    const token = req.cookies?.token || (req.headers.authorization?.startsWith('Bearer ') 
-        ? req.headers.authorization.split(' ')[1] 
-        : null);
+    // 1. Identify which portal we are currently accessing (using originalUrl)
+    const isBrandPath = req.originalUrl.includes('brandportal');
+    const isPartnerPath = req.originalUrl.includes('partnerportal');
+    const isAdminPath = req.originalUrl.includes('admin');
+
+    // 2. Select the primary cookie based on the path
+    let primaryToken = null;
+    if (isAdminPath) primaryToken = req.cookies?.admin_token;
+    else if (isBrandPath) primaryToken = req.cookies?.brand_token;
+    else if (isPartnerPath) primaryToken = req.cookies?.partner_token;
+
+    // 3. Fallback to others if primary isn't found (allowing SuperAdmin cross-access)
+    const token = primaryToken || 
+                  req.cookies?.admin_token || 
+                  req.cookies?.brand_token || 
+                  req.cookies?.partner_token || 
+                  req.cookies?.token ||
+                  (req.headers.authorization?.startsWith('Bearer ') 
+                      ? req.headers.authorization.split(' ')[1] 
+                      : null);
 
     if (!token) {
         return res.status(401).json({ error: 'Unauthorized. Please login.' });

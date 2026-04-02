@@ -1,0 +1,1025 @@
+{
+  "timestamp": "2026-04-01T10:39:58.656Z",
+  "pass": 112,
+  "fail": 0,
+  "warn": 19,
+  "summary": {
+    "xibo": "https://signt.signcdn.com",
+    "backend": "http://localhost:3000"
+  },
+  "results": [
+    {
+      "s": "pass",
+      "label": "XIBO_CLIENT_ID set",
+      "detail": "1cae8c3c…"
+    },
+    {
+      "s": "pass",
+      "label": "XIBO_CLIENT_SECRET set",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "XIBO_BASE_URL set",
+      "detail": "https://signt.signcdn.com"
+    },
+    {
+      "s": "pass",
+      "label": "SCREEN_1_PLAYLIST_ID set",
+      "detail": "5"
+    },
+    {
+      "s": "pass",
+      "label": "SCREEN_2_PLAYLIST_ID set",
+      "detail": "6"
+    },
+    {
+      "s": "warn",
+      "label": "PLACEHOLDER_MEDIA_ID is default \"1\" — verify exists",
+      "detail": ""
+    },
+    {
+      "s": "warn",
+      "label": "JWT_SECRET is insecure fallback — change for production",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "URL configured",
+      "detail": "http://localhost:3000"
+    },
+    {
+      "s": "pass",
+      "label": "URL configured",
+      "detail": "http://localhost:3000"
+    },
+    {
+      "s": "pass",
+      "label": "URL configured",
+      "detail": "http://localhost:3000"
+    },
+    {
+      "s": "pass",
+      "label": "URL configured",
+      "detail": "http://localhost:3000"
+    },
+    {
+      "s": "pass",
+      "label": "URL configured",
+      "detail": "http://localhost:3000"
+    },
+    {
+      "s": "pass",
+      "label": "OAuth2 token acquired",
+      "detail": "expires_in=3600s"
+    },
+    {
+      "s": "pass",
+      "label": "Token type Bearer",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "Displays reachable",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "1 display(s) found",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "Playlists reachable",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "10 playlist(s) found",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "SCREEN_1 playlist ID=5 exists",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "SCREEN_2 playlist ID=6 exists",
+      "detail": ""
+    },
+    {
+      "s": "warn",
+      "label": "Media library → 500",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "Layouts reachable",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "1 layout(s)",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "1 published layout(s)",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "Schedules reachable",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "1 schedule(s) active",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "Stats / Proof of Play reachable",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "10 PoP record(s)",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "\"HYD-MALL-01\" licensed",
+      "detail": ""
+    },
+    {
+      "s": "warn",
+      "label": "\"HYD-MALL-01\" offline — check network/player",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "\"HYD-MALL-01\" media synced",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "Health check",
+      "detail": "/health → 200"
+    },
+    {
+      "s": "pass",
+      "label": "API health",
+      "detail": "/api/health → 200"
+    },
+    {
+      "s": "pass",
+      "label": "Status",
+      "detail": "/api/status → 200"
+    },
+    {
+      "s": "pass",
+      "label": "Displays proxy",
+      "detail": "/api/displays → 200"
+    },
+    {
+      "s": "pass",
+      "label": "Playlists proxy",
+      "detail": "/api/playlists → 200"
+    },
+    {
+      "s": "pass",
+      "label": "Media proxy",
+      "detail": "/api/media → 200"
+    },
+    {
+      "s": "pass",
+      "label": "Layouts proxy",
+      "detail": "/api/layouts → 200"
+    },
+    {
+      "s": "pass",
+      "label": "Schedule proxy",
+      "detail": "/api/schedule → 200"
+    },
+    {
+      "s": "pass",
+      "label": "Campaigns",
+      "detail": "/api/campaigns → 200"
+    },
+    {
+      "s": "pass",
+      "label": "Brands mgmt",
+      "detail": "/api/brands → 200"
+    },
+    {
+      "s": "pass",
+      "label": "Partners mgmt",
+      "detail": "/api/partners → 200"
+    },
+    {
+      "s": "pass",
+      "label": "Analytics",
+      "detail": "/api/analytics → 200"
+    },
+    {
+      "s": "pass",
+      "label": "Billing",
+      "detail": "/api/billing → 200"
+    },
+    {
+      "s": "pass",
+      "label": "Creative library",
+      "detail": "/api/creative → 200"
+    },
+    {
+      "s": "pass",
+      "label": "Proof of Play stats",
+      "detail": "/api/stats → 200"
+    },
+    {
+      "s": "pass",
+      "label": "PoP endpoint (alt)",
+      "detail": "/api/proof-of-play → 200"
+    },
+    {
+      "s": "pass",
+      "label": "Operators (fleet)",
+      "detail": "/api/operators → 200"
+    },
+    {
+      "s": "pass",
+      "label": "Vehicles",
+      "detail": "/api/vehicles → 200"
+    },
+    {
+      "s": "pass",
+      "label": "Depots",
+      "detail": "/api/depots → 200"
+    },
+    {
+      "s": "pass",
+      "label": "GPS data",
+      "detail": "/api/gps → 200"
+    },
+    {
+      "s": "pass",
+      "label": "Alerts",
+      "detail": "/api/alerts → 200"
+    },
+    {
+      "s": "pass",
+      "label": "Maintenance logs",
+      "detail": "/api/maintenance → 200"
+    },
+    {
+      "s": "pass",
+      "label": "Web App reachable",
+      "detail": "→ 302"
+    },
+    {
+      "s": "warn",
+      "label": "Web App content-type: text/plain; charset=utf-8",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "Admin Portal reachable",
+      "detail": "→ 302"
+    },
+    {
+      "s": "warn",
+      "label": "Admin Portal content-type: text/plain; charset=utf-8",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "Brand Portal reachable",
+      "detail": "→ 302"
+    },
+    {
+      "s": "warn",
+      "label": "Brand Portal content-type: text/plain; charset=utf-8",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "Partner Portal reachable",
+      "detail": "→ 302"
+    },
+    {
+      "s": "warn",
+      "label": "Partner Portal content-type: text/plain; charset=utf-8",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "Auth route exists at /auth/login",
+      "detail": "→ 401"
+    },
+    {
+      "s": "warn",
+      "label": "/api/displays publicly accessible — add JWT middleware",
+      "detail": ""
+    },
+    {
+      "s": "warn",
+      "label": "/api/campaigns publicly accessible — add JWT middleware",
+      "detail": ""
+    },
+    {
+      "s": "warn",
+      "label": "/api/brands publicly accessible — add JWT middleware",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "Dashboard KPI endpoint",
+      "detail": "/api/analytics/kpi"
+    },
+    {
+      "s": "pass",
+      "label": "Daily ad plays chart",
+      "detail": "/api/analytics/daily-plays"
+    },
+    {
+      "s": "pass",
+      "label": "Screen utilisation chart",
+      "detail": "/api/analytics/utilisation"
+    },
+    {
+      "s": "pass",
+      "label": "Revenue trend",
+      "detail": "/api/analytics/revenue"
+    },
+    {
+      "s": "pass",
+      "label": "Recent alerts endpoint",
+      "detail": "/api/alerts"
+    },
+    {
+      "s": "pass",
+      "label": "Screens list",
+      "detail": "/api/screens"
+    },
+    {
+      "s": "warn",
+      "label": "Add screen (should be POST) NOT FOUND",
+      "detail": "/api/screens/add"
+    },
+    {
+      "s": "pass",
+      "label": "Brands list",
+      "detail": "/api/brands"
+    },
+    {
+      "s": "warn",
+      "label": "Brand approval action NOT FOUND",
+      "detail": "/api/brands/approve"
+    },
+    {
+      "s": "pass",
+      "label": "Partners list",
+      "detail": "/api/partners"
+    },
+    {
+      "s": "warn",
+      "label": "Partner earnings NOT FOUND",
+      "detail": "/api/partners/earnings"
+    },
+    {
+      "s": "pass",
+      "label": "Campaigns list",
+      "detail": "/api/campaigns"
+    },
+    {
+      "s": "warn",
+      "label": "Create campaign NOT FOUND",
+      "detail": "/api/campaigns/create"
+    },
+    {
+      "s": "pass",
+      "label": "Ad slot management",
+      "detail": "/api/slots"
+    },
+    {
+      "s": "pass",
+      "label": "Creative library",
+      "detail": "/api/creatives"
+    },
+    {
+      "s": "pass",
+      "label": "Invoices",
+      "detail": "/api/invoices"
+    },
+    {
+      "s": "pass",
+      "label": "Payments",
+      "detail": "/api/payments"
+    },
+    {
+      "s": "warn",
+      "label": "Screen health monitor NOT FOUND",
+      "detail": "/api/screens/health"
+    },
+    {
+      "s": "warn",
+      "label": "User management NOT FOUND",
+      "detail": "/api/users"
+    },
+    {
+      "s": "warn",
+      "label": "Role management NOT FOUND",
+      "detail": "/api/roles"
+    },
+    {
+      "s": "pass",
+      "label": "Brand dashboard",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "Brand screen list",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "Screen coverage map",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "Live screen playback",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "Proof of play reports",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "Report download",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "Subscription details",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "Invoice history",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "Support / issue submit",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "Estimated reach forecast",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "Partner dashboard",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "Partner screen list",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "Earnings report",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "Slot availability",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "Support tickets",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "Partner profile",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "Payment details",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "Revenue calculation",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "Operator registration",
+      "detail": "/api/operators"
+    },
+    {
+      "s": "pass",
+      "label": "Depot management",
+      "detail": "/api/depots"
+    },
+    {
+      "s": "pass",
+      "label": "Vehicle registration",
+      "detail": "/api/vehicles"
+    },
+    {
+      "s": "warn",
+      "label": "Screen-to-vehicle assignment NOT FOUND",
+      "detail": "/api/screens/assign"
+    },
+    {
+      "s": "pass",
+      "label": "GPS device registry",
+      "detail": "/api/gps/devices"
+    },
+    {
+      "s": "pass",
+      "label": "Fleet overview dashboard",
+      "detail": "/api/operator/fleet-overview"
+    },
+    {
+      "s": "pass",
+      "label": "Real-time bus location map",
+      "detail": "/api/operator/bus-map"
+    },
+    {
+      "s": "pass",
+      "label": "Screen uptime %",
+      "detail": "/api/operator/uptime"
+    },
+    {
+      "s": "pass",
+      "label": "Campaigns on fleet",
+      "detail": "/api/operator/campaigns"
+    },
+    {
+      "s": "pass",
+      "label": "Fleet revenue summary",
+      "detail": "/api/operator/revenue"
+    },
+    {
+      "s": "pass",
+      "label": "Depot bus count",
+      "detail": "/api/depot/buses"
+    },
+    {
+      "s": "pass",
+      "label": "Screen status by bus",
+      "detail": "/api/depot/screen-status"
+    },
+    {
+      "s": "pass",
+      "label": "Daily health report export",
+      "detail": "/api/depot/health-report"
+    },
+    {
+      "s": "pass",
+      "label": "Assigned buses/screens",
+      "detail": "/api/tech/assigned"
+    },
+    {
+      "s": "pass",
+      "label": "Log maintenance event",
+      "detail": "/api/tech/maintenance/log"
+    },
+    {
+      "s": "pass",
+      "label": "Close maintenance ticket",
+      "detail": "/api/tech/maintenance/close"
+    },
+    {
+      "s": "pass",
+      "label": "GPS ping ingestion",
+      "detail": "/api/gps/pings"
+    },
+    {
+      "s": "pass",
+      "label": "Playback geo-attribution",
+      "detail": "/api/gps/attribution"
+    },
+    {
+      "s": "pass",
+      "label": "Proof of play ingestion",
+      "detail": "/api/telemetry/pop"
+    },
+    {
+      "s": "pass",
+      "label": "Screen offline alerts",
+      "detail": "/api/alerts/offline"
+    },
+    {
+      "s": "pass",
+      "label": "GPS not reporting alerts",
+      "detail": "/api/alerts/gps"
+    },
+    {
+      "s": "pass",
+      "label": "Playback mismatch alerts",
+      "detail": "/api/alerts/mismatch"
+    },
+    {
+      "s": "pass",
+      "label": "Xibo /api/stats reachable",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "10 play record(s) found in Xibo",
+      "detail": ""
+    },
+    {
+      "s": "pass",
+      "label": "Sample record",
+      "detail": "display=\"1\" media=\"4\""
+    },
+    {
+      "s": "pass",
+      "label": "Brand Portal has PoP route at /api/stats",
+      "detail": "→ 200"
+    },
+    {
+      "s": "pass",
+      "label": "Partner Portal has PoP route at /api/stats",
+      "detail": "→ 200"
+    },
+    {
+      "s": "pass",
+      "label": "Geo-attribution endpoint exists",
+      "detail": ""
+    }
+  ],
+  "playlists": [
+    {
+      "playlistId": 5,
+      "ownerId": 2,
+      "name": "Screen 1",
+      "regionId": 0,
+      "isDynamic": 0,
+      "filterMediaName": null,
+      "filterMediaNameLogicalOperator": "OR",
+      "filterMediaTags": null,
+      "filterExactTags": 0,
+      "filterMediaTagsLogicalOperator": "OR",
+      "filterFolderId": 0,
+      "maxNumberOfItems": 0,
+      "createdDt": "2026-03-30 16:00:54",
+      "modifiedDt": "2026-03-30 16:05:29",
+      "duration": 0,
+      "requiresDurationUpdate": 0,
+      "enableStat": "Inherit",
+      "tags": [],
+      "widgets": [],
+      "permissions": [],
+      "tempId": null,
+      "owner": "signt",
+      "groupsWithPermissions": null,
+      "folderId": 1,
+      "permissionsFolderId": 1
+    },
+    {
+      "playlistId": 6,
+      "ownerId": 2,
+      "name": "Screen 2",
+      "regionId": 0,
+      "isDynamic": 0,
+      "filterMediaName": null,
+      "filterMediaNameLogicalOperator": "OR",
+      "filterMediaTags": null,
+      "filterExactTags": 0,
+      "filterMediaTagsLogicalOperator": "OR",
+      "filterFolderId": 0,
+      "maxNumberOfItems": 0,
+      "createdDt": "2026-03-30 16:02:07",
+      "modifiedDt": "2026-03-30 16:05:29",
+      "duration": 0,
+      "requiresDurationUpdate": 0,
+      "enableStat": "Inherit",
+      "tags": [],
+      "widgets": [],
+      "permissions": [],
+      "tempId": null,
+      "owner": "signt",
+      "groupsWithPermissions": null,
+      "folderId": 1,
+      "permissionsFolderId": 1
+    },
+    {
+      "playlistId": 8,
+      "ownerId": 1,
+      "name": "SCREEN_1_MAIN_LOOP",
+      "regionId": 0,
+      "isDynamic": 0,
+      "filterMediaName": null,
+      "filterMediaNameLogicalOperator": "OR",
+      "filterMediaTags": null,
+      "filterExactTags": 0,
+      "filterMediaTagsLogicalOperator": "OR",
+      "filterFolderId": 0,
+      "maxNumberOfItems": 0,
+      "createdDt": "2026-03-31 04:17:47",
+      "modifiedDt": "2026-03-31 07:10:26",
+      "duration": 30,
+      "requiresDurationUpdate": 0,
+      "enableStat": null,
+      "tags": [],
+      "widgets": [],
+      "permissions": [],
+      "tempId": null,
+      "owner": "xibo_admin",
+      "groupsWithPermissions": null,
+      "folderId": 1,
+      "permissionsFolderId": 1
+    },
+    {
+      "playlistId": 7,
+      "ownerId": 1,
+      "name": "SCREEN_1_SLOT_1_PLAYLIST",
+      "regionId": 0,
+      "isDynamic": 0,
+      "filterMediaName": null,
+      "filterMediaNameLogicalOperator": "OR",
+      "filterMediaTags": null,
+      "filterExactTags": 0,
+      "filterMediaTagsLogicalOperator": "OR",
+      "filterFolderId": 0,
+      "maxNumberOfItems": 0,
+      "createdDt": "2026-03-31 04:17:43",
+      "modifiedDt": "2026-03-31 07:15:31",
+      "duration": 10,
+      "requiresDurationUpdate": 0,
+      "enableStat": null,
+      "tags": [],
+      "widgets": [],
+      "permissions": [],
+      "tempId": null,
+      "owner": "xibo_admin",
+      "groupsWithPermissions": null,
+      "folderId": 1,
+      "permissionsFolderId": 1
+    },
+    {
+      "playlistId": 21,
+      "ownerId": 1,
+      "name": "SCREEN_1_SLOT_10_PLAYLIST",
+      "regionId": 0,
+      "isDynamic": 0,
+      "filterMediaName": null,
+      "filterMediaNameLogicalOperator": "OR",
+      "filterMediaTags": null,
+      "filterExactTags": 0,
+      "filterMediaTagsLogicalOperator": "OR",
+      "filterFolderId": 0,
+      "maxNumberOfItems": 0,
+      "createdDt": "2026-03-31 04:20:24",
+      "modifiedDt": "2026-03-31 04:25:25",
+      "duration": 0,
+      "requiresDurationUpdate": 0,
+      "enableStat": null,
+      "tags": [],
+      "widgets": [],
+      "permissions": [],
+      "tempId": null,
+      "owner": "xibo_admin",
+      "groupsWithPermissions": null,
+      "folderId": 1,
+      "permissionsFolderId": 1
+    },
+    {
+      "playlistId": 15,
+      "ownerId": 1,
+      "name": "SCREEN_1_SLOT_11_PLAYLIST",
+      "regionId": 0,
+      "isDynamic": 0,
+      "filterMediaName": null,
+      "filterMediaNameLogicalOperator": "OR",
+      "filterMediaTags": null,
+      "filterExactTags": 0,
+      "filterMediaTagsLogicalOperator": "OR",
+      "filterFolderId": 0,
+      "maxNumberOfItems": 0,
+      "createdDt": "2026-03-31 04:17:49",
+      "modifiedDt": "2026-03-31 04:20:24",
+      "duration": 0,
+      "requiresDurationUpdate": 0,
+      "enableStat": null,
+      "tags": [],
+      "widgets": [],
+      "permissions": [],
+      "tempId": null,
+      "owner": "xibo_admin",
+      "groupsWithPermissions": null,
+      "folderId": 1,
+      "permissionsFolderId": 1
+    },
+    {
+      "playlistId": 19,
+      "ownerId": 1,
+      "name": "SCREEN_1_SLOT_12_PLAYLIST",
+      "regionId": 0,
+      "isDynamic": 0,
+      "filterMediaName": null,
+      "filterMediaNameLogicalOperator": "OR",
+      "filterMediaTags": null,
+      "filterExactTags": 0,
+      "filterMediaTagsLogicalOperator": "OR",
+      "filterFolderId": 0,
+      "maxNumberOfItems": 0,
+      "createdDt": "2026-03-31 04:17:49",
+      "modifiedDt": "2026-03-31 04:20:24",
+      "duration": 0,
+      "requiresDurationUpdate": 0,
+      "enableStat": null,
+      "tags": [],
+      "widgets": [],
+      "permissions": [],
+      "tempId": null,
+      "owner": "xibo_admin",
+      "groupsWithPermissions": null,
+      "folderId": 1,
+      "permissionsFolderId": 1
+    },
+    {
+      "playlistId": 25,
+      "ownerId": 1,
+      "name": "SCREEN_1_SLOT_13_PLAYLIST",
+      "regionId": 0,
+      "isDynamic": 0,
+      "filterMediaName": null,
+      "filterMediaNameLogicalOperator": "OR",
+      "filterMediaTags": null,
+      "filterExactTags": 0,
+      "filterMediaTagsLogicalOperator": "OR",
+      "filterFolderId": 0,
+      "maxNumberOfItems": 0,
+      "createdDt": "2026-03-31 04:20:24",
+      "modifiedDt": "2026-03-31 04:25:25",
+      "duration": 0,
+      "requiresDurationUpdate": 0,
+      "enableStat": null,
+      "tags": [],
+      "widgets": [],
+      "permissions": [],
+      "tempId": null,
+      "owner": "xibo_admin",
+      "groupsWithPermissions": null,
+      "folderId": 1,
+      "permissionsFolderId": 1
+    },
+    {
+      "playlistId": 17,
+      "ownerId": 1,
+      "name": "SCREEN_1_SLOT_14_PLAYLIST",
+      "regionId": 0,
+      "isDynamic": 0,
+      "filterMediaName": null,
+      "filterMediaNameLogicalOperator": "OR",
+      "filterMediaTags": null,
+      "filterExactTags": 0,
+      "filterMediaTagsLogicalOperator": "OR",
+      "filterFolderId": 0,
+      "maxNumberOfItems": 0,
+      "createdDt": "2026-03-31 04:17:49",
+      "modifiedDt": "2026-03-31 04:20:24",
+      "duration": 0,
+      "requiresDurationUpdate": 0,
+      "enableStat": null,
+      "tags": [],
+      "widgets": [],
+      "permissions": [],
+      "tempId": null,
+      "owner": "xibo_admin",
+      "groupsWithPermissions": null,
+      "folderId": 1,
+      "permissionsFolderId": 1
+    },
+    {
+      "playlistId": 18,
+      "ownerId": 1,
+      "name": "SCREEN_1_SLOT_15_PLAYLIST",
+      "regionId": 0,
+      "isDynamic": 0,
+      "filterMediaName": null,
+      "filterMediaNameLogicalOperator": "OR",
+      "filterMediaTags": null,
+      "filterExactTags": 0,
+      "filterMediaTagsLogicalOperator": "OR",
+      "filterFolderId": 0,
+      "maxNumberOfItems": 0,
+      "createdDt": "2026-03-31 04:17:49",
+      "modifiedDt": "2026-03-31 04:20:24",
+      "duration": 0,
+      "requiresDurationUpdate": 0,
+      "enableStat": null,
+      "tags": [],
+      "widgets": [],
+      "permissions": [],
+      "tempId": null,
+      "owner": "xibo_admin",
+      "groupsWithPermissions": null,
+      "folderId": 1,
+      "permissionsFolderId": 1
+    }
+  ],
+  "displays": [
+    {
+      "displayId": 1,
+      "displayTypeId": 0,
+      "venueId": 0,
+      "address": "Hyderabad, Telangana, India",
+      "isMobile": 0,
+      "languages": null,
+      "displayType": null,
+      "screenSize": null,
+      "isOutdoor": 0,
+      "customId": "",
+      "costPerPlay": null,
+      "impressionsPerPlay": null,
+      "ref1": null,
+      "ref2": null,
+      "ref3": null,
+      "ref4": null,
+      "ref5": null,
+      "auditingUntil": 0,
+      "display": "HYD-MALL-01",
+      "description": null,
+      "defaultLayoutId": 1,
+      "license": "7ae2fbd8-1a9e-3208-ad96-2c60e804fe88",
+      "licensed": 1,
+      "loggedIn": 0,
+      "lastAccessed": "2026-04-01 06:08:32",
+      "incSchedule": 0,
+      "emailAlert": 0,
+      "alertTimeout": 0,
+      "clientAddress": "122.177.241.193",
+      "mediaInventoryStatus": 1,
+      "macAddress": "",
+      "lastChanged": 0,
+      "numberOfMacAddressChanges": 0,
+      "lastWakeOnLanCommandSent": 0,
+      "wakeOnLanEnabled": 0,
+      "wakeOnLanTime": null,
+      "broadCastAddress": null,
+      "secureOn": null,
+      "cidr": null,
+      "latitude": 17.33872608,
+      "longitude": 78.38209052,
+      "clientType": "android",
+      "clientVersion": "4",
+      "clientCode": 408,
+      "displayProfileId": 2,
+      "currentLayoutId": null,
+      "screenShotRequested": 1,
+      "storageAvailableSpace": 25784573952,
+      "storageTotalSpace": 109810085888,
+      "displayGroupId": 1,
+      "currentLayout": null,
+      "defaultLayout": "Default Layout",
+      "xmrChannel": "9494d4c827ecd2b6319ad4567e50c295",
+      "xmrPubKey": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAoB0eKbOVFekeUiO/LxmQcf2hU8dhANi1\nrw4NeueFdaEgDC8k8tXD4O3zShfDcgTSb3Ii9owddbGnJ8IhXWLpzzreYlGh0PD0CwKC3lTLZeVc\nRDIcp/IOmOA6yY+NBm+Y5OdflxUZtn7d4XY8OllkbY8w6DJkpBr6uk0VKUm7k+kHabPUjUKqZK59\nsUOtFGR0fFbwMm1we7n8EQ+ASyfV+cxTq95c003OPDwaTjVuZw04l3M/iix9p4iRWP7JkoF7c2Iq\nib9H3JKxSzBKstGWpoM7SGZzQbpfVgdIFPxVbI+v43jp+EU0K2F6bT++26cYmJRKSPKH39xU1se4\n1dRV1wIDAQAB\n-----END PUBLIC KEY-----\n",
+      "lastCommandSuccess": 0,
+      "deviceName": "",
+      "timeZone": "Asia/Kolkata",
+      "tags": [],
+      "overrideConfig": [],
+      "bandwidthLimit": 0,
+      "newCmsAddress": null,
+      "newCmsKey": null,
+      "orientation": "landscape",
+      "resolution": "2412x1080",
+      "commercialLicence": 2,
+      "teamViewerSerial": null,
+      "webkeySerial": null,
+      "groupsWithPermissions": null,
+      "createdDt": "2026-03-31 03:50:18",
+      "modifiedDt": "2026-04-01 06:18:21",
+      "folderId": 1,
+      "permissionsFolderId": 1,
+      "countFaults": 0,
+      "lanIpAddress": "192.168.1.5",
+      "syncGroupId": 0,
+      "osVersion": "15",
+      "osSdk": "35",
+      "manufacturer": "OnePlus",
+      "brand": "OnePlus",
+      "model": "CPH2569",
+      "currentMacAddress": "",
+      "bandwidthLimitFormatted": 0
+    }
+  ]
+}

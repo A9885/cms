@@ -1,7 +1,7 @@
 /**
  * Inventory View — Embedded Proof of Play Analytics
- * Screens → Slots → PoP history, with automatic 5-minute data refresh
- * and background force-sync-all every 5 minutes to ensure data is always current.
+ * Screens → Slots → PoP history, with automatic 1-minute data refresh
+ * and background force-sync-all every 1 minute to ensure data is always current.
  */
 App.registerView('inventory', {
 
@@ -158,7 +158,7 @@ App.registerView('inventory', {
                         <div style="font-size:0.75rem;color:#718096;margin-top:3px;" id="inv-screen-subtitle">Loading screens...</div>
                     </div>
                     <div class="inv-card-actions">
-                        <span class="inv-sync-badge" id="inv-sync-badge">🔄 Auto-sync every 5 min</span>
+                        <span class="inv-sync-badge" id="inv-sync-badge">🔄 Auto-sync every 1 min</span>
                         <input type="text" id="inv-search" placeholder="🔍 Search screens..." style="padding:5px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:0.75rem;width:170px;outline:none;">
                         <button class="btn btn-secondary" style="font-size:0.72rem;" onclick="window.InvView.loadScreens()">↻ Refresh</button>
                         <button id="inv-sync-all-btn" class="btn btn-primary" style="background:linear-gradient(135deg,#2ea44f,#1a7f37);font-size:0.72rem;" onclick="window.InvView.forceSyncAll()">⚡ Force Sync All</button>
@@ -229,9 +229,9 @@ App.registerView('inventory', {
         clearInterval(this._screenRefreshTimer);
 
         if (view === 'pop') {
-            this._popRefreshTimer = setInterval(() => this._refreshPoP(), 5 * 60 * 1000);
+            this._popRefreshTimer = setInterval(() => this._refreshPoP(), 60 * 1000);
         } else if (view === 'screens') {
-            this._screenRefreshTimer = setInterval(() => this.loadScreens(), 5 * 60 * 1000);
+            this._screenRefreshTimer = setInterval(() => this.loadScreens(), 60 * 1000);
         }
     },
 
@@ -430,9 +430,10 @@ App.registerView('inventory', {
             <div>
                 <div style="font-size:0.72rem;color:#94a3b8;text-transform:uppercase;letter-spacing:0.06em;font-weight:700;">Proof of Play</div>
                 <h3 style="margin-top:3px;">${this._esc(mediaName)}</h3>
-                <div style="font-size:0.73rem;color:#718096;margin-top:2px;">
-                    Slot ${slotNum} · ${this._esc(this._selectedScreen.name)} · Media ID: ${mediaId} 
-                    · <a href="#analytics" style="color:var(--accent);text-decoration:none;font-weight:600;">Global Analytics →</a>
+                <div style="font-size:0.73rem;color:#718096;margin-top:2px;display:flex;align-items:center;gap:10px;">
+                    <span>Slot ${slotNum} · ${this._esc(this._selectedScreen.name)} · Media ID: ${mediaId}</span>
+                    <span id="inv-pop-lastseen" style="margin-left:5px;"></span>
+                    <span>· <a href="#analytics" style="color:var(--accent);text-decoration:none;font-weight:600;">Global Analytics →</a></span>
                 </div>
             </div>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
@@ -457,9 +458,26 @@ App.registerView('inventory', {
             const data = await res.json();
 
             const history = data.history || [];
+            const lastCheckIn = data.lastCheckIn;
             const playCount = data.playCount || 0;
             const last24h = history.filter(r => new Date(r.time) > new Date(Date.now() - 86400000));
             const lastPlayAge = history.length > 0 ? Date.now() - new Date(history[0].time).getTime() : null;
+
+            // Connectivity Badge
+            const lastSeenEl = document.getElementById('inv-pop-lastseen');
+            if (lastSeenEl && lastCheckIn) {
+                const checkInDate = new Date(lastCheckIn + ' UTC');
+                const diffMs = Date.now() - checkInDate.getTime();
+                const diffMins = Math.floor(diffMs / 60000);
+                let color = '#059669', label = 'Online';
+                if (diffMins > 15) { color = '#d97706'; label = 'Away'; }
+                if (diffMins > 120) { color = '#b91c1c'; label = 'Offline'; }
+                
+                const timeStr = diffMins < 1 ? 'just now' : diffMins + 'm ago';
+                lastSeenEl.innerHTML = `<span style="background:${color}15;color:${color};padding:2px 8px;border-radius:12px;font-weight:700;font-size:0.65rem;border:1px solid ${color}30;">
+                    ● Player Last Seen: ${timeStr} (${label})
+                </span>`;
+            }
 
             // Stats strip
             const statsEl = document.getElementById('inv-pop-stats');
@@ -488,12 +506,12 @@ App.registerView('inventory', {
                     staleEl.innerHTML = `<div class="inv-stale-warn stale-red">
                         <span style="font-size:1rem;">⚠️</span>
                         <div style="flex:1"><strong>Data is ${daysAgo} day${daysAgo>1?'s':''} out of date.</strong><br>
-                        Last verified play: <strong>${lastDate}</strong>. Auto-sync is running — new data will appear here within 5 minutes.</div>
+                        Last verified play: <strong>${lastDate}</strong>. Auto-sync is running — new data will appear here within 1 minute.</div>
                         <button class="btn btn-primary" style="font-size:0.72rem;background:#b91c1c;white-space:nowrap;" onclick="window.InvView.singleSync()">🔄 Fix Now</button>
                     </div>`;
                 } else if (lastPlayAge && lastPlayAge > 7200000) {
                     const hoursAgo = Math.floor(lastPlayAge / 3600000);
-                    staleEl.innerHTML = `<div class="inv-stale-warn">⏳ <strong>Note:</strong> Last play was ~${hoursAgo}h ago. Data syncs automatically every 5 minutes.</div>`;
+                    staleEl.innerHTML = `<div class="inv-stale-warn">⏳ <strong>Note:</strong> Last play was ~${hoursAgo}h ago. Data syncs automatically every 1 minute.</div>`;
                 } else {
                     staleEl.innerHTML = '';
                 }
@@ -507,7 +525,7 @@ App.registerView('inventory', {
             const histEl = document.getElementById('inv-pop-history');
             if (histEl) {
                 if (history.length === 0) {
-                    histEl.innerHTML = '<div class="inv-empty">📊 No verified plays recorded yet. The screen is playing — new data appears after the next auto-sync (within 5 minutes).</div>';
+                    histEl.innerHTML = '<div class="inv-empty">📊 No verified plays recorded yet. The screen is playing — new data appears after the next auto-sync (within 1 minute).</div>';
                     return;
                 }
                 const rows = history.map(r => {
@@ -571,7 +589,7 @@ App.registerView('inventory', {
             const res = await fetch('/xibo/displays/force-sync-all', { method: 'POST' });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Failed');
-            this._showToast('⚡ Sync sent to ' + data.synced + ' screen(s). Data updates within 1–5 min.');
+            this._showToast('⚡ Sync sent to ' + data.synced + ' screen(s). Data updates within 1 min.');
             this._lastSyncAt = Date.now();
             setTimeout(() => this.loadScreens(), 5000);
         } catch (e) {
@@ -582,10 +600,10 @@ App.registerView('inventory', {
     },
 
     // ── Automatic Background Sync ─────────────────────────────────────────────
-    // Runs every 5 minutes: force-sync-all + refresh current view
+    // Runs every 1 minute: force-sync-all + refresh current view
     _startAutoSync() {
         clearInterval(this._autoSyncTimer);
-        let countdown = 300; // 5 min
+        let countdown = 60; // 1 min
         const tick = () => {
             countdown--;
             const badge = document.getElementById('inv-countdown');
@@ -595,7 +613,7 @@ App.registerView('inventory', {
                 badge.textContent = '🔄 Next auto-sync in ' + m + ':' + String(s).padStart(2, '0');
             }
             if (countdown <= 0) {
-                countdown = 300;
+                countdown = 60;
                 this._autoSyncAll();
             }
         };

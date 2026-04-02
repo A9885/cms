@@ -154,6 +154,22 @@ router.get('/screens/:displayId/slots', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/** POST /api/partner/screens/:displayId/sync - Force sync Xibo stats for a screen. */
+router.post('/screens/:displayId/sync', async (req, res) => {
+    try {
+        const partnerId = req.user.partner_id;
+        if (!partnerId) return res.status(400).json({ error: 'No partner assigned.' });
+        
+        // Verify screen is assigned to this partner
+        const screen = await dbGet('SELECT * FROM screens WHERE xibo_display_id = ? AND partner_id = ?', [req.params.displayId, partnerId]);
+        if (!screen) return res.status(403).json({ error: 'Access denied. Screen not assigned to you.' });
+
+        const statsService = require('../services/stats.service');
+        const result = await statsService.forceSync(req.params.displayId);
+        res.json(result);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ─── SUPPORT TICKETS ──────────────────────────────────────────────────────────
 
 /** GET /api/partner/tickets - List support tickets reported by this partner. */

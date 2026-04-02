@@ -6,21 +6,77 @@ const xiboService = require('../services/xibo.service');
 // ─── HELPER FUNCTIONS ─────────────────────────────────────────────────────
 
 /**
- * Fetch and filter Xibo play stats for a list of display IDs.
- * @param {Array<number|string>} displayIds - The displays to filter stats for.
+ * Fetch and filter Xibo play stats for a specific brand's media.
+ * @param {number|string} brandId - The brand ID to filter for.
  * @returns {Promise<Array>} List of relevant play records.
  */
-async function getStatsForDisplays(displayIds) {
-    if (!displayIds || displayIds.length === 0) return [];
+async function getStatsForBrand(brandId) {
     try {
         const statsService = require('../services/stats.service');
-        const recent = await statsService.getRecentStats();
+        const [recent, mySlots] = await Promise.all([
+            statsService.getRecentStats(),
+            getBrandSlots(brandId)
+        ]);
+
+        if (mySlots.length === 0) return [];
+
+        // Build a Set of "displayId_slotNumber" keys for exact matching
+        // e.g. "1_1", "1_3" — only slots this brand actually owns
+        const mySlotKeys = new Set(
+            mySlots
+                .filter(s => s.displayId && s.slot_number)
+                .map(s => `${s.displayId}_${s.slot_number}`)
+        );
+
+        if (mySlotKeys.size === 0) return [];
+
         const allRecords = recent.data || [];
-        return allRecords.filter(r => displayIds.includes(r.displayId));
+
+        // Filter by exact displayId + slot number owned by this brand
+        return allRecords.filter(r => {
+            const slot = r.slot !== '-' && r.slot != null ? r.slot : null;
+            if (!slot) {
+                // If we can't determine the slot, fall back to displayId-only match
+                // but only include if brand has ALL slots on that display (whole screen owner)
+                const displaySlots = mySlots.filter(s => String(s.displayId) === String(r.displayId));
+                return displaySlots.length === 20; // owns all 20 slots
+            }
+            return mySlotKeys.has(`${r.displayId}_${slot}`);
+        });
     } catch (e) {
         console.error('[Brand API] Stats fetch error:', e.message);
         return [];
     }
+}
+
+/**
+ * Beautifies media names by removing technical prefixes and extensions.
+ */
+/**
+ * Beautifies media names by removing technical prefixes and extensions.
+ * Ensures unique advertisements are not grouped together.
+ */
+function beautifyMediaName(name) {
+    if (!name) return 'Untitled Ad';
+    
+    // 1. Remove common system timestamp patterns (e.g., _1774950622819_) and screen prefixes (S1_, S2_)
+    let clean = name.replace(/_\d{10,13}_/g, ' ').replace(/S\d+_/g, '');
+    
+    // 2. Remove file extensions (png, jpg, mp4, etc.)
+    clean = clean.replace(/\.(png|jpg|jpeg|mp4|mov|avi|webp)$/i, '');
+    
+    // 3. Remove underscores and replace with spaces
+    clean = clean.replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
+
+    // 4. Fallback for generic snapshots vs actual advertisements
+    if (clean.toLowerCase() === 'screenshot' || clean.length < 3) {
+        return 'System Snapshot'; 
+    }
+    
+    // 5. Truncate very long unique names
+    if (clean.length > 60) clean = clean.substring(0, 57) + '...';
+
+    return clean || 'Active Media';
 }
 
 /**
@@ -65,16 +121,16 @@ router.get('/dashboard', async (req, res) => {
             Promise.resolve(displays.filter(d =>
                 displayIds.includes(d.displayId) && (d.loggedIn === 1 || d.loggedIn === true)
             ).length),
-            getStatsForDisplays(displayIds)
+            getStatsForBrand(brandId)
         ]);
 
         const totalPlays = statsForBrand.reduce((sum, r) => sum + (r.count || 1), 0);
 
         const recentPoP = statsForBrand
             .sort((a, b) => new Date(b.playedAt || 0) - new Date(a.playedAt || 0))
-            .slice(0, 5)
+            .slice(0, 10)
             .map(r => ({
-                adName: r.adName,
+                adName: beautifyMediaName(r.adName),
                 displayId: r.displayId,
                 displayName: r.displayName,
                 playedAt: r.playedAt,
@@ -269,20 +325,37 @@ router.get('/proof-of-play', async (req, res) => {
 
         if (displayIds.length === 0) return res.json([]);
 
-        const statsService = require('../services/stats.service');
-        const recent = await statsService.getRecentStats();
-        const brandStats = (recent.data || []).filter(r => displayIds.includes(r.displayId));
+        const brandStats = await getStatsForBrand(brandId);
 
-        const enriched = brandStats.map(r => {
-            const slot = mySlots.find(s => String(s.displayId) === String(r.displayId));
-            return {
-                ...r,
-                slotNumber: slot ? slot.slot_number : '-',
-                screenName: slot ? (slot.screen_name || `Display #${r.displayId}`) : `Display #${r.displayId}`
-            };
+        const aggregated = {};
+        brandStats.forEach(r => {
+            const key = `${r.displayId}_${r.mediaId || r.adName}`;
+            if (!aggregated[key]) {
+                const slot = mySlots.find(s => 
+                    String(s.displayId) === String(r.displayId) && 
+                    (String(s.slot_number) === String(r.slot) || r.adName.includes(`SLOT_${s.slot_number}`))
+                );
+                
+                aggregated[key] = {
+                    mediaId: r.mediaId,
+                    displayId: r.displayId,
+                    adName: beautifyMediaName(r.adName),
+                    screenName: slot ? (slot.screen_name || `Display #${r.displayId}`) : `Display #${r.displayId}`,
+                    location: slot ? (slot.address || slot.city || 'Central') : 'Central',
+                    count: 0,
+                    totalPlays: 0,
+                    lastPlayed: r.playedAt,
+                    slotNumber: r.slot || (slot ? slot.slot_number : '-')
+                };
+            }
+            aggregated[key].count += (r.count || 1);
+            aggregated[key].totalPlays += (r.count || 1);
+            if (new Date(r.playedAt) > new Date(aggregated[key].lastPlayed)) {
+                aggregated[key].lastPlayed = r.playedAt;
+            }
         });
 
-        res.json(enriched);
+        res.json(Object.values(aggregated).sort((a, b) => new Date(b.lastPlayed) - new Date(a.lastPlayed)));
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

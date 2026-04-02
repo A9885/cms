@@ -31,13 +31,16 @@ app.get('/', (req, res) => {
     res.redirect('/admin/');
 });
 
-// Auth & Cookies
+app.get('/health', (req, res) => res.json({ status: 'OK', uptime: process.uptime() }));
+
 const cookieParser = require('cookie-parser');
 app.use(cookieParser());
 const authRoutes = require('./src/routes/auth.routes');
 app.use('/auth', authRoutes);
 
-// Mount Protected Admin APIs
+const apiRoutes = require('./src/routes/api.routes');
+app.use('/api', apiRoutes);
+
 // Mount Protected Admin APIs
 const adminRoutes = require('./src/routes/admin.routes');
 const { authMiddleware } = require('./src/middleware/auth.middleware');
@@ -170,20 +173,38 @@ app.get('/xibo/library', async (req, res) => {
 app.get('/xibo/displays/locations', async (req, res) => {
   try {
     const displays = await xiboService.getDisplays();
+    const { dbAll } = require('./src/db/database');
+    const localScreens = await dbAll('SELECT xibo_display_id, latitude, longitude, address FROM screens WHERE xibo_display_id IS NOT NULL');
+    
     const map = {};
     for (const d of displays) {
-      // Build a human-readable location string
-      let location = d.address || '';
-      if (!location && d.latitude && d.longitude) {
-        location = d.latitude.toFixed(4) + ', ' + d.longitude.toFixed(4);
+      const local = localScreens.find(s => String(s.xibo_display_id) === String(d.displayId));
+      
+      let lat = d.latitude || (local ? local.latitude : null);
+      let lng = d.longitude || (local ? local.longitude : null);
+      let address = d.address || (local ? local.address : '');
+
+      if (lat === 0 && lng === 0) {
+          lat = local ? local.latitude : null;
+          lng = local ? local.longitude : null;
       }
-      if (!location) location = d.timeZone || 'Unknown';
+
+      // Build a human-readable location string
+      let location = address || '';
+      if (!location && lat && lng) {
+        location = lat.toFixed(4) + ', ' + lng.toFixed(4);
+      }
+      if (!location && d.timeZone) {
+          location = d.timeZone.replace(/_/g, ' ');
+      } else if (!location) {
+          location = 'Unknown';
+      }
 
       map[d.displayId] = {
         name: d.display,
-        address: d.address || '',
-        lat: d.latitude || null,
-        lng: d.longitude || null,
+        address: address,
+        lat: lat,
+        lng: lng,
         timezone: d.timeZone || '',
         device: [d.brand, d.model].filter(Boolean).join(' ') || d.clientType || '',
         location, // resolved readable string
@@ -288,15 +309,38 @@ app.post('/xibo/displays/:displayId/sync', async (req, res) => {
     }
 });
 
+// Rate-limit guard: only run the heavy sync once every 55 seconds
+let _forceSyncLastRun = 0;
+let _forceSyncInProgress = null;
+
 /**
  * POST /xibo/displays/force-sync-all
  * Correct Xibo v4 implementation:
  *   - displayGroup collectNow (display-level returns 404 in v4)
  *   - requestscreenshot to wake display
- *   - XTR StatsMigration + StatsArchive + ReportSchedule to force aggregation
+ *   - Server-side rate-limited to once per 55s to prevent multi-tab hammering
  */
 app.post('/xibo/displays/force-sync-all', async (req, res) => {
-    try {
+    const now = Date.now();
+    const COOLDOWN_MS = 55 * 1000; // 55 seconds
+
+    // If a sync ran recently, return the cached result immediately
+    if (now - _forceSyncLastRun < COOLDOWN_MS) {
+        const nextIn = Math.ceil((COOLDOWN_MS - (now - _forceSyncLastRun)) / 1000);
+        return res.json({ success: true, synced: 1, cached: true, nextSyncIn: nextIn, message: `Already synced recently. Next sync in ${nextIn}s.` });
+    }
+
+    // If a sync is already in-flight, wait for it
+    if (_forceSyncInProgress) {
+        try {
+            const result = await _forceSyncInProgress;
+            return res.json({ ...result, cached: true });
+        } catch (err) {
+            return res.status(500).json({ error: err.message });
+        }
+    }
+    // Run the actual sync work, tracked in _forceSyncInProgress
+    _forceSyncInProgress = (async () => {
         const displays = await xiboService.getDisplays();
         const headers  = await xiboService.getHeaders();
         const results  = [];
@@ -325,28 +369,22 @@ app.post('/xibo/displays/force-sync-all', async (req, res) => {
             }
         }));
 
-        // 4. Trigger XTR tasks to force Xibo Cloud to aggregate raw play logs
-        //    IDs confirmed from diagnostic: 11=StatsMigration, 4=StatsArchive, 10=ReportSchedule
-        const xtrTasks = [
-            { id: 11, name: 'StatsMigration'  },
-            { id: 4,  name: 'StatsArchive'    },
-            { id: 10, name: 'ReportSchedule'  },
-        ];
-        for (const t of xtrTasks) {
-            await axios.post(`${XIBO_BASE_URL}/api/task/${t.id}/run`, null, { headers })
-                .then(() => console.log(`[force-sync-all] ✅ XTR ${t.name} triggered`))
-                .catch(e => console.warn(`[force-sync-all] ⚠️ XTR ${t.name}:`, e.response?.status, e.response?.data || e.message));
-        }
-
         // 5. Clear all server caches
-        statsService.invalidateWidgetCache();
-        if (statsService._statResultCache) statsService._statResultCache.clear();
+        statsService.invalidateCache();
 
-        console.log(`[POST /xibo/displays/force-sync-all] Synced ${results.length} displays + triggered XTR aggregation`);
-        res.json({ success: true, synced: results.length, results });
+        console.log(`[force-sync-all] Synced ${results.length} display(s). Caches cleared.`);
+        return { success: true, synced: results.length, results };
+    })();
+
+    try {
+        const result = await _forceSyncInProgress;
+        _forceSyncLastRun = Date.now(); // stamp AFTER success
+        res.json(result);
     } catch (err) {
         console.error('[POST /xibo/displays/force-sync-all]', err.message);
         res.status(500).json({ error: err.message });
+    } finally {
+        _forceSyncInProgress = null;
     }
 });
 
@@ -493,7 +531,7 @@ app.post('/xibo/upload', upload.single('file'), async (req, res) => {
       // --- PIPELINE FIX: Link media to brand for Proof of Play ---
       if (req.user && req.user.brand_id) {
           await require('./src/db/database').dbRun(
-              'INSERT OR REPLACE INTO media_brands (mediaId, brand_id) VALUES (?, ?)',
+              'REPLACE INTO media_brands (mediaId, brand_id) VALUES (?, ?)',
               [mediaId, req.user.brand_id]
           );
           console.log(`[POST /xibo/upload] Linked mediaId ${mediaId} to brand ${req.user.brand_id}`);
@@ -1085,7 +1123,12 @@ async function synchronizeMainLoop(displayId, displayGroupId) {
             console.log(msg);
             fs.appendFileSync(path.join(__dirname, 'sched_debug.log'), msg);
         }).catch(e => {
-            console.error('Schedule failed:', e.response?.data?.message || e.message);
+            const errMessage = e.response?.data?.message || e.message;
+            if (errMessage.includes('pending conversion')) {
+                console.log(`[Status] Media pending conversion for display ${displayId}. Auto-sync will retry scheduling in the next cycle.`);
+            } else {
+                console.error('Schedule failed:', errMessage);
+            }
         });
     } else {
         console.log(`Main Loop already scheduled (EventID: ${existingPlaylistSchedule.eventId})`);
@@ -1196,11 +1239,11 @@ app.post('/xibo/slots/add', upload.single('file'), async (req, res) => {
         const { dbGet, dbRun } = require('./src/db/database');
         const slotRecord = await dbGet('SELECT brand_id FROM slots WHERE displayId = ? AND slot_number = ?', [displayId, slotId]);
         if (slotRecord && slotRecord.brand_id) {
-            await dbRun('INSERT OR REPLACE INTO media_brands (mediaId, brand_id) VALUES (?, ?)', [mediaId, slotRecord.brand_id]);
+            await dbRun('REPLACE INTO media_brands (mediaId, brand_id) VALUES (?, ?)', [mediaId, slotRecord.brand_id]);
             console.log(`[Slots] Linked mediaId ${mediaId} to brand ${slotRecord.brand_id} via slot ${slotId}`);
         } else if (req.user && req.user.brand_id) {
             // Fallback for brand portal direct uploads
-            await dbRun('INSERT OR REPLACE INTO media_brands (mediaId, brand_id) VALUES (?, ?)', [mediaId, req.user.brand_id]);
+            await dbRun('REPLACE INTO media_brands (mediaId, brand_id) VALUES (?, ?)', [mediaId, req.user.brand_id]);
         }
       } catch (statErr) {
         // Non-fatal — log and continue. Stats may still work via widget-level stats.
@@ -1343,20 +1386,15 @@ async function syncDisplayStats() {
     const displays = await xiboService.getDisplays();
     
     await screenService.syncDisplays();
+    await xiboService.verifyGlobalStatsTask(); // --- PoP SELF-HEALING: Ensure Aggregation Task is Active ---
     
     await Promise.all(displays.map(async (d) => {
       try {
-        await Promise.all([
-          axios.post(
-            `${XIBO_BASE_URL}/api/displaygroup/${d.displayGroupId}/action/collectNow`,
-            new URLSearchParams(),
-            { headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' } }
-          ),
-          axios.put(`${XIBO_BASE_URL}/api/display/requestscreenshot/${d.displayId}`, null, { headers })
-        ]);
-        console.log(`[StatsSync] Woke up display ${d.display} (groupId: ${d.displayGroupId})`);
+        // --- PoP WAKE-UP FIX: Send high-priority XMR command to force hit-collection ---
+        await xiboService.forceCollectDisplayStats(d.displayId);
+        console.log(`[StatsSync] Signal sent to display ${d.display} (ID: ${d.displayId})`);
       } catch (e) {
-        console.warn(`[StatsSync] Could not wake display ${d.display}:`, e.response?.data?.message || e.message);
+        console.warn(`[StatsSync] Could not wake display ${d.display}:`, e.message);
       }
     }));
     

@@ -8,7 +8,7 @@ async function api(path, opts = {}) {
         headers: { 'Content-Type': 'application/json', ...opts.headers },
         ...opts
     });
-    if (res.status === 401) { window.location.href = '/auth/login'; return null; }
+    if (res.status === 401) { window.location.href = '/admin/login.html'; return null; }
     if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'API error'); }
     return res.json();
 }
@@ -165,7 +165,14 @@ registerView('dashboard', async (wrap) => {
     // Recent Proof of Play Card
     const popCard = document.createElement('div');
     popCard.className = 'card';
-    popCard.innerHTML = `<div class="section-title"><i data-lucide="activity"></i> Recent Proof of Play</div>`;
+    popCard.innerHTML = `
+        <div class="section-title" style="display:flex; justify-content:space-between; align-items:center;">
+            <span><i data-lucide="activity"></i> Recent Proof of Play</span>
+            <button class="btn btn-secondary" onclick="navigate('dashboard')" style="padding:4px 8px; font-size:0.75rem;">
+                <i data-lucide="refresh-cw" style="width:14px; height:14px; margin-right:4px;"></i> Refresh
+            </button>
+        </div>
+    `;
     if (d.recentPoP && d.recentPoP.length > 0) {
         const wrapTable = document.createElement('div'); wrapTable.className = 'table-wrap';
         const table = document.createElement('table');
@@ -366,11 +373,36 @@ window.openScreenDetail = async function(id) {
     }
 
     const reportBtn = document.createElement('button');
-    reportBtn.className = 'btn btn-primary'; reportBtn.style.cssText = 'width:100%; margin-top:0.5rem;';
+    reportBtn.className = 'btn btn-secondary'; reportBtn.style.cssText = 'width:100%; margin-top:0.5rem;';
     reportBtn.onclick = () => { document.getElementById('screen-detail-modal').classList.remove('active'); navigate('support'); };
     const rIcon = document.createElement('i'); rIcon.setAttribute('data-lucide', 'life-buoy');
     reportBtn.append(rIcon, document.createTextNode(' Report Issue for This Screen'));
     body.appendChild(reportBtn);
+
+    if (screen.xibo_display_id) {
+        const syncBtn = document.createElement('button');
+        syncBtn.className = 'btn btn-primary'; syncBtn.style.cssText = 'width:100%; margin-top:0.5rem;';
+        syncBtn.id = `btn-sync-${screen.xibo_display_id}`;
+        syncBtn.onclick = async () => {
+            const btn = document.getElementById(`btn-sync-${screen.xibo_display_id}`);
+            btn.innerHTML = '<i data-lucide="loader"></i> Syncing...';
+            btn.disabled = true;
+            try {
+                await api(`/screens/${screen.xibo_display_id}/sync`, { method: 'POST' });
+                showToast('Analytics synced successfully', 'success');
+            } catch (err) {
+                showToast('Failed to sync: ' + err.message, 'error');
+            } finally {
+                btn.innerHTML = '<i data-lucide="refresh-cw"></i> Force Sync Analytics';
+                btn.disabled = false;
+                lucide.createIcons();
+            }
+        };
+        const sIcon = document.createElement('i'); sIcon.setAttribute('data-lucide', 'refresh-cw');
+        syncBtn.append(sIcon, document.createTextNode(' Force Sync Analytics'));
+        body.appendChild(syncBtn);
+    }
+
     lucide.createIcons();
 };
 
@@ -530,7 +562,7 @@ registerView('support', async (wrap) => {
                     method: 'POST',
                     body: JSON.stringify({ screen_id: screenEl.value || null, screen_name: screenName, issue })
                 });
-                App.showToast('Your ticket has been submitted. We will contact you soon.', 'success');
+                showToast('Your ticket has been submitted. We will contact you soon.', 'success');
                 navigate('dashboard');
             } catch (err) { showToast('Failed: ' + err.message, 'error'); }
             finally { submitBtn.textContent = 'Submit Ticket'; }
@@ -653,3 +685,11 @@ function showToast(message, type = 'info') {
 // ═══ INIT ════════════════════════════════════════════════════════════════════
 window.navigate = navigate;
 navigate('dashboard');
+
+// Auto-refresh timer: every 5 minutes (reduced to prevent API overload)
+setInterval(() => {
+    if (state.currentView === 'dashboard' || state.currentView === 'screens') {
+        console.log(`[Auto-refresh] Refreshing ${state.currentView}...`);
+        navigate(state.currentView);
+    }
+}, 300000);

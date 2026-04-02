@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { dbRun, dbAll, dbGet } = require('../db/database');
 const xiboService = require('../services/xibo.service');
+const statsService = require('../services/stats.service');
 
 // ─── DASHBOARD OVERVIEW ───
 
@@ -34,7 +35,7 @@ router.get('/dashboard', async (req, res) => {
             dbGet('SELECT COUNT(*) as count FROM slots'),
             dbGet('SELECT COUNT(*) as count FROM slots WHERE brand_id IS NOT NULL'),
             dbAll(`
-                SELECT strftime('%Y-%m', created_at) as month, SUM(amount) as total 
+                SELECT DATE_FORMAT(created_at, '%Y-%m') as month, SUM(amount) as total
                 FROM invoices 
                 WHERE status = 'Paid'
                 GROUP BY month 
@@ -99,9 +100,9 @@ router.post('/brands', async (req, res) => {
         
         if (email) {
             const bcrypt = require('bcryptjs');
-            const hash = bcrypt.hashSync('brand123', 10);
+            const hash = bcrypt.hashSync('Brand@123', 10);
             await dbRun(
-                `INSERT INTO users (username, password_hash, role, brand_id) VALUES (?, ?, 'Brand', ?)`,
+                `INSERT INTO users (username, password_hash, role, brand_id, force_password_reset) VALUES (?, ?, 'Brand', ?, 1)`,
                 [email, hash, result.id]
             ).catch(e => console.error('Failed to create user for brand:', e.message));
         }
@@ -206,10 +207,16 @@ router.get('/brands/:id/campaigns', async (req, res) => {
 
 // ─── PARTNERS ───
 
-/** GET /api/admin/partners - List all screen partners. */
+/** GET /api/admin/partners - List all screen partners with screen counts. */
 router.get('/partners', async (req, res) => {
     try {
-        const partners = await dbAll('SELECT * FROM partners ORDER BY id DESC');
+        const partners = await dbAll(`
+            SELECT p.*, COUNT(s.id) as screen_count
+            FROM partners p
+            LEFT JOIN screens s ON p.id = s.partner_id
+            GROUP BY p.id
+            ORDER BY p.id DESC
+        `);
         res.json(partners);
     } catch(err) { res.status(500).json({ error: err.message }); }
 });
@@ -259,6 +266,25 @@ router.delete('/partners/:id', async (req, res) => {
     } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
+/** POST /api/admin/partners/:id/assign-screens - Bulk assign screens to a partner. */
+router.post('/partners/:id/assign-screens', async (req, res) => {
+    const partnerId = req.params.id;
+    const { screenIds } = req.body; // Array of local screen IDs
+    if (!Array.isArray(screenIds)) return res.status(400).json({ error: 'screenIds must be an array' });
+    
+    try {
+        // First, unassign all screens currently belonging to this partner
+        await dbRun('UPDATE screens SET partner_id = NULL WHERE partner_id = ?', [partnerId]);
+        
+        // Then, assign the new selection
+        if (screenIds.length > 0) {
+            const ph = screenIds.map(() => '?').join(',');
+            await dbRun(`UPDATE screens SET partner_id = ? WHERE id IN (${ph})`, [partnerId, ...screenIds]);
+        }
+        res.json({ success: true });
+    } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
 // ─── SCREENS ───
 
 /**
@@ -296,13 +322,35 @@ router.post('/screens', async (req, res) => {
 
 /** PUT /api/admin/screens/:id - Update screen details. */
 router.put('/screens/:id', async (req, res) => {
-    const { name, city, address, latitude, longitude, timezone, partner_id, notes, xibo_display_id, status } = req.body;
+    let { name, city, address, latitude, longitude, timezone, partner_id, notes, xibo_display_id, status } = req.body;
+    
+    // Sanitize coordinates to handle empty strings or UI nulls
+    if (latitude === '' || latitude === undefined) latitude = null;
+    if (longitude === '' || longitude === undefined) longitude = null;
+    if (latitude !== null) latitude = parseFloat(latitude);
+    if (longitude !== null) longitude = parseFloat(longitude);
+
     try {
         await dbRun(
             `UPDATE screens SET name=?, city=?, address=?, latitude=?, longitude=?, timezone=?, partner_id=?, notes=?, xibo_display_id=?, status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
             [name, city, address, latitude, longitude, timezone, partner_id, notes, xibo_display_id, status, req.params.id]
         );
         res.json({ success: true });
+    } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/screens/:id/sync-location', async (req, res) => {
+    try {
+        const screen = await dbGet('SELECT xibo_display_id FROM screens WHERE id = ?', [req.params.id]);
+        if (!screen || !screen.xibo_display_id) {
+            return res.status(404).json({ error: 'Screen not linked to Xibo player' });
+        }
+        
+        const screenService = require('../services/screen.service');
+        await screenService.syncLocation(screen.xibo_display_id);
+        
+        const updated = await dbGet('SELECT latitude, longitude, address FROM screens WHERE id = ?', [req.params.id]);
+        res.json({ success: true, location: updated });
     } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
