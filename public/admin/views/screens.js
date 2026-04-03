@@ -65,10 +65,16 @@ App.registerView('screens', {
                             <button class="btn btn-primary" style="font-size:0.8rem; height:36px; display:flex; align-items:center; justify-content:center; gap:6px;" id="btn-sync-screen">
                                 <i data-lucide="refresh-cw" style="width:14px;"></i> Force Sync
                             </button>
+                            <button class="btn btn-secondary" style="font-size:0.8rem; height:36px; display:flex; align-items:center; justify-content:center; gap:6px; grid-column: span 2; background:#f0f9ff; border:1px solid #bae6fd; color:#0369a1;" id="btn-open-location-modal">
+                                <i data-lucide="map-pin" style="width:14px;"></i> Fix Location
+                            </button>
                         </div>
 
                         <div class="detail-section">
-                            <div class="detail-section-title">Location & Hardware</div>
+                            <div class="detail-section-title" style="display:flex; justify-content:space-between; align-items:center;">
+                                Location & Hardware
+                                <span id="det-location-source-badge" style="font-size:0.65rem; padding:2px 8px; border-radius:20px; font-weight:600; background:#e2e8f0; color:#64748b;">Unknown</span>
+                            </div>
                             <div id="det-map" style="width:100%; height:160px; border-radius:12px; margin-bottom:12px; background:#f1f5f9; border:1px solid var(--border);"></div>
                             <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
                                 <div>
@@ -84,6 +90,7 @@ App.registerView('screens', {
                                 <label style="font-size:0.7rem; color:var(--text-muted);">Full Address</label>
                                 <div id="det-address" style="font-size:0.85rem; line-height:1.4;">—</div>
                             </div>
+                            <div style="margin-top:8px;" id="det-fixed-badge-row"></div>
                         </div>
 
                         <!-- Link Alert for Unlinked Screens -->
@@ -241,6 +248,60 @@ App.registerView('screens', {
                     <div class="modal-footer">
                         <button class="btn btn-secondary" onclick="document.getElementById('link-xibo-modal').classList.remove('active')">Cancel</button>
                         <button class="btn btn-primary" id="btn-submit-link">Confirm Connection</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Fix Location Modal -->
+            <div id="location-modal" class="modal-overlay" style="z-index: 1003;">
+                <div class="modal" style="max-width: 560px; width:90%;">
+                    <div class="modal-header">
+                        <span class="modal-title">📍 Fix Screen Location</span>
+                        <button onclick="document.getElementById('location-modal').classList.remove('active')" class="modal-close">&times;</button>
+                    </div>
+                    <div class="modal-body" style="padding:0;">
+                        <!-- Map picker -->
+                        <div id="loc-modal-map" style="width:100%; height:260px; cursor:crosshair;"></div>
+                        <div style="padding: 16px;">
+                            <p style="font-size:0.75rem; color:#64748b; margin:0 0 12px;">Click the map to set pin, or enter coordinates below.</p>
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px;">
+                                <div>
+                                    <label style="font-size:0.75rem; font-weight:600; display:block; margin-bottom:4px;">Latitude</label>
+                                    <input type="number" step="any" id="loc-lat" class="form-control" placeholder="17.3850">
+                                </div>
+                                <div>
+                                    <label style="font-size:0.75rem; font-weight:600; display:block; margin-bottom:4px;">Longitude</label>
+                                    <input type="number" step="any" id="loc-lng" class="form-control" placeholder="78.4867">
+                                </div>
+                            </div>
+                            <div style="display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
+                                <button class="btn btn-secondary" id="btn-use-my-location" style="font-size:0.8rem; flex:1; min-width:130px;">
+                                    🎯 Use My Location
+                                </button>
+                                <button class="btn btn-secondary" id="btn-reverse-geocode" style="font-size:0.8rem; flex:1; min-width:130px;">
+                                    🔍 Lookup Address
+                                </button>
+                            </div>
+                            <div style="margin-bottom:12px;">
+                                <label style="font-size:0.75rem; font-weight:600; display:block; margin-bottom:4px;">Address (auto-filled)</label>
+                                <input type="text" id="loc-address" class="form-control" placeholder="Address will appear here...">
+                            </div>
+                            <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:12px; display:flex; justify-content:space-between; align-items:center;">
+                                <div>
+                                    <div style="font-size:0.8rem; font-weight:600;">🔒 Lock Position</div>
+                                    <div style="font-size:0.7rem; color:#64748b; margin-top:2px;">Prevent automated sync from overwriting these coordinates</div>
+                                </div>
+                                <label style="position:relative; display:inline-block; width:44px; height:24px; cursor:pointer;">
+                                    <input type="checkbox" id="loc-fixed" style="opacity:0; width:0; height:0;">
+                                    <span id="loc-toggle-track" style="position:absolute; top:0; left:0; right:0; bottom:0; background:#cbd5e1; border-radius:24px; transition:0.3s;"></span>
+                                    <span id="loc-toggle-thumb" style="position:absolute; height:18px; width:18px; left:3px; bottom:3px; background:white; border-radius:50%; transition:0.3s;"></span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="document.getElementById('location-modal').classList.remove('active')">Cancel</button>
+                        <button class="btn btn-primary" id="btn-save-location">💾 Save Location</button>
                     </div>
                 </div>
             </div>
@@ -476,6 +537,29 @@ App.registerView('screens', {
         document.getElementById('det-partner').innerText = screen.partner_name || 'Unassigned';
         document.getElementById('det-address').innerText = screen.address || '—';
 
+        // Location source badge
+        const srcBadge = document.getElementById('det-location-source-badge');
+        const srcColors = {
+            GPS:           ['#dcfce7', '#166534'],
+            Manual:        ['#dbeafe', '#1e40af'],
+            IP:            ['#ffedd5', '#9a3412'],
+            'Awaiting GPS':['#fef9c3', '#854d0e'],
+            Unknown:       ['#e2e8f0', '#64748b']
+        };
+        const src = screen.location_source || 'Unknown';
+        const [bg, color] = srcColors[src] || ['#e2e8f0', '#64748b'];
+        srcBadge.innerText = src === 'Awaiting GPS' ? '⏳ Awaiting GPS' : src;
+        srcBadge.style.background = bg;
+        srcBadge.style.color = color;
+
+        // Fixed location badge
+        const fixedRow = document.getElementById('det-fixed-badge-row');
+        if (screen.is_fixed_location) {
+            fixedRow.innerHTML = '<span style="font-size:0.7rem; background:#f3e8ff; color:#7e22ce; padding:3px 8px; border-radius:20px; font-weight:600;">🔒 Position Locked</span>';
+        } else {
+            fixedRow.innerHTML = '';
+        }
+
         const xibo = this.allXiboDisplays.find(xd => xd.displayId === screen.xibo_display_id);
         const online = xibo ? xibo.loggedIn : false;
         const statusText = isLinked ? (online ? 'Online' : 'Offline') : 'Not Linked';
@@ -594,6 +678,138 @@ App.registerView('screens', {
         if (btnLink) {
             btnLink.onclick = () => this.openLinkModal(screen);
         }
+
+        const btnLoc = document.getElementById('btn-open-location-modal');
+        if (btnLoc) {
+            btnLoc.onclick = () => this.openLocationModal(screen);
+        }
+    },
+
+    openLocationModal(screen) {
+        const modal = document.getElementById('location-modal');
+        const latEl = document.getElementById('loc-lat');
+        const lngEl = document.getElementById('loc-lng');
+        const addrEl = document.getElementById('loc-address');
+        const fixedEl = document.getElementById('loc-fixed');
+        const track = document.getElementById('loc-toggle-track');
+        const thumb = document.getElementById('loc-toggle-thumb');
+
+        // Pre-fill from screen data
+        latEl.value = screen.latitude || '';
+        lngEl.value = screen.longitude || '';
+        addrEl.value = screen.address || '';
+        fixedEl.checked = !!screen.is_fixed_location;
+
+        // Toggle styling
+        const updateToggle = () => {
+            track.style.background = fixedEl.checked ? '#7c3aed' : '#cbd5e1';
+            thumb.style.transform = fixedEl.checked ? 'translateX(20px)' : 'translateX(0)';
+        };
+        updateToggle();
+        fixedEl.onchange = updateToggle;
+
+        modal.classList.add('active');
+
+        // Init location picker map (destroy and recreate to avoid Leaflet reuse issues)
+        const mapEl = document.getElementById('loc-modal-map');
+        if (this._locMap) { this._locMap.remove(); this._locMap = null; }
+        const initLat = parseFloat(screen.latitude) || 17.3850;
+        const initLng = parseFloat(screen.longitude) || 78.4867;
+        const locMap = L.map(mapEl, { zoomControl: true }).setView([initLat, initLng], 14);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png').addTo(locMap);
+        let locMarker = L.marker([initLat, initLng], { draggable: true }).addTo(locMap);
+        this._locMap = locMap;
+
+        // Click map → move pin + update fields
+        locMap.on('click', e => {
+            const { lat, lng } = e.latlng;
+            locMarker.setLatLng([lat, lng]);
+            latEl.value = lat.toFixed(6);
+            lngEl.value = lng.toFixed(6);
+        });
+
+        // Drag marker → update fields
+        locMarker.on('dragend', () => {
+            const { lat, lng } = locMarker.getLatLng();
+            latEl.value = lat.toFixed(6);
+            lngEl.value = lng.toFixed(6);
+        });
+
+        // Typing lat/lng → move map
+        const syncMapFromInputs = () => {
+            const lat = parseFloat(latEl.value);
+            const lng = parseFloat(lngEl.value);
+            if (!isNaN(lat) && !isNaN(lng)) {
+                locMarker.setLatLng([lat, lng]);
+                locMap.setView([lat, lng], 15);
+            }
+        };
+        latEl.oninput = syncMapFromInputs;
+        lngEl.oninput = syncMapFromInputs;
+
+        // "Use My Location" — browser GPS
+        document.getElementById('btn-use-my-location').onclick = () => {
+            if (!navigator.geolocation) return App.showToast('Geolocation not supported', 'error');
+            const btn = document.getElementById('btn-use-my-location');
+            btn.innerText = '📡 Locating...';
+            navigator.geolocation.getCurrentPosition(pos => {
+                const { latitude: lat, longitude: lng } = pos.coords;
+                latEl.value = lat.toFixed(6);
+                lngEl.value = lng.toFixed(6);
+                locMarker.setLatLng([lat, lng]);
+                locMap.setView([lat, lng], 16);
+                btn.innerText = '🎯 Use My Location';
+            }, () => {
+                App.showToast('Could not get location', 'error');
+                btn.innerText = '🎯 Use My Location';
+            });
+        };
+
+        // Reverse geocode
+        document.getElementById('btn-reverse-geocode').onclick = async () => {
+            const lat = parseFloat(latEl.value), lng = parseFloat(lngEl.value);
+            if (isNaN(lat) || isNaN(lng)) return App.showToast('Enter coordinates first', 'error');
+            const btn = document.getElementById('btn-reverse-geocode');
+            btn.innerText = '⏳ Looking up...';
+            try {
+                const r = await fetch(`http://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`);
+                const geo = await r.json();
+                if (geo?.city) {
+                    addrEl.value = [geo.city, geo.principalSubdivision, geo.countryName].filter(Boolean).join(', ');
+                } else {
+                    App.showToast('No address found for these coordinates', 'warning');
+                }
+            } catch { App.showToast('Geocode failed', 'error'); }
+            finally { btn.innerText = '🔍 Lookup Address'; }
+        };
+
+        // Save
+        document.getElementById('btn-save-location').onclick = async () => {
+            const lat = parseFloat(latEl.value);
+            const lng = parseFloat(lngEl.value);
+            if (isNaN(lat) || isNaN(lng)) return App.showToast('Valid coordinates required', 'error');
+            const saveBtn = document.getElementById('btn-save-location');
+            saveBtn.innerText = 'Saving...';
+            try {
+                await window.Api.put(`/screens/${screen.id}`, {
+                    ...screen,
+                    latitude: lat,
+                    longitude: lng,
+                    address: addrEl.value,
+                    is_fixed_location: fixedEl.checked ? 1 : 0,
+                    location_source: 'Manual'
+                });
+                modal.classList.remove('active');
+                App.showToast('Location saved!', 'success');
+                // Refresh data & re-render detail panel
+                const refreshed = await window.Api.get('/screens');
+                if (refreshed) {
+                    this.localScreens = refreshed;
+                    this.showDetails(screen.id);
+                }
+            } catch (err) { App.showToast('Save failed: ' + err.message, 'error'); }
+            finally { saveBtn.innerText = '💾 Save Location'; }
+        };
     },
 
     openLinkModal(screen) {

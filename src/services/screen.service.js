@@ -81,7 +81,10 @@ class ScreenService {
         const address = [geo.city, geo.principalSubdivision, geo.countryName].filter(Boolean).join(', ');
         if (address !== (display.address || '').trim()) {
           await xiboService.updateDisplayLocation(display.displayId, { latitude: lat, longitude: lon, address });
-          await dbRun('UPDATE screens SET latitude = ?, longitude = ?, address = ?, updated_at = CURRENT_TIMESTAMP WHERE xibo_display_id = ?', [lat, lon, address, display.displayId]);
+          await dbRun(
+            'UPDATE screens SET latitude = ?, longitude = ?, address = ?, location_source = "GPS", updated_at = CURRENT_TIMESTAMP WHERE xibo_display_id = ?',
+            [lat, lon, address, display.displayId]
+          );
         }
       }
     } catch (e) { console.warn(`[ScreenService] GPS geocode failed for ${display.display}:`, e.message); }
@@ -100,29 +103,53 @@ class ScreenService {
         const address = `${geo.city}, ${geo.regionName}, ${geo.country}`;
         const lat = parseFloat(geo.lat), lon = parseFloat(geo.lon);
         await xiboService.updateDisplayLocation(display.displayId, { latitude: lat, longitude: lon, address });
-        await dbRun('UPDATE screens SET latitude = ?, longitude = ?, address = ?, updated_at = CURRENT_TIMESTAMP WHERE xibo_display_id = ?', [lat, lon, address, display.displayId]);
+        await dbRun(
+            'UPDATE screens SET latitude = ?, longitude = ?, address = ?, location_source = "IP", updated_at = CURRENT_TIMESTAMP WHERE xibo_display_id = ?',
+            [lat, lon, address, display.displayId]
+        );
       }
     } catch (e) { console.warn(`[ScreenService] Geo-IP failed for ${display.display}:`, e.message); }
   }
 
   /**
-   * Synchronize a specific display's location (GPS or Geo-IP).
+   * Synchronize a specific display's location — GPS ONLY.
+   * No IP geolocation fallback. Screens without a GPS fix are marked "Awaiting GPS".
    * @param {number|string} displayId Xibo Display ID
    */
   async syncLocation(displayId) {
     try {
+      // 1. Skip locked screens
+      const screen = await dbGet('SELECT is_fixed_location, location_source FROM screens WHERE xibo_display_id = ?', [displayId]);
+      if (screen?.is_fixed_location) {
+          console.log(`[ScreenService] Skipping location sync for Display ${displayId} (Fixed Location)`);
+          return;
+      }
+
       const displays = await xiboService.getDisplays({ displayId });
       const d = displays.find(disp => String(disp.displayId) === String(displayId));
       if (!d) return;
 
-      if (d.latitude && d.longitude && (parseFloat(d.latitude) !== 0 || parseFloat(d.longitude) !== 0)) {
-        console.log(`[ScreenService] Syncing GPS Location for ${d.display}`);
+      const lat = parseFloat(d.latitude);
+      const lon = parseFloat(d.longitude);
+      const hasValidGPS = d.latitude && d.longitude && !isNaN(lat) && !isNaN(lon) 
+                          && (lat !== 0 || lon !== 0)
+                          && Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
+
+      if (hasValidGPS) {
+        console.log(`[ScreenService] ✅ GPS from Xibo for ${d.display}: ${lat}, ${lon}`);
+        // Update coordinates and resolve human-readable address
+        await dbRun(
+          'UPDATE screens SET latitude = ?, longitude = ?, location_source = "GPS", updated_at = CURRENT_TIMESTAMP WHERE xibo_display_id = ?',
+          [lat, lon, displayId]
+        );
         await this._resolveAddressFromGPS(d);
-        // Also update local screens table if it was null
-        await dbRun('UPDATE screens SET latitude = ?, longitude = ? WHERE xibo_display_id = ? AND (latitude IS NULL OR latitude = 0)', [d.latitude, d.longitude, displayId]);
       } else {
-        console.log(`[ScreenService] GPS missing for ${d.display}. Attempting Geo-IP fallback...`);
-        await this._resolveLocationFromIP(d);
+        // No GPS from device yet — mark as Awaiting GPS, do NOT use IP approximation
+        console.log(`[ScreenService] ⏳ No GPS fix for ${d.display}. Marking as "Awaiting GPS". IP fallback disabled.`);
+        await dbRun(
+          'UPDATE screens SET location_source = "Awaiting GPS", updated_at = CURRENT_TIMESTAMP WHERE xibo_display_id = ? AND (latitude IS NULL OR latitude = 0)',
+          [displayId]
+        );
       }
     } catch (err) {
       console.error(`[ScreenService] syncLocation FAILED for ${displayId}:`, err.message);

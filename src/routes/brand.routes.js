@@ -107,27 +107,38 @@ router.get('/dashboard', async (req, res) => {
     try {
         const brandId = req.user.brand_id;
 
-        const [mySlots, displays, campaignsCount] = await Promise.all([
-            getBrandSlots(brandId),
-            xiboService.getDisplays().catch(() => []),
-            dbGet('SELECT COUNT(DISTINCT mediaId) as count FROM media_brands WHERE brand_id = ?', [brandId])
+        // 1. Fetch campaigns and unique screens from the NEW campaigns table
+        const [campaigns, statsSummary] = await Promise.all([
+            dbAll('SELECT id, screen_id, creative_id, status FROM campaigns WHERE brand_id = ? AND status = "Active"', [brandId]),
+            require('../services/stats.service').getAllMediaStats()
         ]);
 
-        const displayIds = [...new Set(mySlots.map(s => s.displayId).filter(Boolean))];
-        const totalSlots = mySlots.length;
-        const uniqueScreens = displayIds.length;
+        const uniqueScreens = new Set(campaigns.map(c => c.screen_id)).size;
+        const totalCampaigns = campaigns.length;
 
-        const [onlineNow, statsForBrand] = await Promise.all([
-            Promise.resolve(displays.filter(d =>
-                displayIds.includes(d.displayId) && (d.loggedIn === 1 || d.loggedIn === true)
-            ).length),
-            getStatsForBrand(brandId)
-        ]);
+        // 2. Calculate total plays for all this brand's creatives
+        const myMediaIds = new Set(campaigns.map(c => c.creative_id));
+        const totalPlays = statsSummary.reduce((sum, s) => {
+            if (myMediaIds.has(s.mediaId)) return sum + (s.totalPlays || 0);
+            return sum;
+        }, 0);
 
-        const totalPlays = statsForBrand.reduce((sum, r) => sum + (r.count || 1), 0);
+        // 3. Online Screen check (from Xibo)
+        let onlineNow = 0;
+        try {
+            const displays = await xiboService.getDisplays();
+            const activeScreenIds = new Set(campaigns.map(c => c.screen_id));
+            onlineNow = displays.filter(d => 
+                activeScreenIds.has(d.display) && (d.loggedIn === 1 || d.loggedIn === true)
+            ).length;
+        } catch (e) {
+            console.warn('[Dashboard] Display sync error:', e.message);
+        }
 
-        const recentPoP = statsForBrand
-            .sort((a, b) => new Date(b.playedAt || 0) - new Date(a.playedAt || 0))
+        // 4. Recent Proof of Play
+        const recentStats = await require('../services/stats.service').getRecentStats();
+        const recentPoP = (recentStats.data || [])
+            .filter(r => myMediaIds.has(r.mediaId))
             .slice(0, 10)
             .map(r => ({
                 adName: beautifyMediaName(r.adName),
@@ -139,10 +150,10 @@ router.get('/dashboard', async (req, res) => {
 
         res.json({
             activeScreens:  uniqueScreens,
-            totalSlots:     totalSlots,
+            totalCampaigns: totalCampaigns,
             onlineScreens:  onlineNow,
-            totalCampaigns: campaignsCount?.count || 0,
             totalPlays:     totalPlays,
+            estimatedImpressions: totalPlays * 45, // Global brand avg
             recentPoP
         });
     } catch (err) {
@@ -150,6 +161,7 @@ router.get('/dashboard', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+
 
 // ─── MY SCREENS ────────────────────────────────────────────────────────────
 
@@ -368,29 +380,40 @@ router.get('/proof-of-play', async (req, res) => {
 router.get('/campaigns', async (req, res) => {
     const brandId = req.user.brand_id;
     try {
-        const mySlots = await getBrandSlots(brandId);
-        if (mySlots.length === 0) return res.json([]);
+        const [campaigns, statsSummary] = await Promise.all([
+            dbAll(`
+                SELECT c.*, s.name as screen_name, s.city, s.location
+                FROM campaigns c
+                LEFT JOIN screens s ON c.screen_id = s.screen_id
+                WHERE c.brand_id = ?
+                ORDER BY c.created_at DESC
+            `, [brandId]),
+            require('../services/stats.service').getAllMediaStats()
+        ]);
 
-        const statsService = require('../services/stats.service');
-        const summary = await statsService.getAllMediaStats();
-
-        const campaigns = mySlots.map(slot => {
-            const stats = summary.find(s => String(s.mediaId).includes(`SCREEN_${slot.displayId}_SLOT_${slot.slot_number}`)) || {};
+        const enriched = campaigns.map(c => {
+            const stats = statsSummary.find(s => parseInt(s.mediaId) === parseInt(c.creative_id)) || {};
             return {
-                displayId: slot.displayId,
-                screenName: slot.screen_name || `Display #${slot.displayId}`,
-                slot_number: slot.slot_number,
-                mediaName: `Slot ${slot.slot_number} — ${slot.screen_name || 'Screen'}`,
+                id: c.id,
+                name: c.campaign_name,
+                screen: c.screen_name || c.screen_id,
+                location: c.location || c.city || '-',
+                slot: c.slot_number,
+                startDate: c.start_date,
+                endDate: c.end_date,
+                status: c.status,
                 plays: stats.totalPlays || 0,
-                status: slot.status || 'Reserved'
+                impact: (stats.totalPlays || 0) * 45
             };
         });
 
-        res.json(campaigns);
+        res.json(enriched);
     } catch (err) {
+        console.error('[Brand Campaigns] Error:', err.message);
         res.status(500).json({ error: err.message });
     }
 });
+
 
 /** GET /api/brand/invoices - List invoices for the logged-in brand. */
 router.get('/invoices', async (req, res) => {

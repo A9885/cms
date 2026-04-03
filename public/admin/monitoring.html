@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Monitoring - DOOH Admin</title>
+    <style>
+        :root {
+            --sidebar-width: 240px;
+            --sidebar-bg: #1a1a2e;
+            --sidebar-hover: #252545;
+            --sidebar-active: #303060;
+            --primary: #2563eb;
+            --bg-body: #f8fafc;
+            --bg-main: #ffffff;
+            --text-main: #334155;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --shadow: 0 1px 4px rgba(0,0,0,0.08);
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: var(--bg-body);
+            color: var(--text-main);
+            display: flex;
+        }
+
+        /* ── Sidebar ── */
+        .sidebar {
+            width: var(--sidebar-width);
+            background: var(--sidebar-bg);
+            height: 100vh;
+            position: fixed;
+            left: 0; top: 0;
+            padding: 20px 0;
+            overflow-y: auto;
+            z-index: 1000;
+        }
+        .sidebar-brand {
+            padding: 0 24px 28px;
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            letter-spacing: 0.3px;
+        }
+        .nav-list { list-style: none; }
+        .nav-item a {
+            display: flex;
+            align-items: center;
+            padding: 11px 24px;
+            color: #cbd5e1;
+            text-decoration: none;
+            font-size: 0.9rem;
+            gap: 11px;
+            transition: background 0.15s;
+        }
+        .nav-item a:hover { background: var(--sidebar-hover); color: #fff; }
+        .nav-item.active a { background: var(--sidebar-active); color: #fff; border-left: 3px solid var(--primary); }
+
+        /* ── Main ── */
+        .main-content {
+            flex: 1;
+            margin-left: var(--sidebar-width);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* ── Top bar ── */
+        .top-bar {
+            background: var(--bg-main);
+            padding: 16px 28px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 900;
+            box-shadow: var(--shadow);
+        }
+        .top-bar h1 { font-size: 1.2rem; font-weight: 700; }
+
+        .refresh-area {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .auto-label {
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .pulse-dot {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            background: var(--success);
+            animation: pulse 1.8s ease-in-out infinite;
+        }
+        .pulse-dot.refreshing { background: var(--warning); animation: none; }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(0.85); }
+        }
+        .btn-refresh {
+            padding: 7px 16px;
+            background: var(--primary);
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.82rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: filter 0.15s;
+        }
+        .btn-refresh:hover { filter: brightness(1.1); }
+        .btn-refresh:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        /* ── Content area ── */
+        .page-body { padding: 24px 28px; flex: 1; }
+
+        /* ── Summary pills ── */
+        .summary-bar {
+            display: flex;
+            gap: 14px;
+            margin-bottom: 22px;
+            flex-wrap: wrap;
+        }
+        .stat-pill {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: var(--bg-main);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 20px;
+            box-shadow: var(--shadow);
+            min-width: 130px;
+        }
+        .stat-pill .pill-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+        }
+        .stat-pill .pill-label { font-size: 0.7rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase; }
+        .stat-pill .pill-value { font-size: 1.4rem; font-weight: 700; }
+        .pill-total  .pill-icon { background: #eff6ff; }
+        .pill-online .pill-icon { background: #dcfce7; }
+        .pill-offline .pill-icon { background: #fee2e2; }
+        .pill-alerts .pill-icon { background: #fff7ed; }
+        .pill-online .pill-value  { color: var(--success); }
+        .pill-offline .pill-value { color: var(--danger); }
+        .pill-alerts .pill-value  { color: var(--warning); }
+
+        /* ── Filter bar ── */
+        .filter-bar {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 18px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .filter-bar input,
+        .filter-bar select {
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 0.85rem;
+            font-family: inherit;
+            background: var(--bg-main);
+            color: var(--text-main);
+            outline: none;
+            transition: border-color 0.15s;
+        }
+        .filter-bar input:focus,
+        .filter-bar select:focus { border-color: var(--primary); }
+        .filter-bar input { width: 240px; }
+        .btn-clear {
+            padding: 8px 14px;
+            background: #f1f5f9;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 0.82rem;
+            cursor: pointer;
+            color: var(--text-muted);
+            font-family: inherit;
+        }
+        .btn-clear:hover { background: var(--border); }
+
+        /* ── Table ── */
+        .table-card {
+            background: var(--bg-main);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            box-shadow: var(--shadow);
+            overflow: hidden;
+        }
+        .table-wrap { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        thead tr { background: #f8fafc; }
+        th {
+            text-align: left;
+            padding: 12px 14px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap;
+        }
+        td { padding: 12px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+        tbody tr:last-child td { border-bottom: none; }
+        tbody tr:hover { background: #f8fafc; }
+        tbody tr.row-offline { background: #fff5f5 !important; }
+        tbody tr.row-offline:hover { background: #fee2e2 !important; }
+
+        /* Status badges */
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+        .badge-online  { background: #dcfce7; color: #166534; }
+        .badge-offline { background: #fee2e2; color: #991b1b; }
+        .badge-unknown { background: #e2e8f0; color: #475569; }
+        .badge-alert   { background: #fff7ed; color: #9a3412; }
+
+        /* Mins ago styles */
+        .mins-fresh  { color: var(--success); font-weight: 600; }
+        .mins-normal { color: var(--text-main); }
+        .mins-stale  { color: var(--warning); font-weight: 600; }
+        .mins-very-stale { color: var(--danger); font-weight: 700; }
+
+        .media-ok  { color: var(--success); font-size: 1rem; font-weight: 700; }
+        .media-no  { color: var(--danger); font-size: 1rem; font-weight: 700; }
+
+        /* Action buttons */
+        .btn-action {
+            padding: 5px 12px;
+            border: none;
+            border-radius: 5px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            cursor: pointer;
+            font-family: inherit;
+            transition: filter 0.15s;
+        }
+        .btn-action:hover { filter: brightness(0.92); }
+        .btn-activate   { background: #dcfce7; color: #166534; }
+        .btn-deactivate { background: #fee2e2; color: #991b1b; }
+
+        /* Empty state */
+        .empty-state {
+            padding: 60px 20px;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+        .empty-state .icon { font-size: 2.5rem; margin-bottom: 12px; }
+
+        /* ── Responsive ── */
+        @media (max-width: 900px) {
+            .sidebar { display: none; }
+            .main-content { margin-left: 0; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- ── Sidebar ── -->
+<aside class="sidebar">
+    <div class="sidebar-brand">
+        <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 21h6l-.75-4M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+        </svg>
+        DOOH Admin
+    </div>
+    <ul class="nav-list">
+        <li class="nav-item"><a href="/admin/dashboard.html">📊 Dashboard</a></li>
+        <li class="nav-item"><a href="/admin/index.html#screens">🖥 Screens</a></li>
+        <li class="nav-item"><a href="/admin/index.html#brands">🏢 Brands</a></li>
+        <li class="nav-item"><a href="/admin/index.html#partners">🤝 Partners</a></li>
+        <li class="nav-item"><a href="/admin/index.html#campaigns">📅 Campaigns</a></li>
+        <li class="nav-item"><a href="/admin/index.html#creative">🖼 Creative Library</a></li>
+        <li class="nav-item"><a href="/admin/index.html#analytics">📈 Analytics</a></li>
+        <li class="nav-item"><a href="/admin/index.html#billing">💳 Billing</a></li>
+        <li class="nav-item active"><a href="/admin/monitoring.html">🔍 System Monitor</a></li>
+        <li class="nav-item"><a href="/admin/index.html#settings">⚙️ Settings</a></li>
+        <li class="nav-item"><a href="#" onclick="logout()">🚪 Logout</a></li>
+    </ul>
+</aside>
+
+<!-- ── Main Content ── -->
+<main class="main-content">
+
+    <!-- Top Bar -->
+    <div class="top-bar">
+        <h1>System Monitoring</h1>
+        <div class="refresh-area">
+            <div class="auto-label">
+                <span id="pulse-dot" class="pulse-dot"></span>
+                <span id="refresh-label">Auto-refreshing every 30s</span>
+            </div>
+            <button class="btn-refresh" id="btn-manual-refresh" onclick="triggerRefresh()">⟳ Refresh</button>
+        </div>
+    </div>
+
+    <div class="page-body">
+
+        <!-- Summary Bar -->
+        <div class="summary-bar">
+            <div class="stat-pill pill-total">
+                <div class="pill-icon">🖥</div>
+                <div><div class="pill-label">Total</div><div class="pill-value" id="stat-total">—</div></div>
+            </div>
+            <div class="stat-pill pill-online">
+                <div class="pill-icon">🟢</div>
+                <div><div class="pill-label">Online</div><div class="pill-value" id="stat-online">—</div></div>
+            </div>
+            <div class="stat-pill pill-offline">
+                <div class="pill-icon">🔴</div>
+                <div><div class="pill-label">Offline</div><div class="pill-value" id="stat-offline">—</div></div>
+            </div>
+            <div class="stat-pill pill-alerts">
+                <div class="pill-icon">⚠️</div>
+                <div><div class="pill-label">Alerts</div><div class="pill-value" id="stat-alerts">—</div></div>
+            </div>
+        </div>
+
+        <!-- Filter Bar -->
+        <div class="filter-bar">
+            <input type="text" id="search-input" placeholder="🔍 Search by Screen ID or Location..." oninput="applyFilters()">
+            <select id="status-filter" onchange="applyFilters()">
+                <option value="">All Statuses</option>
+                <option value="Online">Online</option>
+                <option value="Offline">Offline</option>
+                <option value="alert">Alert Only</option>
+            </select>
+            <button class="btn-clear" onclick="clearFilters()">✕ Clear</button>
+        </div>
+
+        <!-- Health Table -->
+        <div class="table-card">
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Screen ID</th>
+                            <th>Location</th>
+                            <th>City</th>
+                            <th>Partner</th>
+                            <th>Status</th>
+                            <th>Last Sync</th>
+                            <th>Mins Ago</th>
+                            <th>Internet</th>
+                            <th>Media</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="health-tbody">
+                        <tr><td colspan="10" class="empty-state"><div class="icon">⏳</div>Loading screen health data...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+</main>
+
+<script>
+    const token = localStorage.getItem('cms_token');
+    if (!token) window.location.href = '/admin/login.html';
+
+    let allScreens = [];
+    let refreshTimer = null;
+
+    // ── Authenticated fetch ──────────────────────────────────────────────────
+    async function authedFetch(url, options = {}) {
+        const res = await fetch(url, {
+            ...options,
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+                ...(options.headers || {})
+            }
+        });
+        if (res.status === 401) {
+            localStorage.removeItem('cms_token');
+            window.location.href = '/admin/login.html';
+            return null;
+        }
+        return res.json();
+    }
+
+    // ── Logout ───────────────────────────────────────────────────────────────
+    function logout() {
+        localStorage.removeItem('cms_token');
+        window.location.href = '/admin/login.html';
+    }
+
+    // ── Filters ──────────────────────────────────────────────────────────────
+    function applyFilters() {
+        const q = document.getElementById('search-input').value.toLowerCase().trim();
+        const st = document.getElementById('status-filter').value;
+
+        const filtered = allScreens.filter(s => {
+            const matchQ = !q ||
+                (s.screen_id || '').toLowerCase().includes(q) ||
+                (s.location || '').toLowerCase().includes(q);
+            const matchSt = !st ||
+                (st === 'alert' ? s.is_alert : s.status === st);
+            return matchQ && matchSt;
+        });
+
+        renderTable(filtered);
+    }
+
+    function clearFilters() {
+        document.getElementById('search-input').value = '';
+        document.getElementById('status-filter').value = '';
+        renderTable(allScreens);
+    }
+
+    // ── Summary bar ──────────────────────────────────────────────────────────
+    function updateSummary(data) {
+        document.getElementById('stat-total').innerText   = data.length;
+        document.getElementById('stat-online').innerText  = data.filter(s => s.status === 'Online').length;
+        document.getElementById('stat-offline').innerText = data.filter(s => s.status === 'Offline').length;
+        document.getElementById('stat-alerts').innerText  = data.filter(s => s.is_alert).length;
+    }
+
+    // ── Mins Ago display ─────────────────────────────────────────────────────
+    function minsAgoDisplay(mins) {
+        if (mins === null || mins === undefined) return { html: '<span class="mins-normal">—</span>', val: Infinity };
+        if (mins < 5)   return { html: `<span class="mins-fresh">${mins}m</span>`, val: mins };
+        if (mins <= 30) return { html: `<span class="mins-normal">${mins}m</span>`, val: mins };
+        if (mins <= 120) return { html: `<span class="mins-stale">${mins}m <small>Stale</small></span>`, val: mins };
+        return { html: `<span class="mins-very-stale">${mins}m <small>Very Stale</small></span>`, val: mins };
+    }
+
+    // ── Status badge ─────────────────────────────────────────────────────────
+    function statusBadge(s) {
+        if (s.is_alert) return `<span class="badge badge-alert">⚠ Alert</span>`;
+        if (s.status === 'Online')  return `<span class="badge badge-online">● Online</span>`;
+        if (s.status === 'Offline') return `<span class="badge badge-offline">● Offline</span>`;
+        return `<span class="badge badge-unknown">◌ Unknown</span>`;
+    }
+
+    // ── Last sync display ─────────────────────────────────────────────────────
+    function fmtSync(ts) {
+        if (!ts) return '—';
+        try {
+            return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        } catch { return '—'; }
+    }
+
+    // ── Render table ─────────────────────────────────────────────────────────
+    function renderTable(data) {
+        const tbody = document.getElementById('health-tbody');
+
+        if (!data || data.length === 0) {
+            tbody.innerHTML = `
+                <tr><td colspan="10">
+                    <div class="empty-state">
+                        <div class="icon">📡</div>
+                        No screens match the current filter.
+                    </div>
+                </td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = data.map(s => {
+            const sid = s.screen_id || s.name || '—';
+            const rowClass = s.status === 'Offline' ? 'row-offline' : '';
+            const mins = minsAgoDisplay(s.minutes_since_sync);
+            const internet = s.internet_status === 'Good'
+                ? `<span style="color:var(--success);font-weight:600;">✓ Good</span>`
+                : `<span style="color:var(--danger);font-weight:600;">✗ Lost</span>`;
+            const media = s.media_synced
+                ? `<span class="media-ok">✓</span>`
+                : `<span class="media-no">✗</span>`;
+
+            const actionLabel = (s.status === 'Online')
+                ? `<button class="btn-action btn-deactivate" onclick="doAction('${sid}','deactivate')">Deactivate</button>`
+                : `<button class="btn-action btn-activate" onclick="doAction('${sid}','activate')">Activate</button>`;
+
+            return `
+            <tr class="${rowClass}">
+                <td><strong>${sid}</strong></td>
+                <td style="max-width:160px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${s.location || '—'}</td>
+                <td>${s.city || '—'}</td>
+                <td>${s.partner_name || '—'}</td>
+                <td>${statusBadge(s)}</td>
+                <td style="white-space:nowrap;">${fmtSync(s.last_sync)}</td>
+                <td style="white-space:nowrap;">${mins.html}</td>
+                <td>${internet}</td>
+                <td style="text-align:center;">${media}</td>
+                <td>${actionLabel}</td>
+            </tr>`;
+        }).join('');
+    }
+
+    // ── Action: Activate / Deactivate ────────────────────────────────────────
+    async function doAction(screenId, action) {
+        try {
+            const res = await authedFetch(`/api/screens/${screenId}/${action}`, { method: 'POST' });
+            if (res?.success) await loadHealth();
+        } catch (e) {
+            console.error('Action failed:', e);
+        }
+    }
+
+    // ── Load health data ──────────────────────────────────────────────────────
+    async function loadHealth() {
+        // Show refreshing state
+        const dot = document.getElementById('pulse-dot');
+        const label = document.getElementById('refresh-label');
+        const btn = document.getElementById('btn-manual-refresh');
+
+        dot.classList.add('refreshing');
+        label.textContent = 'Refreshing...';
+        btn.disabled = true;
+
+        try {
+            const data = await authedFetch('/api/screens/health');
+            if (!data) return;
+
+            const screens = data.data || data;   // handle { success, data: [...] } or plain array
+            allScreens = Array.isArray(screens) ? screens : [];
+
+            updateSummary(allScreens);
+            applyFilters();
+
+        } catch (e) {
+            console.error('Health fetch error:', e);
+        } finally {
+            dot.classList.remove('refreshing');
+            label.textContent = 'Auto-refreshing every 30s';
+            btn.disabled = false;
+        }
+    }
+
+    // ── Manual refresh ────────────────────────────────────────────────────────
+    function triggerRefresh() {
+        clearInterval(refreshTimer);
+        loadHealth();
+        refreshTimer = setInterval(loadHealth, 30000);
+    }
+
+    // ── Boot ─────────────────────────────────────────────────────────────────
+    document.addEventListener('DOMContentLoaded', () => {
+        loadHealth();
+        refreshTimer = setInterval(loadHealth, 30000);
+    });
+</script>
+</body>
+</html>

@@ -80,36 +80,116 @@ router.get('/dashboard', async (req, res) => {
 
 // ─── BRANDS ───
 
-/** GET /api/admin/brands - List all registered brands. */
+/** 
+ * GET /api/admin/brands - List all registered brands with metrics.
+ * Supports filters: status, industry, search (name/email).
+ */
 router.get('/brands', async (req, res) => {
     try {
-        const brands = await dbAll('SELECT * FROM brands ORDER BY id DESC');
+        const { status, industry, search } = req.query;
+        let query = `
+            SELECT b.*,
+                (SELECT COUNT(*) FROM campaigns WHERE brand_id = b.id) AS total_campaigns,
+                (SELECT COUNT(DISTINCT screen_id) FROM campaigns WHERE brand_id = b.id) AS total_screens_used,
+                (SELECT COALESCE(SUM(amount), 0) FROM invoices WHERE brand_id = b.id AND status = 'Paid') AS total_spend,
+                (SELECT COUNT(*) FROM campaigns WHERE brand_id = b.id AND status = 'Active') AS active_campaigns
+            FROM brands b
+            WHERE 1=1
+        `;
+        const params = [];
+
+        if (status) {
+            query += ' AND b.status = ?';
+            params.push(status);
+        }
+        if (industry) {
+            query += ' AND b.industry = ?';
+            params.push(industry);
+        }
+        if (search) {
+            query += ' AND (b.name LIKE ? OR b.email LIKE ?)';
+            params.push(`%${search}%`, `%${search}%`);
+        }
+
+        query += ' ORDER BY b.id DESC';
+        const brands = await dbAll(query, params);
         res.json(brands);
     } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
-/** POST /api/admin/brands - Create a brand and provide default login credentials. */
-router.post('/brands', async (req, res) => {
-    const { name, industry, contact_person, email, phone, status } = req.body;
-    if (!name) return res.status(400).json({ error: 'Name is required' });
+/** GET /api/admin/brands/:id - Full brand profile with metrics. */
+router.get('/brands/:id', async (req, res) => {
     try {
-        const result = await dbRun(
-            `INSERT INTO brands (name, industry, contact_person, email, phone, status) VALUES (?, ?, ?, ?, ?, ?)`,
-            [name, industry, contact_person, email, phone, status || 'Active']
-        );
-        
-        if (email) {
-            const bcrypt = require('bcryptjs');
-            const hash = bcrypt.hashSync('Brand@123', 10);
-            await dbRun(
-                `INSERT INTO users (username, password_hash, role, brand_id, force_password_reset) VALUES (?, ?, 'Brand', ?, 1)`,
-                [email, hash, result.id]
-            ).catch(e => console.error('Failed to create user for brand:', e.message));
-        }
+        const brand = await dbGet(`
+            SELECT b.*,
+                (SELECT COUNT(*) FROM campaigns WHERE brand_id = b.id) AS total_campaigns,
+                (SELECT COUNT(DISTINCT screen_id) FROM campaigns WHERE brand_id = b.id) AS total_screens_used,
+                (SELECT COALESCE(SUM(amount), 0) FROM invoices WHERE brand_id = b.id AND status = 'Paid') AS total_spend,
+                (SELECT COUNT(*) FROM campaigns WHERE brand_id = b.id AND status = 'Active') AS active_campaigns
+            FROM brands b
+            WHERE b.id = ?
+        `, [req.params.id]);
 
-        res.json({ success: true, id: result.id });
+        if (!brand) return res.status(404).json({ error: 'Brand not found' });
+        res.json(brand);
     } catch(err) { res.status(500).json({ error: err.message }); }
 });
+
+/** POST /api/admin/brands - Create a brand with email validation and conflict check. */
+router.post('/brands', async (req, res) => {
+    const { company_name, name, industry, contact_person, email, phone } = req.body;
+    const finalName = company_name || name;
+    
+    if (!finalName || !email) {
+        return res.status(400).json({ error: 'Brand name and email are required' });
+    }
+
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+        return res.status(400).json({ error: 'Invalid email format' });
+    }
+
+    try {
+        // Conflict check
+        const existing = await dbGet('SELECT id FROM brands WHERE email = ?', [email]);
+        if (existing) return res.status(409).json({ error: 'Email already exists' });
+
+        const result = await dbRun(
+            `INSERT INTO brands (name, industry, contact_person, email, phone, status) VALUES (?, ?, ?, ?, ?, 'Pending')`,
+            [finalName, industry, contact_person, email, phone]
+        );
+        
+        // Preserve user account creation (from legacy logic)
+        const bcrypt = require('bcryptjs');
+        const hash = bcrypt.hashSync('Brand@123', 10);
+        await dbRun(
+            `INSERT INTO users (username, password_hash, role, brand_id, force_password_reset) VALUES (?, ?, 'Brand', ?, 1)`,
+            [email, hash, result.id]
+        ).catch(e => console.error('Failed to create user for brand:', e.message));
+
+        res.status(201).json({ success: true, brand_id: result.id });
+    } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
+/** PATCH /api/admin/brands/:id/approve - Activate a brand. */
+router.patch('/brands/:id/approve', async (req, res) => {
+    try {
+        const result = await dbRun('UPDATE brands SET status = "Active" WHERE id = ?', [req.params.id]);
+        if (result.changes === 0) return res.status(404).json({ error: 'Brand not found' });
+        res.json({ success: true, brand_id: req.params.id, status: 'Active' });
+    } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
+/** PATCH /api/admin/brands/:id/disable - Disable a brand. */
+router.patch('/brands/:id/disable', async (req, res) => {
+    try {
+        const result = await dbRun('UPDATE brands SET status = "Disabled" WHERE id = ?', [req.params.id]);
+        if (result.changes === 0) return res.status(404).json({ error: 'Brand not found' });
+        res.json({ success: true, brand_id: req.params.id, status: 'Disabled' });
+    } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
 
 /** PUT /api/admin/brands/:id - Update brand profile. */
 router.put('/brands/:id', async (req, res) => {
@@ -207,7 +287,7 @@ router.get('/brands/:id/campaigns', async (req, res) => {
 
 // ─── PARTNERS ───
 
-/** GET /api/admin/partners - List all screen partners with screen counts. */
+/** GET /api/admin/partners - List all screen partners with screen counts and basic info. */
 router.get('/partners', async (req, res) => {
     try {
         const partners = await dbAll(`
@@ -221,36 +301,108 @@ router.get('/partners', async (req, res) => {
     } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
-/** POST /api/admin/partners - Register a new screen partner and create a user account. */
-router.post('/partners', async (req, res) => {
-    const { name, company, email, phone, address, status } = req.body;
-    if (!name) return res.status(400).json({ error: 'Name is required' });
+/** GET /api/admin/partners/:id - Detailed partner profile with financial metrics. */
+router.get('/partners/:id', async (req, res) => {
     try {
+        const partner = await dbGet(`
+            SELECT p.*,
+                (SELECT COUNT(*) FROM screens WHERE partner_id = p.id) AS screen_count,
+                (SELECT COALESCE(SUM(amount), 0) FROM partner_payouts WHERE partner_id = p.id AND status = 'Paid') AS total_paid,
+                (SELECT COALESCE(SUM(amount), 0) FROM partner_payouts WHERE partner_id = p.id AND status = 'Pending') AS pending_balance
+            FROM partners p
+            WHERE p.id = ?
+        `, [req.params.id]);
+
+        if (!partner) return res.status(404).json({ error: 'Partner not found' });
+        res.json(partner);
+    } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
+/** POST /api/admin/partners - Register a new screen partner with validation and conflict check. */
+router.post('/partners', async (req, res) => {
+    const { name, company, email, phone, address } = req.body;
+    
+    if (!name || !email) {
+        return res.status(400).json({ error: 'Partner name and email are required' });
+    }
+
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+        return res.status(400).json({ error: 'Invalid email format' });
+    }
+
+    try {
+        // Conflict check
+        const existing = await dbGet('SELECT id FROM partners WHERE email = ?', [email]);
+        if (existing) return res.status(409).json({ error: 'Email already exists' });
+
         const result = await dbRun(
-            `INSERT INTO partners (name, company, email, phone, address, status) VALUES (?, ?, ?, ?, ?, ?)`,
-            [name, company, email, phone, address, status || 'Active']
+            `INSERT INTO partners (name, company, email, phone, address, status, revenue_share_percentage) 
+             VALUES (?, ?, ?, ?, ?, 'Pending', 50)`,
+            [name, company, email, phone, address]
         );
 
-        if (email) {
-            const bcrypt = require('bcryptjs');
-            const hash = bcrypt.hashSync('partner123', 10);
-            await dbRun(
-                `INSERT INTO users (username, password_hash, role, partner_id) VALUES (?, ?, 'Partner', ?)`,
-                [email, hash, result.id]
-            ).catch(e => console.error('Failed to create user for partner:', e.message));
-        }
+        // Preserve user account creation (from legacy logic)
+        const bcrypt = require('bcryptjs');
+        const hash = bcrypt.hashSync('Partner@123', 10);
+        await dbRun(
+            `INSERT INTO users (username, password_hash, role, partner_id) VALUES (?, ?, 'Partner', ?)`,
+            [email, hash, result.id]
+        ).catch(e => console.error('Failed to create user for partner:', e.message));
 
-        res.json({ success: true, id: result.id });
+        res.status(201).json({ success: true, partner_id: result.id });
+    } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
+/** PATCH /api/admin/partners/:id/approve - Activate a partner. */
+router.patch('/partners/:id/approve', async (req, res) => {
+    try {
+        const result = await dbRun('UPDATE partners SET status = "Active" WHERE id = ?', [req.params.id]);
+        if (result.changes === 0) return res.status(404).json({ error: 'Partner not found' });
+        res.json({ success: true, partner_id: req.params.id, status: 'Active' });
+    } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
+/** PATCH /api/admin/partners/:id/disable - Disable a partner. */
+router.patch('/partners/:id/disable', async (req, res) => {
+    try {
+        const result = await dbRun('UPDATE partners SET status = "Disabled" WHERE id = ?', [req.params.id]);
+        if (result.changes === 0) return res.status(404).json({ error: 'Partner not found' });
+        res.json({ success: true, partner_id: req.params.id, status: 'Disabled' });
+    } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
+/** GET /api/admin/partners/payouts/pending - List all pending payout requests for review. */
+router.get('/partners/payouts/pending', async (req, res) => {
+    try {
+        const pending = await dbAll(`
+            SELECT pp.*, p.name as partner_name, p.company
+            FROM partner_payouts pp
+            JOIN partners p ON pp.partner_id = p.id
+            WHERE pp.status = 'Pending'
+            ORDER BY pp.created_at ASC
+        `);
+        res.json(pending);
+    } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
+/** POST /api/admin/partners/payouts/:id/approve - Approve a payout request. */
+router.post('/partners/payouts/:id/approve', async (req, res) => {
+    try {
+        const result = await dbRun('UPDATE partner_payouts SET status = "Paid" WHERE id = ?', [req.params.id]);
+        if (result.changes === 0) return res.status(404).json({ error: 'Payout request not found' });
+        res.json({ success: true, payout_id: req.params.id, status: 'Paid' });
     } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
 /** PUT /api/admin/partners/:id - Update partner profile. */
 router.put('/partners/:id', async (req, res) => {
-    const { name, company, email, phone, address, status } = req.body;
+    const { name, company, email, phone, address, status, revenue_share_percentage } = req.body;
     try {
         await dbRun(
-            `UPDATE partners SET name=?, company=?, email=?, phone=?, address=?, status=? WHERE id=?`,
-            [name, company, email, phone, address, status, req.params.id]
+            `UPDATE partners SET name=?, company=?, email=?, phone=?, address=?, status=?, revenue_share_percentage=? WHERE id=?`,
+            [name, company, email, phone, address, status, revenue_share_percentage, req.params.id]
         );
         res.json({ success: true });
     } catch(err) { res.status(500).json({ error: err.message }); }
@@ -258,13 +410,15 @@ router.put('/partners/:id', async (req, res) => {
 
 /** DELETE /api/admin/partners/:id - Delete partner and unassign their screens. */
 router.delete('/partners/:id', async (req, res) => {
+    const partnerId = req.params.id;
     try {
-        await dbRun('UPDATE screens SET partner_id = NULL WHERE partner_id = ?', [req.params.id]);
-        await dbRun('UPDATE users SET partner_id = NULL WHERE partner_id = ?', [req.params.id]);
-        await dbRun(`DELETE FROM partners WHERE id = ?`, [req.params.id]);
+        await dbRun('UPDATE screens SET partner_id = NULL WHERE partner_id = ?', [partnerId]);
+        await dbRun('UPDATE users SET partner_id = NULL WHERE partner_id = ?', [partnerId]);
+        await dbRun(`DELETE FROM partners WHERE id = ?`, [partnerId]);
         res.json({ success: true });
     } catch(err) { res.status(500).json({ error: err.message }); }
 });
+
 
 /** POST /api/admin/partners/:id/assign-screens - Bulk assign screens to a partner. */
 router.post('/partners/:id/assign-screens', async (req, res) => {
@@ -322,7 +476,7 @@ router.post('/screens', async (req, res) => {
 
 /** PUT /api/admin/screens/:id - Update screen details. */
 router.put('/screens/:id', async (req, res) => {
-    let { name, city, address, latitude, longitude, timezone, partner_id, notes, xibo_display_id, status } = req.body;
+    let { name, city, address, latitude, longitude, timezone, partner_id, notes, xibo_display_id, status, is_fixed_location, location_source } = req.body;
     
     // Sanitize coordinates to handle empty strings or UI nulls
     if (latitude === '' || latitude === undefined) latitude = null;
@@ -330,11 +484,19 @@ router.put('/screens/:id', async (req, res) => {
     if (latitude !== null) latitude = parseFloat(latitude);
     if (longitude !== null) longitude = parseFloat(longitude);
 
+    // Sanitize boolean fields
+    const fixedLocation = (is_fixed_location !== undefined) ? (is_fixed_location ? 1 : 0) : null;
+
     try {
-        await dbRun(
-            `UPDATE screens SET name=?, city=?, address=?, latitude=?, longitude=?, timezone=?, partner_id=?, notes=?, xibo_display_id=?, status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
-            [name, city, address, latitude, longitude, timezone, partner_id, notes, xibo_display_id, status, req.params.id]
-        );
+        let query, params;
+        if (fixedLocation !== null || location_source) {
+            query = `UPDATE screens SET name=?, city=?, address=?, latitude=?, longitude=?, timezone=?, partner_id=?, notes=?, xibo_display_id=?, status=?, is_fixed_location=COALESCE(?,is_fixed_location), location_source=COALESCE(?,location_source), updated_at=CURRENT_TIMESTAMP WHERE id=?`;
+            params = [name, city, address, latitude, longitude, timezone, partner_id, notes, xibo_display_id, status, fixedLocation, location_source || null, req.params.id];
+        } else {
+            query = `UPDATE screens SET name=?, city=?, address=?, latitude=?, longitude=?, timezone=?, partner_id=?, notes=?, xibo_display_id=?, status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`;
+            params = [name, city, address, latitude, longitude, timezone, partner_id, notes, xibo_display_id, status, req.params.id];
+        }
+        await dbRun(query, params);
         res.json({ success: true });
     } catch(err) { res.status(500).json({ error: err.message }); }
 });
@@ -514,4 +676,233 @@ router.get('/slots/screen/:displayId', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ─── PARTNER PAYOUTS ──────────────────────────────────────────────────────────
+
+/** GET /api/admin/payouts - Fetch all partner payout requests (pending and processed). */
+router.get('/payouts', async (req, res) => {
+    try {
+        const payouts = await dbAll(`
+            SELECT pp.*, p.name as partner_name, p.company as partner_company
+            FROM partner_payouts pp
+            JOIN partners p ON pp.partner_id = p.id
+            ORDER BY pp.created_at DESC
+        `);
+        res.json(payouts);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── BILLING & INVOICING ──────────────────────────────────────────────────────
+
+/** GET /api/admin/billing/summary - Aggregated stats for the current month. */
+router.get('/billing/summary', async (req, res) => {
+    try {
+        const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
+        const stats = await dbGet(`
+            SELECT 
+                SUM(CASE WHEN status = 'Paid' THEN amount ELSE 0 END) as totalPaid,
+                SUM(CASE WHEN status = 'Pending' THEN amount ELSE 0 END) as totalPending,
+                COUNT(*) as totalInvoices
+            FROM invoices 
+            WHERE DATE_FORMAT(created_at, '%Y-%m') = ?
+        `, [currentMonth]);
+        
+        res.json(stats || { totalPaid: 0, totalPending: 0, totalInvoices: 0 });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/** POST /api/admin/billing/generate-monthly - Bulk create invoices for active brands. */
+router.post('/billing/generate-monthly', async (req, res) => {
+    try {
+        const now = new Date();
+        const monthStr = now.toISOString().slice(0, 7).replace('-', ''); // YYYYMM
+        const dueDate = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10); // End of month
+
+        // 1. Find all active brands with a monthly_rate > 0
+        const brands = await dbAll('SELECT id, name, monthly_rate FROM brands WHERE status = "Active" AND monthly_rate > 0');
+        
+        const results = [];
+        for (const brand of brands) {
+            const invoiceNum = `INV-B${brand.id}-${monthStr}`;
+            
+            // 2. Check if already exists for this month to prevent duplicates
+            const existing = await dbGet('SELECT id FROM invoices WHERE invoice_number = ?', [invoiceNum]);
+            if (existing) {
+                results.push({ brand: brand.name, status: 'Skipped', reason: 'Invoice already exists' });
+                continue;
+            }
+
+            // 3. Create the invoice
+            await dbRun(
+                'INSERT INTO invoices (invoice_number, brand_id, amount, status, due_date) VALUES (?, ?, ?, "Pending", ?)',
+                [invoiceNum, brand.id, brand.monthly_rate, dueDate]
+            );
+            results.push({ brand: brand.name, status: 'Created', amount: brand.monthly_rate });
+        }
+
+        res.json({ success: true, processed: results.length, details: results });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/** GET /api/admin/reports/financials - Consolidated Financial Health analytics. */
+router.get('/reports/financials', async (req, res) => {
+    try {
+        const [revenue, payables, monthlyBreakdown] = await Promise.all([
+            // 1. Revenue from Brands
+            dbGet(`
+                SELECT 
+                    SUM(CASE WHEN status = 'Paid' THEN amount ELSE 0 END) as collected,
+                    SUM(CASE WHEN status = 'Pending' THEN amount ELSE 0 END) as outstanding,
+                    SUM(amount) as total
+                FROM invoices
+            `),
+            // 2. Payables to Partners
+            dbGet(`
+                SELECT 
+                    SUM(CASE WHEN status = 'Paid' THEN amount ELSE 0 END) as paidOut,
+                    SUM(CASE WHEN status = 'Pending' THEN amount ELSE 0 END) as pendingPayouts,
+                    SUM(amount) as totalPayables
+                FROM partner_payouts
+            `),
+            // 3. Monthly Breakdown (Join by Month)
+            dbAll(`
+                SELECT 
+                    COALESCE(i.month, p.month) as month,
+                    COALESCE(i.revenue, 0) as revenue,
+                    COALESCE(p.payouts, 0) as payouts,
+                    (COALESCE(i.revenue, 0) - COALESCE(p.payouts, 0)) as margin
+                FROM (
+                    SELECT DATE_FORMAT(created_at, '%Y-%m') as month, SUM(amount) as revenue 
+                    FROM invoices GROUP BY month
+                ) i
+                LEFT JOIN (
+                    SELECT month, SUM(amount) as payouts 
+                    FROM partner_payouts GROUP BY month
+                ) p ON i.month = p.month
+                UNION
+                SELECT 
+                    COALESCE(i.month, p.month) as month,
+                    COALESCE(i.revenue, 0) as revenue,
+                    COALESCE(p.payouts, 0) as payouts,
+                    (COALESCE(i.revenue, 0) - COALESCE(p.payouts, 0)) as margin
+                FROM (
+                    SELECT DATE_FORMAT(created_at, '%Y-%m') as month, SUM(amount) as revenue 
+                    FROM invoices GROUP BY month
+                ) i
+                RIGHT JOIN (
+                    SELECT month, SUM(amount) as payouts 
+                    FROM partner_payouts GROUP BY month
+                ) p ON i.month = p.month
+                ORDER BY month DESC
+            `)
+        ]);
+
+        res.json({
+            revenue: {
+                total: revenue.total || 0,
+                collected: revenue.collected || 0,
+                outstanding: revenue.outstanding || 0
+            },
+            payables: {
+                total: payables.totalPayables || 0,
+                paid: payables.paidOut || 0,
+                pending: payables.pendingPayouts || 0
+            },
+            netMargin: (revenue.total || 0) - (payables.totalPayables || 0),
+            realizedProfit: (revenue.collected || 0) - (payables.paidOut || 0),
+            history: monthlyBreakdown
+        });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+
+/** PATCH /api/admin/payouts/:id/approve - Mark a payout request as Paid. */
+router.patch('/payouts/:id/approve', async (req, res) => {
+
+    try {
+        const { id } = req.params;
+        const result = await dbRun(
+            'UPDATE partner_payouts SET status = "Paid", created_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [id]
+        );
+        if (result.changes === 0) {
+            return res.status(404).json({ error: 'Payout request not found.' });
+        }
+        res.json({ success: true, message: 'Payout marked as Paid.' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/** GET /api/admin/network/health - Detailed network status of all displays. */
+router.get('/network/health', async (req, res) => {
+    try {
+        const displays = await xiboService.getDisplays();
+        const healthStats = displays.map(d => xiboService.getDisplayHealth(d));
+        
+        const summary = {
+            total: healthStats.length,
+            online: healthStats.filter(h => h.status === 'Online').length,
+            offline: healthStats.filter(h => h.status === 'Offline').length,
+            stale: healthStats.filter(h => h.status === 'Stale').length,
+            criticalStorage: healthStats.filter(h => h.storage.status === 'Critical').length
+        };
+
+        res.json({ success: true, summary, displays: healthStats });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/** GET /api/admin/creatives/pending - List all media uploaded by brands awaiting review. */
+router.get('/creatives/pending', async (req, res) => {
+    try {
+        const query = `
+            SELECT mb.mediaId, mb.brand_id, mb.status, b.name as brand_name, mb.moderated_at
+            FROM media_brands mb
+            JOIN brands b ON mb.brand_id = b.id
+            WHERE mb.status = 'Pending'
+            ORDER BY mb.mediaId DESC
+        `;
+        const pending = await dbAll(query);
+        
+        // Fetch library details from Xibo for thumbnails/names
+        const xiboLibrary = await xiboService.getLibrary({ length: 100 });
+        const enriched = pending.map(p => {
+            const x = xiboLibrary.find(m => m.mediaId === p.mediaId);
+            return {
+                ...p,
+                name: x ? x.name : 'Unknown Media',
+                fileName: x ? x.fileName : '',
+                mediaType: x ? x.mediaType : 'video'
+            };
+        });
+        
+        res.json(enriched);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/** PATCH /api/admin/creatives/:id/approve - Approve an uploaded creative. */
+router.patch('/creatives/:id/approve', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = await dbRun(
+            'UPDATE media_brands SET status = "Approved", moderated_at = CURRENT_TIMESTAMP WHERE mediaId = ?',
+            [id]
+        );
+        if (result.changes === 0) return res.status(404).json({ error: 'Creative record not found.' });
+        res.json({ success: true, message: 'Creative approved successfully.' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/** PATCH /api/admin/creatives/:id/reject - Reject an uploaded creative. */
+router.patch('/creatives/:id/reject', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = await dbRun(
+            'UPDATE media_brands SET status = "Rejected", moderated_at = CURRENT_TIMESTAMP WHERE mediaId = ?',
+            [id]
+        );
+        if (result.changes === 0) return res.status(404).json({ error: 'Creative record not found.' });
+        res.json({ success: true, message: 'Creative rejected.' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 module.exports = router;
+
+

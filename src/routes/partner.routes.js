@@ -49,48 +49,56 @@ router.get('/dashboard', async (req, res) => {
         ]);
         
         const enriched = await enrichScreensWithXibo(screens);
+        const screenIds = screens.map(s => s.screen_id).filter(Boolean);
         const displayIds = screens.map(s => s.xibo_display_id).filter(Boolean);
 
-        if (displayIds.length === 0) {
+        if (screenIds.length === 0) {
             return res.json({
                 partner: { name: partner?.name, company: partner?.company, email: partner?.email, revenue_share_percentage: partner?.revenue_share_percentage || 50 },
                 totalScreens: 0, onlineScreens: 0, offlineScreens: 0,
-                totalSlots: 0, occupiedSlots: 0, emptySlots: 0, utilizationRate: 0,
-                currentRevenue: 0, pendingPayments: 0, earningsByBrand: [], recentPoP: []
+                totalSlots: 0, occupiedSlots: 0, utilizationRate: 0,
+                currentRevenue: 0, pendingPayments: 0, recentPoP: []
             });
         }
 
-        const ph = displayIds.map(() => '?').join(',');
+        const screenPh = screenIds.map(() => '?').join(',');
 
-        // 2. Parallelize aggregate queries
-        const [assignedSlotsRow, revenue, pendingPayments, earningsByBrand, recentStats] = await Promise.all([
-            dbGet(`SELECT COUNT(*) as count FROM slots WHERE displayId IN (${ph}) AND brand_id IS NOT NULL`, displayIds).catch(() => ({ count: 0 })),
-            dbGet(`SELECT SUM(i.amount) as total FROM invoices i JOIN slots sl ON sl.brand_id = i.brand_id WHERE sl.displayId IN (${ph}) AND i.status = 'Paid'`, displayIds).catch(() => ({ total: 0 })),
-            dbGet(`SELECT SUM(i.amount) as total FROM invoices i JOIN slots sl ON sl.brand_id = i.brand_id WHERE sl.displayId IN (${ph}) AND i.status = 'Pending'`, displayIds).catch(() => ({ total: 0 })),
-            dbAll(`SELECT b.name as brand_name, COUNT(DISTINCT sl.displayId) as screen_count, SUM(i.amount) as earnings FROM slots sl JOIN brands b ON sl.brand_id = b.id LEFT JOIN invoices i ON i.brand_id = sl.brand_id AND i.status = 'Paid' WHERE sl.displayId IN (${ph}) AND sl.brand_id IS NOT NULL GROUP BY sl.brand_id ORDER BY earnings DESC`, displayIds).catch(() => []),
+        // 2. Aggregate queries based on campaigns
+        const [activeCampaigns, revenueResult, statsResult] = await Promise.all([
+            dbGet(`SELECT COUNT(*) as count FROM campaigns WHERE screen_id IN (${screenPh}) AND status = 'Active'`, screenIds),
+            dbGet(`
+                SELECT 
+                    SUM(CASE WHEN i.status = 'Paid' THEN i.amount ELSE 0 END) as paid,
+                    SUM(CASE WHEN i.status = 'Pending' THEN i.amount ELSE 0 END) as pending
+                FROM invoices i
+                JOIN campaigns c ON i.brand_id = c.brand_id
+                WHERE c.screen_id IN (${screenPh})
+            `, screenIds),
             require('../services/stats.service').getRecentStats().catch(() => ({ data: [] }))
         ]);
 
         const totalScreens = enriched.length;
         const onlineScreens = enriched.filter(s => s.liveStatus === 'Online').length;
         const offlineScreens = enriched.filter(s => s.liveStatus === 'Offline').length;
-        const totalSlots = displayIds.length * 20;
-        const occupiedSlots = assignedSlotsRow?.count || 0;
-        const emptySlots = Math.max(0, totalSlots - occupiedSlots);
-        const utilizationRate = totalSlots > 0 ? Math.round((occupiedSlots / totalSlots) * 100) : 0;
+        const utilizationRate = totalScreens > 0 ? Math.round(((activeCampaigns?.count || 0) / (totalScreens * 20)) * 100) : 0;
 
-        const recentPoP = (recentStats.data || [])
+        // Apply partner revenue share
+        const share = (partner.revenue_share_percentage || 50) / 100;
+        const currentRevenue = (revenueResult?.paid || 0) * share;
+        const pendingPayments = (revenueResult?.pending || 0) * share;
+
+        const recentPoP = (statsResult.data || [])
             .filter(r => displayIds.includes(r.displayId))
             .sort((a, b) => new Date(b.playedAt || 0) - new Date(a.playedAt || 0))
             .slice(0, 10);
 
         res.json({
-            partner: { name: partner?.name, company: partner?.company, email: partner?.email, revenue_share_percentage: partner?.revenue_share_percentage || 50 },
+            partner: { name: partner?.name, company: partner?.company, email: partner?.email, share_percentage: partner.revenue_share_percentage },
             totalScreens, onlineScreens, offlineScreens,
-            totalSlots, occupiedSlots, emptySlots, utilizationRate,
-            currentRevenue: revenue?.total || 0,
-            pendingPayments: pendingPayments?.total || 0,
-            earningsByBrand,
+            activeCampaigns: activeCampaigns?.count || 0,
+            utilizationRate,
+            currentRevenue,
+            pendingPayments,
             recentPoP
         });
     } catch (err) {
@@ -98,6 +106,7 @@ router.get('/dashboard', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+
 
 // ─── MY SCREENS ───────────────────────────────────────────────────────────────
 
@@ -123,19 +132,73 @@ router.get('/earnings', async (req, res) => {
         const partnerId = req.user.partner_id;
         if (!partnerId) return res.status(400).json({ error: 'No partner assigned.' });
 
-        const screens = await getPartnerScreens(partnerId);
-        const displayIds = screens.map(s => s.xibo_display_id).filter(Boolean);
-        if (displayIds.length === 0) return res.json({ byBrand: [], summary: {} });
-
-        const ph = displayIds.map(() => '?').join(',');
-        const [byBrand, summary] = await Promise.all([
-            dbAll(`SELECT b.name as brand_name, COUNT(DISTINCT sl.displayId) as screen_count, COALESCE(SUM(i.amount), 0) as earnings FROM slots sl JOIN brands b ON sl.brand_id = b.id LEFT JOIN invoices i ON i.brand_id = sl.brand_id AND i.status = 'Paid' WHERE sl.displayId IN (${ph}) AND sl.brand_id IS NOT NULL GROUP BY sl.brand_id ORDER BY earnings DESC`, displayIds).catch(() => []),
-            dbGet(`SELECT COALESCE(SUM(CASE WHEN i.status='Paid' THEN i.amount ELSE 0 END), 0) as totalPaid, COALESCE(SUM(CASE WHEN i.status='Pending' THEN i.amount ELSE 0 END), 0) as totalPending FROM invoices i JOIN slots sl ON sl.brand_id = i.brand_id WHERE sl.displayId IN (${ph})`, displayIds).catch(() => ({ totalPaid: 0, totalPending: 0 }))
+        const [partner, screens] = await Promise.all([
+            dbGet('SELECT * FROM partners WHERE id = ?', [partnerId]),
+            getPartnerScreens(partnerId)
         ]);
 
-        res.json({ byBrand, summary });
+        const screenIds = screens.map(s => s.screen_id).filter(Boolean);
+        if (screenIds.length === 0) return res.json({ history: [], summary: {} });
+
+        const screenPh = screenIds.map(() => '?').join(',');
+        const query = `
+            SELECT 
+                DATE_FORMAT(i.created_at, '%Y-%m') as month,
+                c.campaign_name,
+                b.name as brand_name,
+                i.amount as invoice_total,
+                (i.amount * ?) as partner_share,
+                i.status as payment_status
+            FROM invoices i
+            JOIN campaigns c ON i.brand_id = c.brand_id
+            JOIN brands b ON i.brand_id = b.id
+            WHERE c.screen_id IN (${screenPh})
+            ORDER BY month DESC
+        `;
+        const share = (partner.revenue_share_percentage || 50) / 100;
+        const history = await dbAll(query, [share, ...screenIds]);
+
+        // Calculate summary
+        const summary = history.reduce((acc, curr) => {
+            if (curr.payment_status === 'Paid') acc.totalPaid += curr.partner_share;
+            else acc.totalPending += curr.partner_share;
+            return acc;
+        }, { totalPaid: 0, totalPending: 0 });
+
+        res.json({ history, summary });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+// ─── PAYOUTS ──────────────────────────────────────────────────────────────────
+
+/** GET /api/partner/payouts - List all payout history for the partner. */
+router.get('/payouts', async (req, res) => {
+    try {
+        const partnerId = req.user.partner_id;
+        const payouts = await dbAll('SELECT * FROM partner_payouts WHERE partner_id = ? ORDER BY created_at DESC', [partnerId]);
+        res.json(payouts);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/** POST /api/partner/payouts/request - Request payout for a specific month. */
+router.post('/payouts/request', async (req, res) => {
+    try {
+        const partnerId = req.user.partner_id;
+        const { month, amount } = req.body;
+        
+        if (!month || !amount) return res.status(400).json({ error: 'Month and Amount required.' });
+
+        // Simple duplicate check (preventing multiple requests for same month)
+        const existing = await dbGet('SELECT id FROM partner_payouts WHERE partner_id=? AND month=? AND status="Pending"', [partnerId, month]);
+        if (existing) return res.status(400).json({ error: 'A pending request already exists for this month.' });
+
+        await dbRun('INSERT INTO partner_payouts (partner_id, month, amount, status) VALUES (?, ?, ?, "Pending")',
+            [partnerId, month, amount]);
+
+        res.json({ success: true, message: 'Payout request submitted.' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 
 // ─── SLOT DETAILS ─────────────────────────────────────────────────────────────
 

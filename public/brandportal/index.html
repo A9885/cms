@@ -25,6 +25,7 @@
             <li class="nav-item active" data-target="dashboard"><i data-lucide="layout-dashboard"></i> Dashboard</li>
             <li class="nav-item" data-target="screens"><i data-lucide="monitor"></i> Screens</li>
             <li class="nav-item" data-target="reports"><i data-lucide="file-text"></i> Reports</li>
+            <li class="nav-item" data-target="creatives"><i data-lucide="image"></i> Creative Library</li>
             <li class="nav-item" data-target="market"><i data-lucide="shopping-cart"></i> Marketplace</li>
             <li class="nav-item" data-target="billing"><i data-lucide="credit-card"></i> Subscription</li>
             <li class="nav-item" data-target="account"><i data-lucide="user"></i> Account</li>
@@ -343,6 +344,36 @@
                 .dropdown-options label:hover { background: #f8fafc; }
                 .dropdown-options input { margin-right: 10px; accent-color: var(--accent); }
             </style>
+        </section>
+
+        <!-- CREATIVES -->
+        <section id="creatives" class="view-section">
+            <div class="page-header">
+                <h1 class="page-title">Creative Library</h1>
+                <div class="header-actions">
+                    <button class="btn btn-blue" onclick="document.getElementById('upload-creative-input').click()">+ Upload Media</button>
+                    <input type="file" id="upload-creative-input" style="display:none" onchange="uploadCreative(this)">
+                </div>
+            </div>
+            
+            <div class="glass-panel" style="padding:1.5rem;">
+                <div class="table-responsive">
+                    <table id="creatives-table">
+                        <thead>
+                            <tr>
+                                <th>Preview</th>
+                                <th>Asset Name</th>
+                                <th>Type</th>
+                                <th>Moderation Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="creatives-table-body">
+                            <tr><td colspan="5" style="text-align:center; padding:3rem; color:var(--text-muted);">Syncing with Xibo Cloud Library...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </section>
 
         <!-- MARKET / BILLING / ACCOUNT PLACEHOLDERS -->

@@ -58,6 +58,7 @@ function refreshActiveView(background = false) {
     
     if (target === 'dashboard') loadDashboard();
     else if (target === 'screens') loadScreens();
+    else if (target === 'creatives') loadCreatives();
     else if (target === 'reports') {
         const isDetail = document.getElementById('reports-detail-view').style.display === 'block';
         if (isDetail) {
@@ -811,4 +812,115 @@ async function loadBilling() {
 
         tbody.appendChild(tr);
     });
+}
+// ─── CREATIVES ───
+async function loadCreatives() {
+    const data = await safeFetch('/api/creative/list');
+    const tbody = document.getElementById('creatives-table-body');
+    if (!tbody || !data) return;
+
+    tbody.innerHTML = '';
+    if (data.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:3rem; color:var(--text-muted);">No creatives found. Upload your first media!</td></tr>';
+        return;
+    }
+
+    data.forEach(m => {
+        const tr = document.createElement('tr');
+        
+        const tdPrev = document.createElement('td');
+        const iconWrap = document.createElement('div');
+        iconWrap.style.cssText = 'width:42px; height:35px; background:rgba(59,130,246,0.1); border-radius:6px; display:flex; align-items:center; justify-content:center;';
+        const i = document.createElement('i');
+        i.setAttribute('data-lucide', m.mediaType === 'video' ? 'film' : 'image');
+        i.style.color = '#3b82f6';
+        iconWrap.appendChild(i);
+        tdPrev.appendChild(iconWrap);
+        tr.appendChild(tdPrev);
+
+        const tdName = document.createElement('td');
+        tdName.style.fontWeight = '600';
+        tdName.textContent = m.name;
+        tr.appendChild(tdName);
+
+        const tdType = document.createElement('td');
+        tdType.style.textTransform = 'capitalize';
+        tdType.textContent = m.mediaType || 'media';
+        tr.appendChild(tdType);
+
+        const tdStatus = document.createElement('td');
+        const status = m.status || 'Pending';
+        const pill = document.createElement('span');
+        pill.className = `status-pill ${status.toLowerCase()}`;
+        pill.style.cssText = `
+            font-size: 0.7rem; font-weight: 700; padding: 2px 10px; border-radius: 20px;
+            text-transform: uppercase;
+        `;
+        
+        if (status === 'Approved') {
+            pill.style.background = 'rgba(34, 197, 94, 0.15)';
+            pill.style.color = '#15803d';
+        } else if (status === 'Rejected') {
+            pill.style.background = 'rgba(239, 68, 68, 0.15)';
+            pill.style.color = '#b91c1c';
+        } else {
+            pill.style.background = 'rgba(245, 158, 11, 0.15)';
+            pill.style.color = '#b45309';
+        }
+        
+        pill.textContent = status;
+        tdStatus.appendChild(pill);
+        if (status === 'Pending') {
+            const tip = document.createElement('div');
+            tip.style.fontSize = '0.65rem';
+            tip.style.color = 'var(--text-muted)';
+            tip.textContent = 'Under Admin Review';
+            tdStatus.appendChild(tip);
+        }
+        tr.appendChild(tdStatus);
+
+        const tdAction = document.createElement('td');
+        const btn = document.createElement('button');
+        btn.className = 'btn btn-glass';
+        btn.style.padding = '5px 12px';
+        btn.style.fontSize = '0.75rem';
+        btn.textContent = 'Preview';
+        tdAction.appendChild(btn);
+        tr.appendChild(tdAction);
+
+        tbody.appendChild(tr);
+    });
+    lucide.createIcons();
+}
+
+async function uploadCreative(input) {
+    if (!input.files || input.files.length === 0) return;
+    const file = input.files[0];
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const btn = document.querySelector('button[onclick*="upload-creative-input"]');
+    const originalText = btn.innerText;
+    btn.disabled = true;
+    btn.innerText = 'Uploading...';
+
+    try {
+        const res = await fetch('/api/creative/upload', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast('✅ Creative uploaded and sent for moderation!', 'success');
+            loadCreatives();
+        } else {
+            showToast(data.error || 'Upload failed', 'error');
+        }
+    } catch (e) {
+        showToast('Connection error during upload', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerText = originalText;
+        input.value = '';
+    }
 }

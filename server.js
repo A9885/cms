@@ -41,6 +41,15 @@ app.use('/auth', authRoutes);
 const apiRoutes = require('./src/routes/api.routes');
 app.use('/api', apiRoutes);
 
+const screenRoutes = require('./src/routes/screen.routes');
+app.use('/api/screens', screenRoutes);
+
+const campaignRoutes = require('./src/routes/campaign.routes');
+app.use('/api/campaigns', campaignRoutes);
+
+const creativeRoutes = require('./src/routes/creative.routes');
+app.use('/api/creative', creativeRoutes);
+
 // Mount Protected Admin APIs
 const adminRoutes = require('./src/routes/admin.routes');
 const { authMiddleware } = require('./src/middleware/auth.middleware');

@@ -91,7 +91,7 @@ App.registerView('dashboard', {
     async loadKPIs() {
         const data = await Api.get('/dashboard');
         if (data) {
-            this.updateKPIsUI(data);
+            await this.updateKPIsUI(data);
             this.renderRevenueChart(data.revenueTrend || []);
         }
     },
@@ -190,7 +190,7 @@ App.registerView('dashboard', {
         if (bounds.length > 0) this.map.fitBounds(bounds, { padding: [50, 50], maxZoom: 14 });
     },
 
-    updateKPIsUI(data) {
+    async updateKPIsUI(data) {
         const kpiContainer = document.getElementById('dashboard-kpis');
         if (!kpiContainer) return;
         kpiContainer.innerHTML = '';
@@ -215,8 +215,32 @@ App.registerView('dashboard', {
         kpiContainer.appendChild(createKpi('kpi-darkblue', 'play-circle', 'Daily Plays', (data.totalImpressions || 0).toLocaleString(), 'Across network'));
         kpiContainer.appendChild(createKpi('kpi-orange', 'layers', 'Campaigns', data.activeCampaigns));
         kpiContainer.appendChild(createKpi('kpi-lightblue', 'indian-rupee', 'Revenue', `₹${(data.monthlyRevenue || 0).toLocaleString()}`));
-        kpiContainer.appendChild(createKpi('kpi-white', 'users', 'Partners', data.totalPartners));
+
+        // Add Pending Payouts alert if any
+        try {
+            const payouts = await Api.get('/partners/payouts/pending');
+            if (payouts && payouts.length > 0) {
+                const totalPending = payouts.reduce((sum, p) => sum + (p.amount || 0), 0);
+                kpiContainer.appendChild(createKpi('kpi-red', 'clock', 'Payouts Due', `₹${totalPending.toLocaleString()}`, `${payouts.length} pending requests` || 'Settlement required'));
+            } else {
+                kpiContainer.appendChild(createKpi('kpi-white', 'users', 'Partners', data.totalPartners));
+            }
+        } catch (e) {
+            kpiContainer.appendChild(createKpi('kpi-white', 'users', 'Partners', data.totalPartners));
+        }
+
         kpiContainer.appendChild(createKpi('kpi-white', 'briefcase', 'Brands', data.totalBrands));
+
+        // Add Creative Moderation alert if any
+        try {
+            const pendingCreatives = await Api.get('/admin/creatives/pending');
+            if (pendingCreatives && pendingCreatives.length > 0) {
+                kpiContainer.appendChild(createKpi('kpi-orange', 'check-square', 'Mod Queue', `${pendingCreatives.length}`, 'Pending approval'));
+            }
+        } catch (e) {
+            console.warn('[Dashboard] Failed to fetch moderation count');
+        }
+
         lucide.createIcons();
     },
 

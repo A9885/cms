@@ -76,9 +76,9 @@ registerView('dashboard', async (wrap) => {
         if (badge) badge.textContent = d.totalScreens;
     }
 
-    const revShare = d.partner?.revenue_share_percentage || 50;
-    const myRevenue = Math.floor((d.currentRevenue || 0) * revShare / 100);
-    const myPending = Math.floor((d.pendingPayments || 0) * revShare / 100);
+    const revShare = d.partner?.revenue_share_percentage || 0;
+    const myRevenue = Math.floor(d.currentRevenue || 0); // Backend now calculates share!
+    const myPending = Math.floor(d.pendingPayments || 0); 
 
     wrap.innerHTML = '';
     const anim = document.createElement('div');
@@ -409,17 +409,16 @@ window.openScreenDetail = async function(id) {
 // ═══ EARNINGS VIEW ══════════════════════════════════════════════════════════
 registerView('earnings', async (wrap) => {
     const data = await api('/earnings');
-    if (!data) return;
-
-    // Use revenue_share from dashboard data if available
-    const revShare = state.dashData?.partner?.revenue_share_percentage || 50;
+    const payouts = await api('/payouts');
+    if (!data || !payouts) return;
 
     wrap.innerHTML = '';
     const anim = document.createElement('div'); anim.className = 'view-anim';
 
+    // 1. KPI Summary
     const kpiGrid = document.createElement('div');
     kpiGrid.className = 'kpi-grid';
-    kpiGrid.style.cssText = 'grid-template-columns: repeat(3,1fr); max-width:700px; margin-bottom:1.5rem;';
+    kpiGrid.style.cssText = 'grid-template-columns: repeat(3,1fr); max-width:800px; margin-bottom:1.5rem;';
     
     const createKpi = (label, value, sub, iconName, colorClass) => {
         const kpi = document.createElement('div');
@@ -431,43 +430,124 @@ registerView('earnings', async (wrap) => {
         return kpi;
     };
 
-    kpiGrid.appendChild(createKpi('Total Earned (My Share)', `₹${Math.floor((data.summary?.totalPaid||0)*revShare/100).toLocaleString()}`, `${revShare}% revenue share`, 'check-circle', 'kpi-success'));
-    kpiGrid.appendChild(createKpi('Pending Settlement', `₹${Math.floor((data.summary?.totalPending||0)*revShare/100).toLocaleString()}`, 'Awaiting payment', 'clock', 'kpi-warn'));
-    kpiGrid.appendChild(createKpi('Active Brands', data.byBrand?.length || 0, 'Brands using your screens', 'users', 'accent'));
+    kpiGrid.appendChild(createKpi('Total Earned', `₹${Math.floor(data.summary?.totalPaid||0).toLocaleString()}`, 'All-time share', 'check-circle', 'kpi-success'));
+    kpiGrid.appendChild(createKpi('Current Balance', `₹${Math.floor(data.summary?.totalPending||0).toLocaleString()}`, 'Awaiting payout', 'clock', 'kpi-warn'));
+    kpiGrid.appendChild(createKpi('Payout History', payouts.length, 'Completed requests', 'users', 'accent'));
     anim.appendChild(kpiGrid);
 
-    const card = document.createElement('div');
-    card.className = 'card';
-    card.innerHTML = `<div class="section-title"><i data-lucide="bar-chart-2"></i> Earnings Report by Brand</div>`;
-    if (data.byBrand && data.byBrand.length > 0) {
+    // 2. Monthly Earnings Breakdown
+    const earnCard = document.createElement('div');
+    earnCard.className = 'card';
+    earnCard.style.marginBottom = '1.5rem';
+    earnCard.innerHTML = `
+        <div class="section-title" style="display:flex; justify-content:space-between; align-items:center;">
+            <span><i data-lucide="bar-chart-2"></i> Monthly Earnings History</span>
+            <button class="btn btn-primary btn-sm" id="btn-request-payout-init">
+                <i data-lucide="send"></i> Request Payout
+            </button>
+        </div>`;
+    
+    if (data.history && data.history.length > 0) {
         const tableWrap = document.createElement('div'); tableWrap.className = 'table-wrap';
         const table = document.createElement('table');
-        table.innerHTML = '<thead><tr><th>Brand</th><th>No. of Screens</th><th>Gross Earnings</th><th>My Share</th></tr></thead>';
-        table.querySelector('th:last-child').textContent = `My Share (${revShare}%)`;
+        table.innerHTML = '<thead><tr><th>Month</th><th>Campaigns</th><th>Platform Revenue</th><th>My Share</th></tr></thead>';
         const tbody = document.createElement('tbody');
-        data.byBrand.forEach(b => {
+        data.history.forEach(h => {
             const tr = document.createElement('tr');
-            const tdBrand = document.createElement('td'); tdBrand.style.fontWeight = '700'; tdBrand.textContent = b.brand_name;
-            const tdCount = document.createElement('td'); tdCount.textContent = b.screen_count;
-            const tdGross = document.createElement('td'); tdGross.textContent = `₹${(b.earnings||0).toLocaleString()}`;
-            const tdShare = document.createElement('td'); tdShare.style.cssText = 'color:var(--success); font-weight:700;'; tdShare.textContent = `₹${Math.floor((b.earnings||0)*revShare/100).toLocaleString()}`;
-            tr.append(tdBrand, tdCount, tdGross, tdShare);
+            tr.innerHTML = `
+                <td style="font-weight:700;">${h.month}</td>
+                <td>${h.campaign_count}</td>
+                <td>₹${(h.gross_revenue||0).toLocaleString()}</td>
+                <td style="color:var(--success); font-weight:700;">₹${(h.partner_share||0).toLocaleString()}</td>
+            `;
             tbody.appendChild(tr);
         });
         table.appendChild(tbody);
         tableWrap.appendChild(table);
-        card.appendChild(tableWrap);
+        earnCard.appendChild(tableWrap);
     } else {
-        const empty = document.createElement('div'); empty.className = 'empty-state';
-        empty.innerHTML = '<i data-lucide="bar-chart"></i>';
-        const p = document.createElement('p'); p.textContent = 'No brand earnings data yet. Earnings appear once brands book slots on your screens.';
-        empty.appendChild(p);
-        card.appendChild(empty);
+        earnCard.innerHTML += `<div class="empty-state"><p>No monthly history yet.</p></div>`;
     }
-    anim.appendChild(card);
+    anim.appendChild(earnCard);
+
+    // 3. Payout Requests
+    const payoutCard = document.createElement('div');
+    payoutCard.className = 'card';
+    payoutCard.innerHTML = `<div class="section-title"><i data-lucide="history"></i> Payout Status</div>`;
+    if (payouts.length > 0) {
+        const tableWrap = document.createElement('div'); tableWrap.className = 'table-wrap';
+        const table = document.createElement('table');
+        table.innerHTML = '<thead><tr><th>Requested On</th><th>Month</th><th>Amount</th><th>Status</th></tr></thead>';
+        const tbody = document.createElement('tbody');
+        payouts.forEach(p => {
+            const tr = document.createElement('tr');
+            const cls = p.status === 'Paid' ? 'badge-success' : 'badge-warn';
+            tr.innerHTML = `
+                <td>${new Date(p.created_at).toLocaleDateString()}</td>
+                <td style="font-weight:600;">${p.month}</td>
+                <td>₹${(p.amount||0).toLocaleString()}</td>
+                <td><span class="badge ${cls}">${p.status}</span></td>
+            `;
+            tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        tableWrap.appendChild(table);
+        payoutCard.appendChild(tableWrap);
+    } else {
+        payoutCard.innerHTML += `<div class="empty-state"><p>No payout requests found.</p></div>`;
+    }
+    anim.appendChild(payoutCard);
+
+    // 4. Request Modal
+    const modal = document.createElement('div'); modal.id = 'payout-modal'; modal.className = 'modal-overlay';
+    modal.innerHTML = `
+        <div class="modal" style="width:400px;">
+            <div class="modal-header">
+                <span class="modal-title">Request Settlement</span>
+                <button class="modal-close" onclick="document.getElementById('payout-modal').classList.remove('active')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Month (YYYY-MM)</label>
+                    <select id="payout-month-select" class="form-control">
+                        ${data.history.map(h => `<option value="${h.month}">${h.month} (₹${h.partner_share})</option>`).join('')}
+                    </select>
+                </div>
+                <div style="font-size:0.75rem; color:var(--text-muted); margin-top:1rem;">
+                    Settlements are processed within 2-3 business days after approval.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="document.getElementById('payout-modal').classList.remove('active')">Cancel</button>
+                <button class="btn btn-primary" id="btn-submit-payout">Submit Request</button>
+            </div>
+        </div>`;
+    anim.appendChild(modal);
+
     wrap.appendChild(anim);
     lucide.createIcons();
+
+    // Bindings
+    document.getElementById('btn-request-payout-init').onclick = () => document.getElementById('payout-modal').classList.add('active');
+    document.getElementById('btn-submit-payout').onclick = async () => {
+        const btn = document.getElementById('btn-submit-payout');
+        const month = document.getElementById('payout-month-select').value;
+        btn.textContent = 'Submitting…';
+        try {
+            await api('/payouts/request', {
+                method: 'POST',
+                body: JSON.stringify({ month })
+            });
+            showToast('Payout request submitted successfully!', 'success');
+            navigate('earnings');
+        } catch (err) {
+            showToast('Request failed: ' + err.message, 'error');
+        } finally {
+            btn.textContent = 'Submit Request';
+        }
+    };
 });
+
 
 // ═══ SUPPORT VIEW ════════════════════════════════════════════════════════════
 registerView('support', async (wrap) => {

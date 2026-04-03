@@ -1,5 +1,6 @@
 const axios = require('axios');
 const FormData = require('form-data');
+const fs = require('fs');
 
 /**
  * Service for interacting with the Xibo CMS API.
@@ -375,6 +376,148 @@ class XiboService {
   async updateDisplayAuditing(displayId, auditingUntil) {
     return await this.updateDisplay(displayId, { statsEnabled: 1, auditUntil: auditingUntil });
   }
+  /**
+   * Resolve a slot-specific playlist for a display.
+   * Format: SCREEN_{displayId}_SLOT_{slotId}_PLAYLIST
+   * @param {number|string} displayId
+   * @param {number|string} slotId
+   * @returns {Promise<number>} The playlistId.
+   */
+  async getSlotPlaylistId(displayId, slotId) {
+    const headers = await this.getHeaders();
+    const playlistName = `SCREEN_${displayId}_SLOT_${slotId}_PLAYLIST`;
+    
+    try {
+      // 1. Search for existing playlist
+      const pResp = await axios.get(`${this.baseUrl}/api/playlist`, {
+        headers,
+        params: { name: playlistName }
+      });
+
+      const found = pResp.data?.find(p => (p.playlist === playlistName || p.name === playlistName));
+      if (found) return found.playlistId;
+
+      // 2. Create if not found
+      console.log(`[XiboService] Creating playlist: ${playlistName}`);
+      const createResp = await axios.post(`${this.baseUrl}/api/playlist`, 
+        `name=${encodeURIComponent(playlistName)}&isDynamic=0`,
+        { headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' } }
+      );
+      return createResp.data.playlistId;
+    } catch (err) {
+      if (err.response?.status === 409) {
+          // Retry find once if conflict occurs
+          const retry = await axios.get(`${this.baseUrl}/api/playlist`, { headers, params: { name: playlistName } });
+          const found = retry.data?.find(p => (p.playlist === playlistName || p.name === playlistName));
+          if (found) return found.playlistId;
+      }
+      throw new Error(`Failed to resolve playlist ${playlistName}: ${err.message}`);
+    }
+  }
+
+  /**
+   * Assign a library item to a playlist.
+   * @param {number} playlistId
+   * @param {number} mediaId
+   * @param {number} duration
+   * @returns {Promise<Object>} The created widget record.
+   */
+  async assignMediaToPlaylist(playlistId, mediaId, duration = 10) {
+    const headers = await this.getHeaders();
+    try {
+      const params = `media[0]=${mediaId}&duration=${duration}&useDuration=1`;
+      const resp = await axios.post(`${this.baseUrl}/api/playlist/library/assign/${playlistId}`, params, {
+        headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' }
+      });
+      return resp.data?.[0] || resp.data;
+    } catch (err) {
+      throw new Error(`Xibo media assignment failed: ${err.message}`);
+    }
+  }
+
+  /**
+   * Remove a widget from its playlist.
+   * @param {number} widgetId
+   * @returns {Promise<boolean>}
+   */
+  async removeWidgetFromPlaylist(widgetId) {
+    const headers = await this.getHeaders();
+    try {
+      await axios.delete(`${this.baseUrl}/api/playlist/widget/${widgetId}`, { headers });
+      return true;
+    } catch (err) {
+      console.error(`[XiboService] Failed to remove widget ${widgetId}:`, err.message);
+      return false;
+    }
+  }
+  /**
+   * Upload a file to the Xibo library.
+   * @param {string} filePath - Path to the local file.
+   * @param {string} fileName - Name to assign to the media in Xibo.
+   * @returns {Promise<Object>} The library file result.
+   */
+  async uploadMedia(filePath, fileName) {
+    const headers = await this.getHeaders();
+    const form = new FormData();
+    form.append('files', fs.createReadStream(filePath), { filename: fileName });
+    form.append('name', fileName);
+
+    try {
+      const resp = await axios.post(`${this.baseUrl}/api/library`, form, {
+        headers: { ...headers, ...form.getHeaders() },
+        maxBodyLength: Infinity,
+        maxContentLength: Infinity,
+      });
+      const fileResult = (resp.data.files || [])[0] || resp.data;
+      if (fileResult.error) throw new Error(fileResult.error);
+      return fileResult;
+    } catch (err) {
+      throw new Error(`Xibo library upload failed: ${err.message}`);
+    }
+  }
+
+  /**
+   * Process a display record to determine its health status.
+   * @param {Object} d - The Xibo display object.
+   * @returns {Object} Health status and metrics.
+   */
+  getDisplayHealth(d) {
+    const lastSeen = d.lastAccessed ? new Date(d.lastAccessed) : null;
+    const now = new Date();
+    const stalenessMinutes = lastSeen ? Math.floor((now - lastSeen) / 60000) : Infinity;
+
+    // Health Rules:
+    // 1. Online: LoggedIn = 1 AND Seen in last 15 mins
+    // 2. Stale: LoggedIn = 1 BUT Not seen in > 15 mins (Disconnected but session active)
+    // 3. Offline: LoggedIn = 0
+    let status = 'Offline';
+    if (d.loggedIn === 1 || d.loggedIn === true) {
+      status = stalenessMinutes < 15 ? 'Online' : 'Stale';
+    }
+
+    // Storage Status:
+    const freeGB = d.storageAvailableSpace ? (d.storageAvailableSpace / 1073741824).toFixed(2) : null;
+    const storageStatus = freeGB && freeGB < 2 ? 'Critical' : 'Healthy';
+
+    return {
+      displayId: d.displayId,
+      name: d.display,
+      status,
+      stalenessMinutes,
+      storage: {
+          freeGB,
+          totalGB: d.storageTotalSpace ? (d.storageTotalSpace / 1073741824).toFixed(2) : null,
+          status: storageStatus
+      },
+      lastSeen: d.lastAccessed,
+      ip: d.clientAddress || d.lanIpAddress || 'Hidden',
+      version: d.clientVersion || 'Unknown',
+      syncStatus: d.mediaInventoryStatus === 1 ? 'Synced' : 'Downloading'
+    };
+  }
 }
 
 module.exports = new XiboService();
+
+
+
