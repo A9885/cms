@@ -215,6 +215,71 @@ router.delete('/brands/:id', async (req, res) => {
     } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
+// ─── SUBSCRIPTIONS ───
+
+/** GET /api/admin/subscriptions - List all subscriptions with brand name. */
+router.get('/subscriptions', async (req, res) => {
+    try {
+        const { brand_id, status } = req.query;
+        let query = `SELECT sub.*, b.name as brand_name FROM subscriptions sub LEFT JOIN brands b ON sub.brand_id = b.id`;
+        const params = [];
+        const wheres = [];
+        if (brand_id) { wheres.push('sub.brand_id = ?'); params.push(brand_id); }
+        if (status) { wheres.push('sub.status = ?'); params.push(status); }
+        if (wheres.length) query += ' WHERE ' + wheres.join(' AND ');
+        query += ' ORDER BY sub.id DESC';
+        res.json(await dbAll(query, params));
+    } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
+/** GET /api/admin/subscriptions/brand/:brandId - Subscriptions for a specific brand. */
+router.get('/subscriptions/brand/:brandId', async (req, res) => {
+    try {
+        const rows = await dbAll(
+            `SELECT sub.*, b.name as brand_name FROM subscriptions sub LEFT JOIN brands b ON sub.brand_id = b.id WHERE sub.brand_id = ? ORDER BY sub.id DESC`,
+            [req.params.brandId]
+        );
+        res.json(rows);
+    } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
+/** POST /api/admin/subscriptions - Create a new subscription. */
+router.post('/subscriptions', async (req, res) => {
+    const { brand_id, plan_name, start_date, end_date, screens_included, slots_included, cities, payment_status, status, notes } = req.body;
+    if (!brand_id || !plan_name || !start_date || !end_date) {
+        return res.status(400).json({ error: 'brand_id, plan_name, start_date, and end_date are required.' });
+    }
+    try {
+        const result = await dbRun(
+            `INSERT INTO subscriptions (brand_id, plan_name, start_date, end_date, screens_included, slots_included, cities, payment_status, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [brand_id, plan_name, start_date, end_date, screens_included || 1, slots_included || 1, cities || null, payment_status || 'Pending', status || 'Draft', notes || null]
+        );
+        res.status(201).json({ success: true, id: result.id });
+    } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
+/** PUT /api/admin/subscriptions/:id - Update subscription. */
+router.put('/subscriptions/:id', async (req, res) => {
+    const { plan_name, start_date, end_date, screens_included, slots_included, cities, payment_status, status, notes } = req.body;
+    try {
+        const result = await dbRun(
+            `UPDATE subscriptions SET plan_name=?, start_date=?, end_date=?, screens_included=?, slots_included=?, cities=?, payment_status=?, status=?, notes=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+            [plan_name, start_date, end_date, screens_included, slots_included, cities, payment_status, status, notes, req.params.id]
+        );
+        if (result.changes === 0) return res.status(404).json({ error: 'Subscription not found' });
+        res.json({ success: true });
+    } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
+/** DELETE /api/admin/subscriptions/:id - Delete a subscription. */
+router.delete('/subscriptions/:id', async (req, res) => {
+    try {
+        const result = await dbRun('DELETE FROM subscriptions WHERE id = ?', [req.params.id]);
+        if (result.changes === 0) return res.status(404).json({ error: 'Subscription not found' });
+        res.json({ success: true });
+    } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
 // ─── BRAND METRICS & CAMPAIGNS ───
 
 /**
@@ -616,21 +681,66 @@ router.get('/inventory', async (req, res) => {
     } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
-/** POST /api/admin/slots/assign - Allocate a specific slot to a brand. */
+/** POST /api/admin/slots/assign - Allocate a specific slot to a brand (with subscription validation). */
 router.post('/slots/assign', async (req, res) => {
-    const { displayId, slot_number, brand_id } = req.body;
+    const { displayId, slot_number, brand_id, start_date, end_date, creative_name, subscription_id } = req.body;
+
+    // --- Subscription Validation (only when assigning to a brand) ---
+    if (brand_id) {
+        // 1. Active subscription gate
+        const today = new Date().toISOString().slice(0, 10);
+        const sub = subscription_id
+            ? await dbGet('SELECT * FROM subscriptions WHERE id = ? AND brand_id = ?', [subscription_id, brand_id])
+            : await dbGet(
+                `SELECT * FROM subscriptions WHERE brand_id = ? AND status = 'Active' AND start_date <= ? AND end_date >= ? ORDER BY id DESC LIMIT 1`,
+                [brand_id, today, today]
+              );
+
+        if (!sub) {
+            return res.status(403).json({ error: 'Brand does not have an active subscription. Activate a subscription before assigning slots.' });
+        }
+
+        // 2. Screen scope check
+        const usedScreensRow = await dbGet('SELECT COUNT(DISTINCT displayId) as cnt FROM slots WHERE brand_id = ? AND displayId != ?', [brand_id, displayId]);
+        const usedScreens = (usedScreensRow ? usedScreensRow.cnt : 0);
+        // Check if this displayId is already used by this brand (doesn't count as new screen)
+        const alreadyOnThisScreen = await dbGet('SELECT id FROM slots WHERE brand_id = ? AND displayId = ? LIMIT 1', [brand_id, displayId]);
+        const newScreenCount = alreadyOnThisScreen ? usedScreens + 1 : usedScreens + 1;
+        if (!alreadyOnThisScreen && newScreenCount > sub.screens_included) {
+            return res.status(403).json({ error: `Screen limit reached. Subscription allows ${sub.screens_included} screen(s). Currently using ${usedScreens}.` });
+        }
+
+        // 3. Slot scope check
+        const usedSlotsRow = await dbGet('SELECT COUNT(*) as cnt FROM slots WHERE brand_id = ? AND NOT (displayId = ? AND slot_number = ?)', [brand_id, displayId, slot_number]);
+        const usedSlots = usedSlotsRow ? usedSlotsRow.cnt : 0;
+        if (usedSlots + 1 > sub.slots_included) {
+            return res.status(403).json({ error: `Slot limit reached. Subscription allows ${sub.slots_included} slot(s). Currently using ${usedSlots}.` });
+        }
+
+        // 4. Double-booking check (same slot, overlapping date range)
+        const existing = await dbGet(
+            'SELECT brand_id FROM slots WHERE displayId = ? AND slot_number = ? AND brand_id IS NOT NULL AND brand_id != ?',
+            [displayId, slot_number, brand_id]
+        );
+        if (existing) {
+            return res.status(409).json({ error: `Slot ${slot_number} on display ${displayId} is already assigned to another brand.` });
+        }
+    }
+
     try {
-        const slot = await dbGet('SELECT * FROM slots WHERE displayId = ? AND slot_number = ?', [displayId, slot_number]);
-        if (slot) {
+        const slotData = await dbGet('SELECT * FROM slots WHERE displayId = ? AND slot_number = ?', [displayId, slot_number]);
+        const newStatus = brand_id ? 'Active' : 'Available';
+        const subId = subscription_id || null;
+
+        if (slotData) {
             await dbRun(
-                `UPDATE slots SET brand_id = ?, status = ?, updated_at = CURRENT_TIMESTAMP 
-                 WHERE displayId = ? AND slot_number = ?`,
-                [brand_id || null, brand_id ? 'Reserved' : 'Available', displayId, slot_number]
+                `UPDATE slots SET brand_id = ?, status = ?, subscription_id = ?, start_date = ?, end_date = ?, creative_name = ?, updated_at = CURRENT_TIMESTAMP WHERE displayId = ? AND slot_number = ?`,
+                [brand_id || null, newStatus, subId, start_date || null, end_date || null, creative_name || null, displayId, slot_number]
             );
         } else {
             await dbRun(
-                'INSERT INTO slots (displayId, slot_number, brand_id, status) VALUES (?, ?, ?, ?)',
-                [displayId, slot_number, brand_id, brand_id ? 'Reserved' : 'Available']
+                'INSERT INTO slots (displayId, slot_number, brand_id, status, subscription_id, start_date, end_date, creative_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                [displayId, slot_number, brand_id || null, newStatus, subId, start_date || null, end_date || null, creative_name || null]
             );
         }
 

@@ -813,7 +813,82 @@ async function loadBilling() {
         tbody.appendChild(tr);
     });
 }
-// ─── CREATIVES ───
+
+// ─── SUBSCRIPTION SUMMARY ───
+async function loadSubscription() {
+    const sub = await safeFetch('/brandportal/api/subscription');
+    const loading = document.getElementById('sub-loading');
+    const content = document.getElementById('sub-content');
+    const empty = document.getElementById('sub-empty');
+    if (!loading || !content || !empty) return;
+
+    loading.style.display = 'none';
+
+    if (!sub) {
+        empty.style.display = 'block';
+        return;
+    }
+
+    content.style.display = 'block';
+
+    // Plan
+    document.getElementById('sub-plan-name-display').textContent = sub.planName || '—';
+
+    // Status Badge
+    const statusColors = {
+        Active: 'color:#166534;background:#dcfce7',
+        Draft: 'color:#374151;background:#f3f4f6',
+        'Awaiting Payment': 'color:#92400e;background:#fef3c7',
+        Paused: 'color:#1e40af;background:#dbeafe',
+        Expired: 'color:#991b1b;background:#fee2e2',
+        Cancelled: 'color:#374151;background:#e5e7eb'
+    };
+    const badge = document.getElementById('sub-status-badge');
+    badge.textContent = sub.status || '—';
+    badge.style.cssText += ';' + (statusColors[sub.status] || 'color:#374151;background:#f3f4f6');
+
+    // Dates
+    document.getElementById('sub-dates-display').textContent = `${sub.startDate || '—'} to ${sub.endDate || '—'}`;
+    document.getElementById('sub-days-display').textContent = sub.daysRemaining > 0 ? `${sub.daysRemaining} days remaining` : 'Expired';
+
+    // Payment
+    document.getElementById('sub-payment-display').textContent = sub.paymentStatus || '—';
+    document.getElementById('sub-cities-display').textContent = sub.cities ? `Coverage: ${sub.cities}` : '';
+
+    // Screen scope bar
+    const screensEl = document.getElementById('sub-screens-used');
+    const screensIncEl = document.getElementById('sub-screens-included');
+    const screensBar = document.getElementById('sub-screens-bar');
+    if (screensEl) screensEl.textContent = sub.screensUsed || 0;
+    if (screensIncEl) screensIncEl.textContent = sub.screensIncluded || 0;
+    if (screensBar && sub.screensIncluded > 0) {
+        screensBar.style.width = Math.min(100, Math.round((sub.screensUsed / sub.screensIncluded) * 100)) + '%';
+    }
+
+    // Slot scope bar
+    const slotsEl = document.getElementById('sub-slots-used');
+    const slotsIncEl = document.getElementById('sub-slots-included');
+    const slotsBar = document.getElementById('sub-slots-bar');
+    if (slotsEl) slotsEl.textContent = sub.slotsUsed || 0;
+    if (slotsIncEl) slotsIncEl.textContent = sub.slotsIncluded || 0;
+    if (slotsBar && sub.slotsIncluded > 0) {
+        slotsBar.style.width = Math.min(100, Math.round((sub.slotsUsed / sub.slotsIncluded) * 100)) + '%';
+    }
+
+    // Renewal Warning
+    const warnEl = document.getElementById('sub-renewal-warn');
+    if (warnEl) {
+        if (sub.daysRemaining <= 30 && sub.daysRemaining > 0) {
+            warnEl.style.display = 'block';
+            warnEl.textContent = `⚠️ Your subscription expires in ${sub.daysRemaining} day${sub.daysRemaining === 1 ? '' : 's'}. Contact your account manager to renew.`;
+        } else if (sub.daysRemaining === 0) {
+            warnEl.style.display = 'block';
+            warnEl.textContent = '🚫 Your subscription has expired. Contact your account manager to reactivate.';
+        } else {
+            warnEl.style.display = 'none';
+        }
+    }
+}
 async function loadCreatives() {
     const data = await safeFetch('/api/creative/list');
     const tbody = document.getElementById('creatives-table-body');

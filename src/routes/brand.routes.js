@@ -88,6 +88,7 @@ async function getBrandSlots(brandId) {
     return await dbAll(`
         SELECT 
             sl.id, sl.slot_number, sl.displayId, sl.status, sl.brand_id,
+            sl.start_date, sl.end_date, sl.creative_name,
             s.name as screen_name, s.city, s.address, s.notes
         FROM slots sl
         LEFT JOIN screens s ON sl.displayId = s.xibo_display_id
@@ -96,7 +97,61 @@ async function getBrandSlots(brandId) {
     `, [brandId]);
 }
 
+
+// ─── SUBSCRIPTION ─────────────────────────────────────────────────────────
+
+/**
+ * GET /brandportal/api/subscription
+ * Returns the brand's active (or most recent) subscription summary.
+ */
+router.get('/subscription', async (req, res) => {
+    const brandId = req.user.brand_id;
+    try {
+        const today = new Date().toISOString().slice(0, 10);
+        // Prefer active subscription; fallback to most recent
+        let sub = await dbGet(
+            `SELECT * FROM subscriptions WHERE brand_id = ? AND status = 'Active' AND start_date <= ? AND end_date >= ? ORDER BY id DESC LIMIT 1`,
+            [brandId, today, today]
+        );
+        if (!sub) {
+            sub = await dbGet(
+                `SELECT * FROM subscriptions WHERE brand_id = ? ORDER BY id DESC LIMIT 1`,
+                [brandId]
+            );
+        }
+        if (!sub) return res.json(null);
+
+        const endDate = new Date(sub.end_date);
+        const daysRemaining = Math.max(0, Math.ceil((endDate - new Date()) / (1000 * 60 * 60 * 24)));
+
+        // Count actual usage against subscription limits
+        const [usedScreensRow, usedSlotsRow] = await Promise.all([
+            dbGet('SELECT COUNT(DISTINCT displayId) as cnt FROM slots WHERE brand_id = ?', [brandId]),
+            dbGet('SELECT COUNT(*) as cnt FROM slots WHERE brand_id = ?', [brandId])
+        ]);
+
+        res.json({
+            id: sub.id,
+            planName: sub.plan_name,
+            status: sub.status,
+            startDate: sub.start_date,
+            endDate: sub.end_date,
+            daysRemaining,
+            screensIncluded: sub.screens_included,
+            slotsIncluded: sub.slots_included,
+            screensUsed: usedScreensRow ? usedScreensRow.cnt : 0,
+            slotsUsed: usedSlotsRow ? usedSlotsRow.cnt : 0,
+            cities: sub.cities || '',
+            paymentStatus: sub.payment_status,
+            notes: sub.notes || ''
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // ─── DASHBOARD ────────────────────────────────────────────────────────────
+
 
 /**
  * GET /api/brand/dashboard

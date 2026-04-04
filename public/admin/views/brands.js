@@ -76,6 +76,77 @@ App.registerView('brands', {
                 </div>
             </div>
 
+            <!-- Subscription Modal -->
+            <div class="modal-overlay" id="subscription-modal">
+                <div class="modal" style="max-width: 540px;">
+                    <div class="modal-header">
+                        <div class="modal-title" id="sub-modal-title">Create Subscription</div>
+                        <button class="modal-close" onclick="Views.brands.closeSubModal()"><i data-lucide="x"></i></button>
+                    </div>
+                    <div class="modal-body">
+                        <form id="subscription-form">
+                            <div class="form-group">
+                                <label>Plan Name</label>
+                                <input type="text" class="form-control" id="sub-plan-name" placeholder="e.g. Premium 5 Screens" required>
+                            </div>
+                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                                <div class="form-group">
+                                    <label>Start Date</label>
+                                    <input type="date" class="form-control" id="sub-start-date" required>
+                                </div>
+                                <div class="form-group">
+                                    <label>End Date</label>
+                                    <input type="date" class="form-control" id="sub-end-date" required>
+                                </div>
+                            </div>
+                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                                <div class="form-group">
+                                    <label>Screens Included</label>
+                                    <input type="number" class="form-control" id="sub-screens" min="1" value="1" required>
+                                </div>
+                                <div class="form-group">
+                                    <label>Slots Included</label>
+                                    <input type="number" class="form-control" id="sub-slots" min="1" value="1" required>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>Cities / Locations Covered</label>
+                                <input type="text" class="form-control" id="sub-cities" placeholder="e.g. Mumbai, Delhi">
+                            </div>
+                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                                <div class="form-group">
+                                    <label>Payment Status</label>
+                                    <select class="form-control" id="sub-payment-status">
+                                        <option value="Pending">Pending</option>
+                                        <option value="Paid">Paid</option>
+                                        <option value="Overdue">Overdue</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>Subscription Status</label>
+                                    <select class="form-control" id="sub-status">
+                                        <option value="Draft">Draft</option>
+                                        <option value="Awaiting Payment">Awaiting Payment</option>
+                                        <option value="Active">Active</option>
+                                        <option value="Paused">Paused</option>
+                                        <option value="Expired">Expired</option>
+                                        <option value="Cancelled">Cancelled</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>Internal Notes</label>
+                                <textarea class="form-control" id="sub-notes" rows="2"></textarea>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="Views.brands.closeSubModal()">Cancel</button>
+                        <button class="btn btn-primary" onclick="Views.brands.submitSubscription()">Save Subscription</button>
+                    </div>
+                </div>
+            </div>
+
             <!-- Brand Profile Modal (Detailed View) -->
             <div class="modal-overlay" id="brand-profile-modal">
                 <div class="modal" style="width: 800px; max-width: 95%;">
@@ -565,22 +636,149 @@ App.registerView('brands', {
     },
 
     async quickAssignSlot(brandId, displayId, slotNumber, isUnassign) {
-        const confirmMsg = isUnassign ? `Unassign slot ${slotNumber}?` : `Assign slot ${slotNumber} to this brand?`;
-        if (!await App.showConfirm(confirmMsg)) return;
+        if (isUnassign) {
+            if (!await App.showConfirm(`Unassign slot ${slotNumber}?`)) return;
+            const res = await Api.post('/slots/assign', {
+                displayId: parseInt(displayId, 10),
+                slot_number: parseInt(slotNumber, 10),
+                brand_id: null
+            });
+            if (res && res.success) { await this.loadSlotGrid(brandId); }
+            else { App.showToast('Failed: ' + (res?.error || 'Unknown error'), 'error'); }
+            return;
+        }
+
+        // Check for active subscription before assigning
+        const today = new Date().toISOString().slice(0, 10);
+        const subs = await Api.get(`/subscriptions/brand/${brandId}`);
+        const activeSub = (subs || []).find(s => s.status === 'Active' && s.start_date <= today && s.end_date >= today);
+
+        if (!activeSub) {
+            App.showToast('This brand has no active subscription. Create and activate one first (Subscriptions tab).', 'error');
+            return;
+        }
+
+        const scopeBadge = document.getElementById('slot-scope-badge');
+        if (scopeBadge) {
+            scopeBadge.textContent = `Subscription: "${activeSub.plan_name}" · ${activeSub.screens_included} screen(s), ${activeSub.slots_included} slot(s) allowed`;
+            scopeBadge.style.display = 'block';
+        }
 
         const res = await Api.post('/slots/assign', {
             displayId: parseInt(displayId, 10),
             slot_number: parseInt(slotNumber, 10),
-            brand_id: isUnassign ? null : brandId
+            brand_id: brandId,
+            subscription_id: activeSub.id
         });
 
         if (res && res.success) {
-            await this.loadSlotGrid(brandId); // refresh grid
+            await this.loadSlotGrid(brandId);
         } else {
             App.showToast('Failed: ' + (res?.error || 'Unknown error'), 'error');
         }
     },
 
+    async loadSubscriptions(brandId) {
+        const el = document.getElementById('subscription-list');
+        if (!el) return;
+        try {
+            const subs = await Api.get(`/subscriptions/brand/${brandId}`);
+            if (!subs || subs.length === 0) {
+                el.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-muted);">No subscriptions yet. Create one to enable slot assignments.</div>';
+                return;
+            }
+            const statusStyle = { Active:'color:#166534;background:#dcfce7', Draft:'color:#374151;background:#f3f4f6', 'Awaiting Payment':'color:#92400e;background:#fef3c7', Paused:'color:#1e40af;background:#dbeafe', Expired:'color:#991b1b;background:#fee2e2', Cancelled:'color:#374151;background:#e5e7eb' };
+            el.innerHTML = subs.map(s => {
+                const st = statusStyle[s.status] || 'color:#374151;background:#f3f4f6';
+                return `
+                <div style="border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px;">
+                    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+                        <div>
+                            <strong style="font-size:0.95rem;">${s.plan_name}</strong>
+                            <div style="font-size:0.75rem;color:var(--text-muted);margin-top:2px;">${s.start_date} to ${s.end_date} &nbsp;·&nbsp; ${s.cities || 'All locations'}</div>
+                        </div>
+                        <div style="display:flex;gap:6px;align-items:center;">
+                            <span style="font-size:0.72rem;font-weight:700;padding:3px 8px;border-radius:999px;${st}">${s.status}</span>
+                            <button class="icon-btn" title="Edit" onclick="Views.brands.showSubModal(${brandId},${s.id})"><i data-lucide="edit-2" style="width:13px;"></i></button>
+                            <button class="icon-btn" title="Delete" style="color:#ef4444" onclick="Views.brands.deleteSub(${s.id},${brandId})"><i data-lucide="trash-2" style="width:13px;"></i></button>
+                        </div>
+                    </div>
+                    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;font-size:0.78rem;">
+                        <div><span style="color:var(--text-muted);display:block;">Screens</span><strong>${s.screens_included}</strong></div>
+                        <div><span style="color:var(--text-muted);display:block;">Slots</span><strong>${s.slots_included}</strong></div>
+                        <div><span style="color:var(--text-muted);display:block;">Payment</span><strong>${s.payment_status}</strong></div>
+                        <div><span style="color:var(--text-muted);display:block;">Notes</span><strong style="font-size:0.75rem;">${s.notes || '-'}</strong></div>
+                    </div>
+                </div>`;
+            }).join('');
+            lucide.createIcons();
+        } catch(e) {
+            el.innerHTML = `<div style="color:red;padding:10px;">Error: ${e.message}</div>`;
+        }
+    },
+
+    showSubModal(brandId, subId = null) {
+        this._subEditId = subId;
+        this._subBrandId = brandId;
+        document.getElementById('sub-modal-title').textContent = subId ? 'Edit Subscription' : 'Create Subscription';
+        document.getElementById('subscription-form').reset();
+        if (subId) {
+            Api.get(`/subscriptions/brand/${brandId}`).then(subs => {
+                const s = (subs || []).find(x => x.id === subId);
+                if (s) {
+                    document.getElementById('sub-plan-name').value = s.plan_name || '';
+                    document.getElementById('sub-start-date').value = s.start_date || '';
+                    document.getElementById('sub-end-date').value = s.end_date || '';
+                    document.getElementById('sub-screens').value = s.screens_included || 1;
+                    document.getElementById('sub-slots').value = s.slots_included || 1;
+                    document.getElementById('sub-cities').value = s.cities || '';
+                    document.getElementById('sub-payment-status').value = s.payment_status || 'Pending';
+                    document.getElementById('sub-status').value = s.status || 'Draft';
+                    document.getElementById('sub-notes').value = s.notes || '';
+                }
+            });
+        }
+        document.getElementById('subscription-modal').classList.add('active');
+    },
+
+    closeSubModal() {
+        document.getElementById('subscription-modal').classList.remove('active');
+    },
+
+    async submitSubscription() {
+        const payload = {
+            brand_id: this._subBrandId,
+            plan_name: document.getElementById('sub-plan-name').value,
+            start_date: document.getElementById('sub-start-date').value,
+            end_date: document.getElementById('sub-end-date').value,
+            screens_included: parseInt(document.getElementById('sub-screens').value, 10),
+            slots_included: parseInt(document.getElementById('sub-slots').value, 10),
+            cities: document.getElementById('sub-cities').value,
+            payment_status: document.getElementById('sub-payment-status').value,
+            status: document.getElementById('sub-status').value,
+            notes: document.getElementById('sub-notes').value
+        };
+        if (!payload.plan_name || !payload.start_date || !payload.end_date) {
+            return App.showToast('Plan name, start date and end date are required.', 'error');
+        }
+        const res = this._subEditId
+            ? await Api.put(`/subscriptions/${this._subEditId}`, payload)
+            : await Api.post('/subscriptions', payload);
+        if (res && res.error) {
+            App.showToast('Error: ' + res.error, 'error');
+        } else {
+            App.showToast(this._subEditId ? 'Subscription updated.' : 'Subscription created.', 'success');
+            this.closeSubModal();
+            this.loadSubscriptions(this._subBrandId);
+        }
+    },
+
+    async deleteSub(subId, brandId) {
+        if (!await App.showConfirm('Delete this subscription? This cannot be undone.')) return;
+        const res = await Api.delete(`/subscriptions/${subId}`);
+        if (res && res.error) App.showToast('Error: ' + res.error, 'error');
+        else { App.showToast('Subscription deleted.', 'success'); this.loadSubscriptions(brandId); }
+    },
 
 
     showModal(id = null) {

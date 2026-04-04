@@ -388,9 +388,60 @@
 
         <section id="billing" class="view-section">
             <div class="page-header">
-                <h1 class="page-title">Subscription & Billing</h1>
+                <h1 class="page-title">My Subscription</h1>
             </div>
+
+            <!-- Subscription Summary Card -->
+            <div id="sub-summary-card" class="glass-panel" style="padding:1.5rem;margin-bottom:1.5rem;">
+                <div id="sub-loading" style="text-align:center;padding:2rem;color:var(--text-muted);">Loading subscription...</div>
+                <div id="sub-content" style="display:none;">
+                    <div id="sub-renewal-warn" style="display:none;background:#fef3c7;border:1px solid #fcd34d;border-radius:10px;padding:12px 16px;margin-bottom:1.2rem;font-size:0.85rem;color:#92400e;font-weight:600;"></div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1.5rem;margin-bottom:1.5rem;">
+                        <div>
+                            <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px;">Plan</div>
+                            <div style="font-size:1.3rem;font-weight:800;" id="sub-plan-name-display">—</div>
+                            <span id="sub-status-badge" style="font-size:0.72rem;font-weight:700;padding:3px 10px;border-radius:999px;display:inline-block;margin-top:6px;"></span>
+                        </div>
+                        <div>
+                            <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px;">Active Period</div>
+                            <div style="font-size:0.95rem;font-weight:600;" id="sub-dates-display">—</div>
+                            <div style="font-size:0.8rem;color:var(--text-muted);margin-top:4px;" id="sub-days-display"></div>
+                        </div>
+                        <div>
+                            <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px;">Payment</div>
+                            <div style="font-size:0.95rem;font-weight:600;" id="sub-payment-display">—</div>
+                            <div style="font-size:0.8rem;color:var(--text-muted);margin-top:4px;" id="sub-cities-display"></div>
+                        </div>
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;">
+                        <div>
+                            <div style="display:flex;justify-content:space-between;font-size:0.8rem;font-weight:600;margin-bottom:6px;">
+                                <span>Screens Used</span>
+                                <span><span id="sub-screens-used">0</span> / <span id="sub-screens-included">0</span></span>
+                            </div>
+                            <div style="background:#e2e8f0;border-radius:999px;height:8px;overflow:hidden;">
+                                <div id="sub-screens-bar" style="background:var(--accent);height:100%;border-radius:999px;transition:width 0.5s;width:0%;"></div>
+                            </div>
+                        </div>
+                        <div>
+                            <div style="display:flex;justify-content:space-between;font-size:0.8rem;font-weight:600;margin-bottom:6px;">
+                                <span>Slots Used</span>
+                                <span><span id="sub-slots-used">0</span> / <span id="sub-slots-included">0</span></span>
+                            </div>
+                            <div style="background:#e2e8f0;border-radius:999px;height:8px;overflow:hidden;">
+                                <div id="sub-slots-bar" style="background:#8b5cf6;height:100%;border-radius:999px;transition:width 0.5s;width:0%;"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div id="sub-empty" style="display:none;text-align:center;padding:2rem;color:var(--text-muted);">
+                    No active subscription found. Contact your account manager to get started.
+                </div>
+            </div>
+
+            <!-- Invoices -->
             <div class="glass-panel">
+                <div style="padding:1.2rem 1.5rem;border-bottom:1px solid #e2e8f0;font-weight:700;font-size:0.85rem;color:var(--text-muted);text-transform:uppercase;">Invoices</div>
                 <div class="table-responsive">
                     <table id="billing-table">
                         <thead>
@@ -406,6 +457,7 @@
                 </div>
             </div>
         </section>
+
 
         <section id="account" class="view-section">
             <div class="page-header">
@@ -528,6 +580,7 @@
                 if (target === 'reports' && typeof loadPoP === 'function') loadPoP();
                 if (target === 'market' && typeof loadMarket === 'function') loadMarket();
                 if (target === 'billing' && typeof loadBilling === 'function') loadBilling();
+                if (target === 'billing' && typeof loadSubscription === 'function') loadSubscription();
             });
         });
     </script>
