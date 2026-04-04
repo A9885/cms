@@ -1,0 +1,39 @@
+<svg width="800" height="800" viewBox="0 0 800 800" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="800" height="800" rx="64" fill="url(#bg)"/>
+  <g opacity="0.82">
+    <circle cx="158" cy="144" r="88" fill="url(#orb1)"/>
+    <circle cx="640" cy="146" r="112" fill="url(#orb2)"/>
+    <circle cx="570" cy="620" r="138" fill="url(#orb3)"/>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="110" y="204" width="146" height="370" rx="26" fill="#F8FBFF"/>
+    <rect x="126" y="220" width="114" height="284" rx="18" fill="url(#screen1)"/>
+    <rect x="156" y="574" width="52" height="18" rx="9" fill="#C8D8FF"/>
+    <rect x="168" y="592" width="28" height="62" rx="10" fill="#E6EEFF"/>
+    <rect x="148" y="654" width="68" height="18" rx="9" fill="#D9E4FF"/>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="314" y="148" width="176" height="454" rx="28" fill="#FCFDFF"/>
+    <rect x="332" y="168" width="140" height="344" rx="20" fill="url(#screen2)"/>
+    <rect x="354" y="526" width="96" height="24" rx="12" fill="#CCD7FF"/>
+    <rect x="384" y="548" width="36" height="74" rx="12" fill="#E6EEFF"/>
+    <rect x="350" y="622" width="104" height="20" rx="10" fill="#D7E1FF"/>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="548" y="230" width="136" height="338" rx="26" fill="#F8FBFF"/>
+    <rect x="562" y="246" width="108" height="256" rx="18" fill="url(#screen3)"/>
+    <rect x="586" y="568" width="60" height="18" rx="9" fill="#C8D8FF"/>
+    <rect x="600" y="586" width="32" height="62" rx="10" fill="#E6EEFF"/>
+    <rect x="580" y="648" width="72" height="18" rx="9" fill="#D9E4FF"/>
+  </g>
+  <defs>
+    <linearGradient id="bg" x1="96" y1="64" x2="734" y2="728" gradientUnits="userSpaceOnUse"><stop stop-color="#F5F9FF"/><stop offset="1" stop-color="#EEF4FF"/></linearGradient>
+    <linearGradient id="screen1" x1="126" y1="220" x2="240" y2="504" gradientUnits="userSpaceOnUse"><stop stop-color="#DFFAFF"/><stop offset="0.52" stop-color="#ECF0FF"/><stop offset="1" stop-color="#D7DEFF"/></linearGradient>
+    <linearGradient id="screen2" x1="332" y1="168" x2="472" y2="512" gradientUnits="userSpaceOnUse"><stop stop-color="#EEF2FF"/><stop offset="0.45" stop-color="#DFF8FF"/><stop offset="1" stop-color="#E1E7FF"/></linearGradient>
+    <linearGradient id="screen3" x1="562" y1="246" x2="670" y2="502" gradientUnits="userSpaceOnUse"><stop stop-color="#E7FBFF"/><stop offset="1" stop-color="#E7EFFF"/></linearGradient>
+    <radialGradient id="orb1" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(158 144) rotate(90) scale(88)"><stop stop-color="#22D3EE" stop-opacity="0.36"/><stop offset="1" stop-color="#22D3EE" stop-opacity="0"/></radialGradient>
+    <radialGradient id="orb2" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(640 146) rotate(90) scale(112)"><stop stop-color="#4F46E5" stop-opacity="0.28"/><stop offset="1" stop-color="#4F46E5" stop-opacity="0"/></radialGradient>
+    <radialGradient id="orb3" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(570 620) rotate(90) scale(138)"><stop stop-color="#22D3EE" stop-opacity="0.2"/><stop offset="1" stop-color="#22D3EE" stop-opacity="0"/></radialGradient>
+    <filter id="shadow" x="78" y="118" width="638" height="586" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/><feOffset dy="18"/><feGaussianBlur stdDeviation="16"/><feColorMatrix type="matrix" values="0 0 0 0 0.109804 0 0 0 0 0.145098 0 0 0 0 0.27451 0 0 0 0.12 0"/><feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_1_10"/><feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_1_10" result="shape"/></filter>
+  </defs>
+</svg>

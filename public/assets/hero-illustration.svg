@@ -1,0 +1,67 @@
+<svg width="760" height="620" viewBox="0 0 760 620" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="760" height="620" rx="36" fill="url(#bg)"/>
+  <rect x="34" y="34" width="692" height="552" rx="28" fill="white" fill-opacity="0.82" stroke="url(#stroke)"/>
+  <rect x="68" y="68" width="624" height="72" rx="20" fill="#F6F8FF"/>
+  <circle cx="108" cy="104" r="10" fill="#4F46E5" fill-opacity="0.18"/>
+  <circle cx="142" cy="104" r="10" fill="#22D3EE" fill-opacity="0.22"/>
+  <circle cx="176" cy="104" r="10" fill="#4F46E5" fill-opacity="0.1"/>
+  <rect x="232" y="88" width="204" height="32" rx="16" fill="#EEF2FF"/>
+  <rect x="458" y="88" width="198" height="32" rx="16" fill="#EAFBFF"/>
+
+  <rect x="68" y="166" width="222" height="150" rx="26" fill="#F9FBFF" stroke="#E9EEFF"/>
+  <rect x="312" y="166" width="380" height="150" rx="26" fill="#F9FBFF" stroke="#E9EEFF"/>
+  <rect x="68" y="338" width="302" height="214" rx="26" fill="#F9FBFF" stroke="#E9EEFF"/>
+  <rect x="392" y="338" width="300" height="214" rx="26" fill="#F9FBFF" stroke="#E9EEFF"/>
+
+  <rect x="94" y="194" width="126" height="18" rx="9" fill="#EDEFFF"/>
+  <rect x="94" y="228" width="170" height="54" rx="22" fill="url(#metric)"/>
+  <text x="118" y="262" font-family="Inter, Arial, sans-serif" font-size="26" font-weight="700" fill="white">128 screens</text>
+
+  <rect x="340" y="194" width="170" height="18" rx="9" fill="#EDEFFF"/>
+  <rect x="340" y="228" width="326" height="20" rx="10" fill="#EEF2FF"/>
+  <rect x="340" y="260" width="260" height="20" rx="10" fill="#D9FEFF"/>
+  <rect x="340" y="292" width="290" height="20" rx="10" fill="#EEF2FF"/>
+
+  <rect x="96" y="366" width="166" height="18" rx="9" fill="#EDEFFF"/>
+  <rect x="96" y="406" width="246" height="22" rx="11" fill="#EEF2FF"/>
+  <rect x="96" y="440" width="220" height="22" rx="11" fill="#D9FEFF"/>
+  <rect x="96" y="474" width="190" height="22" rx="11" fill="#EEF2FF"/>
+  <rect x="96" y="508" width="228" height="22" rx="11" fill="#D9FEFF"/>
+
+  <rect x="420" y="366" width="196" height="18" rx="9" fill="#EDEFFF"/>
+  <rect x="420" y="408" width="246" height="112" rx="24" fill="url(#panel)"/>
+  <rect x="448" y="438" width="98" height="52" rx="18" fill="white" fill-opacity="0.9"/>
+  <rect x="558" y="438" width="80" height="20" rx="10" fill="#CFFAFE"/>
+  <rect x="558" y="470" width="62" height="20" rx="10" fill="#E0E7FF"/>
+  <path d="M470 480C478 460 492 438 518 432C534 428 555 434 572 452" stroke="#4F46E5" stroke-width="6" stroke-linecap="round"/>
+
+  <circle cx="640" cy="164" r="76" fill="url(#orb)" fill-opacity="0.55"/>
+  <circle cx="604" cy="492" r="64" fill="url(#orb2)" fill-opacity="0.45"/>
+
+  <defs>
+    <linearGradient id="bg" x1="63" y1="22" x2="711" y2="617" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F7FAFF"/>
+      <stop offset="1" stop-color="#EDF6FF"/>
+    </linearGradient>
+    <linearGradient id="stroke" x1="52" y1="55" x2="700" y2="585" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#DDE6FF"/>
+      <stop offset="1" stop-color="#D7F7FF"/>
+    </linearGradient>
+    <linearGradient id="metric" x1="94" y1="228" x2="264" y2="282" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4F46E5"/>
+      <stop offset="1" stop-color="#22D3EE"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="420" y1="408" x2="666" y2="520" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#EEF2FF"/>
+      <stop offset="1" stop-color="#E9FCFF"/>
+    </linearGradient>
+    <radialGradient id="orb" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(640 164) rotate(90) scale(76)">
+      <stop stop-color="#22D3EE"/>
+      <stop offset="1" stop-color="#22D3EE" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="orb2" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(604 492) rotate(90) scale(64)">
+      <stop stop-color="#4F46E5"/>
+      <stop offset="1" stop-color="#4F46E5" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+</svg>

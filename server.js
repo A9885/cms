@@ -26,9 +26,9 @@ const XIBO_CLIENT_SECRET = process.env.XIBO_CLIENT_SECRET;
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-// Root Redirect to Admin Portal
+// Root serves the Signtral homepage
 app.get('/', (req, res) => {
-    res.redirect('/admin/');
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 app.get('/health', (req, res) => res.json({ status: 'OK', uptime: process.uptime() }));

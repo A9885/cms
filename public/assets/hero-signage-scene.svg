@@ -1,0 +1,52 @@
+<svg width="640" height="760" viewBox="0 0 640 760" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="glass" x1="74" y1="102" x2="522" y2="610" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" stop-opacity="0.92"/>
+      <stop offset="1" stop-color="#ECF3FF" stop-opacity="0.96"/>
+    </linearGradient>
+    <linearGradient id="screenA" x1="108" y1="136" x2="246" y2="334" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4F46E5"/>
+      <stop offset="1" stop-color="#22D3EE"/>
+    </linearGradient>
+    <linearGradient id="screenB" x1="360" y1="100" x2="520" y2="268" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5C54F0"/>
+      <stop offset="1" stop-color="#6FD9FF"/>
+    </linearGradient>
+    <linearGradient id="screenC" x1="336" y1="336" x2="506" y2="592" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#22D3EE"/>
+      <stop offset="1" stop-color="#4F46E5"/>
+    </linearGradient>
+    <radialGradient id="shadow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(320 694) rotate(90) scale(34 220)">
+      <stop stop-color="#4F46E5" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#4F46E5" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect x="38" y="34" width="564" height="618" rx="42" fill="url(#glass)" stroke="#FFFFFF" stroke-opacity="0.88"/>
+  <rect x="72" y="72" width="280" height="292" rx="34" fill="#F8FBFF" stroke="#DDE7FF"/>
+  <rect x="98" y="102" width="228" height="236" rx="26" fill="url(#screenA)"/>
+  <rect x="116" y="120" width="192" height="200" rx="20" fill="white" fill-opacity="0.18"/>
+  <circle cx="144" cy="154" r="10" fill="white" fill-opacity="0.74"/>
+  <circle cx="170" cy="154" r="10" fill="white" fill-opacity="0.46"/>
+  <rect x="144" y="190" width="136" height="14" rx="7" fill="white" fill-opacity="0.72"/>
+  <rect x="144" y="218" width="164" height="14" rx="7" fill="white" fill-opacity="0.56"/>
+  <rect x="144" y="246" width="110" height="14" rx="7" fill="white" fill-opacity="0.54"/>
+  <rect x="184" y="386" width="56" height="158" rx="22" fill="#E8EEFF"/>
+  <rect x="196" y="404" width="32" height="112" rx="14" fill="url(#screenA)"/>
+  <rect x="186" y="548" width="52" height="18" rx="9" fill="#CDD9FF"/>
+  <rect x="374" y="72" width="194" height="222" rx="34" fill="#F8FBFF" stroke="#DDE7FF"/>
+  <rect x="396" y="94" width="150" height="178" rx="24" fill="url(#screenB)"/>
+  <rect x="414" y="116" width="114" height="26" rx="13" fill="white" fill-opacity="0.58"/>
+  <rect x="414" y="158" width="98" height="12" rx="6" fill="white" fill-opacity="0.74"/>
+  <rect x="414" y="182" width="112" height="12" rx="6" fill="white" fill-opacity="0.48"/>
+  <rect x="414" y="206" width="74" height="12" rx="6" fill="white" fill-opacity="0.48"/>
+  <rect x="350" y="316" width="224" height="276" rx="38" fill="#F8FBFF" stroke="#DDE7FF"/>
+  <rect x="378" y="348" width="168" height="216" rx="28" fill="url(#screenC)"/>
+  <rect x="402" y="386" width="120" height="16" rx="8" fill="white" fill-opacity="0.72"/>
+  <rect x="402" y="416" width="132" height="16" rx="8" fill="white" fill-opacity="0.54"/>
+  <rect x="402" y="446" width="86" height="16" rx="8" fill="white" fill-opacity="0.54"/>
+  <ellipse cx="320" cy="694" rx="236" ry="36" fill="url(#shadow)"/>
+  <g opacity="0.56">
+    <path d="M72 622C190 590 270 584 398 596C490 604 550 630 602 650" stroke="#D8E2FF" stroke-width="2"/>
+    <path d="M84 648C188 626 274 624 378 636C470 646 530 662 580 686" stroke="#E3ECFF" stroke-width="2"/>
+  </g>
+</svg>

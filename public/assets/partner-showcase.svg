@@ -1,0 +1,33 @@
+<svg width="520" height="360" viewBox="0 0 520 360" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="screen1" x1="70" y1="92" x2="172" y2="250" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4F46E5"/>
+      <stop offset="1" stop-color="#22D3EE"/>
+    </linearGradient>
+    <linearGradient id="screen2" x1="214" y1="70" x2="314" y2="218" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5B53EE"/>
+      <stop offset="1" stop-color="#6FDBFF"/>
+    </linearGradient>
+    <linearGradient id="screen3" x1="346" y1="102" x2="438" y2="234" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#22D3EE"/>
+      <stop offset="1" stop-color="#4F46E5"/>
+    </linearGradient>
+  </defs>
+  <rect x="12" y="12" width="496" height="336" rx="30" fill="#F8FBFF" stroke="#E2EAFF"/>
+  <ellipse cx="260" cy="296" rx="188" ry="26" fill="#EEF3FF"/>
+  <rect x="54" y="70" width="134" height="188" rx="30" fill="#EEF3FF"/>
+  <rect x="72" y="90" width="98" height="148" rx="20" fill="url(#screen1)"/>
+  <rect x="101" y="258" width="40" height="12" rx="6" fill="#CBD7FF"/>
+  <rect x="102" y="270" width="38" height="10" rx="5" fill="#DDE6FF"/>
+  <rect x="198" y="48" width="132" height="206" rx="34" fill="#EEF3FF"/>
+  <rect x="216" y="68" width="96" height="166" rx="22" fill="url(#screen2)"/>
+  <rect x="245" y="254" width="38" height="12" rx="6" fill="#CBD7FF"/>
+  <rect x="246" y="266" width="36" height="10" rx="5" fill="#DDE6FF"/>
+  <rect x="340" y="82" width="114" height="172" rx="30" fill="#EEF3FF"/>
+  <rect x="356" y="100" width="82" height="136" rx="20" fill="url(#screen3)"/>
+  <rect x="379" y="254" width="36" height="12" rx="6" fill="#CBD7FF"/>
+  <rect x="380" y="266" width="34" height="10" rx="5" fill="#DDE6FF"/>
+  <rect x="78" y="112" width="56" height="10" rx="5" fill="white" fill-opacity="0.7"/>
+  <rect x="222" y="92" width="64" height="10" rx="5" fill="white" fill-opacity="0.7"/>
+  <rect x="362" y="128" width="48" height="10" rx="5" fill="white" fill-opacity="0.7"/>
+</svg>
