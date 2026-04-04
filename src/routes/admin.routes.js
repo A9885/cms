@@ -700,14 +700,13 @@ router.post('/slots/assign', async (req, res) => {
             return res.status(403).json({ error: 'Brand does not have an active subscription. Activate a subscription before assigning slots.' });
         }
 
-        // 2. Screen scope check
-        const usedScreensRow = await dbGet('SELECT COUNT(DISTINCT displayId) as cnt FROM slots WHERE brand_id = ? AND displayId != ?', [brand_id, displayId]);
-        const usedScreens = (usedScreensRow ? usedScreensRow.cnt : 0);
-        // Check if this displayId is already used by this brand (doesn't count as new screen)
-        const alreadyOnThisScreen = await dbGet('SELECT id FROM slots WHERE brand_id = ? AND displayId = ? LIMIT 1', [brand_id, displayId]);
-        const newScreenCount = alreadyOnThisScreen ? usedScreens + 1 : usedScreens + 1;
-        if (!alreadyOnThisScreen && newScreenCount > sub.screens_included) {
-            return res.status(403).json({ error: `Screen limit reached. Subscription allows ${sub.screens_included} screen(s). Currently using ${usedScreens}.` });
+        // 2. Screen scope check — only count if this is a brand-new screen for this brand
+        const usedScreensRow = await dbGet('SELECT COUNT(DISTINCT displayId) as cnt FROM slots WHERE brand_id = ? AND status = ?', [brand_id, 'Active']);
+        const currentScreenCount = usedScreensRow ? usedScreensRow.cnt : 0;
+        const alreadyOnThisScreen = await dbGet('SELECT id FROM slots WHERE brand_id = ? AND displayId = ? AND status = ? LIMIT 1', [brand_id, displayId, 'Active']);
+        // Only counts as a new screen if the brand hasn't already occupied this screen
+        if (!alreadyOnThisScreen && (currentScreenCount + 1) > sub.screens_included) {
+            return res.status(403).json({ error: `Screen limit reached. Subscription allows ${sub.screens_included} screen(s). Currently using ${currentScreenCount}.` });
         }
 
         // 3. Slot scope check
