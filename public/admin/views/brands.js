@@ -330,218 +330,193 @@ App.registerView('brands', {
             const defaultScreen = validScreens.length > 0 ? validScreens[0].xibo_display_id : null;
 
             content.innerHTML = '';
-            const mainGrid = document.createElement('div');
-            mainGrid.style.display = 'grid';
-            mainGrid.style.gridTemplateColumns = '220px 1fr';
-            mainGrid.style.gap = '20px';
-
-            // Left Col
-            const leftCol = document.createElement('div');
             
-            const infoBox = document.createElement('div');
-            infoBox.style.background = '#f8fafc';
-            infoBox.style.padding = '15px';
-            infoBox.style.borderRadius = '10px';
-            infoBox.style.border = '1px solid var(--border)';
-            infoBox.style.marginBottom = '16px';
+            // Tab Header
+            const tabHeader = document.createElement('div');
+            tabHeader.style.cssText = 'display:flex; gap:20px; border-bottom:1px solid var(--border); margin-bottom:20px;';
+            const tab1 = document.createElement('div');
+            const tab2 = document.createElement('div');
+            const tabStyle = 'padding:10px 5px; font-weight:600; font-size:0.9rem; cursor:pointer; color:var(--text-muted); border-bottom:2px solid transparent;';
             
-            const h4 = document.createElement('h4');
-            h4.style.marginBottom = '12px';
-            h4.style.fontSize = '0.8rem';
-            h4.style.color = 'var(--text-muted)';
-            h4.style.textTransform = 'uppercase';
-            h4.textContent = 'Brand Info';
-            infoBox.appendChild(h4);
-
-            const fields = [
-                { label: 'Industry', value: brand.industry || 'Not set' },
-                { label: 'Contact', value: brand.contact_person || '-' },
-                { label: 'Email', value: brand.email || '-', class: 'email' }
-            ];
-            fields.forEach(f => {
-                const div = document.createElement('div');
-                div.style.marginBottom = '8px';
-                const label = document.createElement('small');
-                label.style.color = 'var(--text-muted)';
-                label.style.display = 'block';
-                label.textContent = f.label;
-                div.appendChild(label);
-                const val = document.createElement('strong');
-                if (f.class === 'email') val.style.fontSize = '0.85rem';
-                val.textContent = f.value;
-                div.appendChild(val);
-                infoBox.appendChild(div);
-            });
-
-            const stDiv = document.createElement('div');
-            stDiv.style.marginBottom = '12px';
-            const stLabel = document.createElement('small');
-            stLabel.style.color = 'var(--text-muted)';
-            stLabel.style.display = 'block';
-            stLabel.textContent = 'Status';
-            stDiv.appendChild(stLabel);
-            const stBadge = document.createElement('span');
-            stBadge.className = `badge ${brand.status.toLowerCase()}`;
-            stBadge.textContent = brand.status;
-            stDiv.appendChild(stBadge);
-            infoBox.appendChild(stDiv);
-
-            const editBtn = document.createElement('button');
-            editBtn.className = 'btn btn-secondary';
-            editBtn.style.width = '100%';
-            editBtn.style.fontSize = '0.8rem';
-            editBtn.textContent = 'Edit Profile';
-            editBtn.onclick = () => this.showModal(brand.id);
-            infoBox.appendChild(editBtn);
-            leftCol.appendChild(infoBox);
-
-            const kpiGrid = document.createElement('div');
-            kpiGrid.className = 'dash-kpi-row';
-            kpiGrid.style.gridTemplateColumns = '1fr 1fr';
-            kpiGrid.style.gap = '8px';
-
-            const kpis = [
-                { icon: 'layers', color: 'blue', label: 'Slots', val: metrics.totalScreens },
-                { icon: 'play-circle', color: 'lightblue', label: 'Plays', val: metrics.totalPlays.toLocaleString() },
-                { icon: 'calendar', color: 'darkblue', label: 'Campaigns', val: metrics.totalCampaigns },
-                { icon: 'indian-rupee', color: 'orange', label: 'Spend', val: `₹${(metrics.totalSpend||0).toLocaleString()}` }
-            ];
-            kpis.forEach(k => {
-                const card = document.createElement('div');
-                card.className = `kpi-card kpi-${k.color}`;
-                card.style.padding = '12px';
-                const head = document.createElement('div');
-                head.className = 'kpi-header';
-                head.style.fontSize = '0.7rem';
-                const i = document.createElement('i');
-                i.setAttribute('data-lucide', k.icon);
-                head.appendChild(i);
-                head.appendChild(document.createTextNode(` ${k.label}`));
-                card.appendChild(head);
-                const h2 = document.createElement('h2');
-                h2.style.fontSize = '1.5rem';
-                h2.textContent = k.val;
-                card.appendChild(h2);
-                kpiGrid.appendChild(card);
-            });
-            leftCol.appendChild(kpiGrid);
-            mainGrid.appendChild(leftCol);
-
-            // Right Col
-            const rightCol = document.createElement('div');
+            tab1.style.cssText = tabStyle;
+            tab1.textContent = 'Activity & Slots';
+            tab2.style.cssText = tabStyle;
+            tab2.textContent = 'Subscriptions';
             
-            const rightHead = document.createElement('div');
-            rightHead.style.display = 'flex';
-            rightHead.style.justifyContent = 'space-between';
-            rightHead.style.alignItems = 'center';
-            rightHead.style.marginBottom = '12px';
-            const rh4 = document.createElement('h4');
-            rh4.style.fontSize = '0.9rem';
-            rh4.style.color = 'var(--text-muted)';
-            rh4.style.textTransform = 'uppercase';
-            rh4.textContent = 'Screen Slot Assignment';
-            rightHead.appendChild(rh4);
-            const selectWrap = document.createElement('div');
-            selectWrap.style.display = 'flex';
-            selectWrap.style.gap = '8px';
-            selectWrap.style.alignItems = 'center';
-            const slabel = document.createElement('label');
-            slabel.style.fontSize = '0.8rem';
-            slabel.style.color = 'var(--text-muted)';
-            slabel.textContent = 'Screen:';
-            selectWrap.appendChild(slabel);
-            const select = document.createElement('select');
-            select.id = 'slot-screen-select';
-            select.className = 'form-control';
-            select.style.borderRadius = '6px';
-            select.style.fontSize = '0.85rem';
-            select.onchange = () => this.loadSlotGrid(brand.id);
-            if (validScreens.length > 0) {
-                validScreens.forEach(s => {
-                    const opt = document.createElement('option');
-                    opt.value = s.xibo_display_id;
-                    opt.textContent = s.name;
-                    select.appendChild(opt);
+            tabHeader.append(tab1, tab2);
+            content.appendChild(tabHeader);
+
+            const tabContent = document.createElement('div');
+            content.appendChild(tabContent);
+
+            const setActiveTab = (num) => {
+                [tab1, tab2].forEach(t => { 
+                    t.style.color = 'var(--text-muted)';
+                    t.style.borderBottomColor = 'transparent';
                 });
-            } else {
-                const opt = document.createElement('option');
-                opt.value = '';
-                opt.textContent = 'No screens';
-                select.appendChild(opt);
-            }
-            selectWrap.appendChild(select);
-            rightHead.appendChild(selectWrap);
-            rightCol.appendChild(rightHead);
+                const active = num === 1 ? tab1 : tab2;
+                active.style.color = 'var(--accent)';
+                active.style.borderBottomColor = 'var(--accent)';
+                
+                tabContent.innerHTML = '';
+                if (num === 1) renderActivity(); else renderSubs();
+            };
 
-            const legend = document.createElement('div');
-            legend.style.display = 'flex';
-            legend.style.gap = '12px';
-            legend.style.marginBottom = '10px';
-            legend.style.fontSize = '0.75rem';
-            legend.style.color = 'var(--text-muted)';
-            const types = [
-                { color: '#dcfce7', border: '#86efac', text: 'Available' },
-                { color: '#dbeafe', border: '#93c5fd', text: 'This Brand' },
-                { color: '#fee2e2', border: '#fca5a5', text: 'Other Brand' }
-            ];
-            types.forEach(t => {
-                const span = document.createElement('span');
-                const box = document.createElement('span');
-                box.style.display = 'inline-block';
-                box.style.width = '12px';
-                box.style.height = '12px';
-                box.style.background = t.color;
-                box.style.border = `1px solid ${t.border}`;
-                box.style.borderRadius = '3px';
-                box.style.marginRight = '4px';
-                span.appendChild(box);
-                span.appendChild(document.createTextNode(t.text));
-                legend.appendChild(span);
-            });
-            rightCol.appendChild(legend);
+            const renderActivity = () => {
+                const mainGrid = document.createElement('div');
+                mainGrid.style.display = 'grid';
+                mainGrid.style.gridTemplateColumns = '220px 1fr';
+                mainGrid.style.gap = '20px';
 
-            const gridCont = document.createElement('div');
-            gridCont.id = 'slot-grid-container';
-            gridCont.style.display = 'grid';
-            gridCont.style.gridTemplateColumns = 'repeat(5,1fr)';
-            gridCont.style.gap = '8px';
-            gridCont.style.marginBottom = '16px';
-            const gridLoading = document.createElement('div');
-            gridLoading.style.gridColumn = 'span 5';
-            gridLoading.style.textAlign = 'center';
-            gridLoading.style.padding = '20px';
-            gridLoading.style.color = 'var(--text-muted)';
-            gridLoading.textContent = 'Loading slots...';
-            gridCont.appendChild(gridLoading);
-            rightCol.appendChild(gridCont);
+                // Left Col
+                const leftCol = document.createElement('div');
+                const infoBox = document.createElement('div');
+                infoBox.style.background = '#f8fafc';
+                infoBox.style.padding = '15px';
+                infoBox.style.borderRadius = '10px';
+                infoBox.style.border = '1px solid var(--border)';
+                infoBox.style.marginBottom = '16px';
+                
+                const h4 = document.createElement('h4');
+                h4.style.marginBottom = '12px'; h4.style.fontSize = '0.8rem'; h4.style.color = 'var(--text-muted)'; h4.style.textTransform = 'uppercase';
+                h4.textContent = 'Brand Info';
+                infoBox.appendChild(h4);
 
-            const infoFooter = document.createElement('div');
-            infoFooter.style.background = '#f8fafc';
-            infoFooter.style.padding = '12px';
-            infoFooter.style.borderRadius = '8px';
-            infoFooter.style.border = '1px solid var(--border)';
-            infoFooter.style.display = 'flex';
-            infoFooter.style.alignItems = 'center';
-            infoFooter.style.gap = '8px';
-            infoFooter.style.fontSize = '0.85rem';
-            infoFooter.style.color = 'var(--text-muted)';
-            const infoI = document.createElement('i');
-            infoI.setAttribute('data-lucide', 'info');
-            infoI.style.width = '16px';
-            infoI.style.color = '#3b82f6';
-            infoFooter.appendChild(infoI);
-            const footerText = document.createElement('span');
-            footerText.innerHTML = 'Click any <strong style="color:#15803d;">green</strong> slot to assign to this brand. Click <strong style="color:#1d4ed8;">blue</strong> slots to unassign.';
-            infoFooter.appendChild(footerText);
-            rightCol.appendChild(infoFooter);
-            
-            mainGrid.appendChild(rightCol);
-            content.appendChild(mainGrid);
-            lucide.createIcons();
+                const fields = [
+                    { label: 'Industry', value: brand.industry || 'Not set' },
+                    { label: 'Contact', value: brand.contact_person || '-' },
+                    { label: 'Email', value: brand.email || '-', class: 'email' }
+                ];
+                fields.forEach(f => {
+                    const div = document.createElement('div');
+                    div.style.marginBottom = '8px';
+                    const label = document.createElement('small');
+                    label.style.color = 'var(--text-muted)'; label.style.display = 'block'; label.textContent = f.label;
+                    div.appendChild(label);
+                    const val = document.createElement('strong');
+                    if (f.class === 'email') val.style.fontSize = '0.85rem';
+                    val.textContent = f.value;
+                    div.appendChild(val);
+                    infoBox.appendChild(div);
+                });
 
-            if (defaultScreen) {
-                await this.loadSlotGrid(brand.id);
-            }
+                const stDiv = document.createElement('div');
+                stDiv.style.marginBottom = '12px';
+                const stLabel = document.createElement('small');
+                stLabel.style.color = 'var(--text-muted)'; stLabel.style.display = 'block'; stLabel.textContent = 'Status';
+                stDiv.appendChild(stLabel);
+                const stBadge = document.createElement('span');
+                stBadge.className = `badge ${brand.status.toLowerCase()}`;
+                stBadge.textContent = brand.status;
+                stDiv.appendChild(stBadge);
+                infoBox.appendChild(stDiv);
+
+                const editBtn = document.createElement('button');
+                editBtn.className = 'btn btn-secondary'; editBtn.style.width = '100%'; editBtn.style.fontSize = '0.8rem';
+                editBtn.textContent = 'Edit Profile';
+                editBtn.onclick = () => this.showModal(brand.id);
+                infoBox.appendChild(editBtn);
+                leftCol.appendChild(infoBox);
+
+                const kpiGrid = document.createElement('div');
+                kpiGrid.className = 'dash-kpi-row';
+                kpiGrid.style.gridTemplateColumns = '1fr 1fr'; kpiGrid.style.gap = '8px';
+
+                const kpis = [
+                    { icon: 'layers', color: 'blue', label: 'Slots', val: metrics.totalScreens },
+                    { icon: 'play-circle', color: 'lightblue', label: 'Plays', val: metrics.totalPlays.toLocaleString() },
+                    { icon: 'calendar', color: 'darkblue', label: 'Campaigns', val: metrics.totalCampaigns },
+                    { icon: 'indian-rupee', color: 'orange', label: 'Spend', val: `₹${(metrics.totalSpend||0).toLocaleString()}` }
+                ];
+                kpis.forEach(k => {
+                    const card = document.createElement('div');
+                    card.className = `kpi-card kpi-${k.color}`;
+                    card.style.padding = '12px';
+                    const head = document.createElement('div');
+                    head.className = 'kpi-header'; head.style.fontSize = '0.7rem';
+                    const i = document.createElement('i'); i.setAttribute('data-lucide', k.icon);
+                    head.appendChild(i); head.appendChild(document.createTextNode(` ${k.label}`));
+                    card.appendChild(head);
+                    const h2 = document.createElement('h2'); h2.style.fontSize = '1.5rem';
+                    h2.textContent = k.val;
+                    card.appendChild(h2);
+                    kpiGrid.appendChild(card);
+                });
+                leftCol.appendChild(kpiGrid);
+                mainGrid.appendChild(leftCol);
+
+                // Right Col (Slot Grid)
+                const rightCol = document.createElement('div');
+                const rightHead = document.createElement('div');
+                rightHead.style.cssText = 'display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;';
+                const rh4 = document.createElement('h4'); rh4.style.fontSize = '0.9rem'; rh4.style.color = 'var(--text-muted)'; rh4.style.textTransform = 'uppercase';
+                rh4.textContent = 'Slot Assignment';
+                rightHead.appendChild(rh4);
+                
+                const selectWrap = document.createElement('div');
+                selectWrap.style.cssText = 'display:flex; gap:8px; align-items:center;';
+                const slabel = document.createElement('label'); slabel.style.fontSize = '0.8rem'; slabel.style.color = 'var(--text-muted)'; slabel.textContent = 'Screen:';
+                selectWrap.appendChild(slabel);
+                
+                const select = document.createElement('select'); select.id = 'slot-screen-select'; select.className = 'form-control'; select.style.borderRadius = '6px'; select.style.fontSize = '0.85rem';
+                select.onchange = () => this.loadSlotGrid(brand.id);
+                if (validScreens.length > 0) {
+                    validScreens.forEach(s => {
+                        const opt = document.createElement('option'); opt.value = s.xibo_display_id; opt.textContent = s.name;
+                        select.appendChild(opt);
+                    });
+                } else {
+                    const opt = document.createElement('option'); opt.value = ''; opt.textContent = 'No screens'; select.appendChild(opt);
+                }
+                selectWrap.appendChild(select);
+                rightHead.appendChild(selectWrap);
+                rightCol.appendChild(rightHead);
+
+                const legend = document.createElement('div'); legend.style.cssText = 'display:flex; gap:12px; margin-bottom:10px; font-size:0.75rem; color:var(--text-muted);';
+                const ts = [{c:'#dcfce7', b:'#86efac', t:'Available'}, {c:'#dbeafe', b:'#93c5fd', t:'This Brand'}, {c:'#fee2e2', b:'#fca5a5', t:'Other Brand'}];
+                ts.forEach(t => {
+                    const span = document.createElement('span'); const box = document.createElement('span'); box.style.cssText = `display:inline-block; width:12px; height:12px; background:${t.c}; border:1px solid ${t.b}; border-radius:3px; margin-right:4px;`;
+                    span.append(box, document.createTextNode(t.t));
+                    legend.appendChild(span);
+                });
+                rightCol.appendChild(legend);
+
+                const gridCont = document.createElement('div'); gridCont.id = 'slot-grid-container'; gridCont.style.cssText = 'display:grid; grid-template-columns:repeat(5,1fr); gap:8px; margin-bottom:16px;';
+                rightCol.appendChild(gridCont);
+
+                const infoFooter = document.createElement('div');
+                infoFooter.style.cssText = 'background:#f8fafc; padding:12px; border-radius:8px; border:1px solid var(--border); display:flex; align-items:center; gap:8px; font-size:0.85rem; color:var(--text-muted);';
+                const infoI = document.createElement('i'); infoI.setAttribute('data-lucide', 'info'); infoI.style.width = '16px'; infoI.style.color = '#3b82f6';
+                infoFooter.appendChild(infoI);
+                const footerText = document.createElement('span'); footerText.innerHTML = 'Click any <strong style="color:#15803d;">green</strong> slot to assign. Click <strong style="color:#1d4ed8;">blue</strong> to unassign.';
+                infoFooter.appendChild(footerText);
+                rightCol.appendChild(infoFooter);
+
+                mainGrid.appendChild(rightCol);
+                tabContent.appendChild(mainGrid);
+                lucide.createIcons();
+                this.loadSlotGrid(brand.id);
+            };
+
+            const renderSubs = () => {
+                const subHead = document.createElement('div');
+                subHead.style.cssText = 'display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;';
+                const h4 = document.createElement('h4'); h4.style.fontSize = '0.9rem'; h4.textContent = 'Active Subscriptions';
+                subHead.appendChild(h4);
+                const btn = document.createElement('button'); btn.className = 'btn btn-primary'; btn.style.fontSize = '0.8rem'; btn.textContent = '+ Create New Plan';
+                btn.onclick = () => this.showSubModal(brand.id);
+                subHead.appendChild(btn);
+                tabContent.appendChild(subHead);
+
+                const list = document.createElement('div');
+                list.id = 'subscription-list';
+                tabContent.appendChild(list);
+                this.loadSubscriptions(brand.id);
+            };
+
+            tab1.onclick = () => setActiveTab(1);
+            tab2.onclick = () => setActiveTab(2);
+            setActiveTab(1); // Default to Activity
 
         } catch (err) {
             content.innerHTML = '';

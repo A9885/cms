@@ -50,9 +50,15 @@
         <section id="dashboard" class="view-section active">
             <div class="page-header">
                 <h1 class="page-title">Dashboard</h1>
-                <div class="search-bar">
-                    <i data-lucide="search"></i>
-                    <input type="text" placeholder="Search...">
+                <div class="header-actions" style="display:flex; gap:12px; align-items:center;">
+                    <div class="search-bar">
+                        <i data-lucide="search"></i>
+                        <input type="text" placeholder="Search...">
+                    </div>
+                    <button id="refresh-dashboard-btn" onclick="refreshDashboard()" class="btn-refresh" title="Sync Latest Data" style="background:var(--card-bg); border:1px solid var(--border-color); color:var(--text-primary); padding:8px 12px; border-radius:8px; cursor:pointer; display:flex; align-items:center; gap:8px; font-size:0.85rem; font-weight:500; transition:all 0.2s ease;">
+                        <i data-lucide="refresh-cw" size="16"></i>
+                        Refresh
+                    </button>
                 </div>
             </div>
 
@@ -61,24 +67,24 @@
                 <div class="metric-card blue">
                     <div class="metric-header"><i data-lucide="check-square"></i> Subscribed Screens</div>
                     <div class="metric-value" id="dash-active-screens">0</div>
-                    <div class="metric-footer"><span>Total Screens: <span id="dash-total-screens">0</span></span></div>
+                    <div class="metric-footer"><span>Total Slots: <span id="dash-total-screens">0</span></span></div>
                 </div>
                 <div class="metric-card dark">
                     <div class="metric-header"><i data-lucide="bar-chart-2"></i> Total Plays</div>
                     <div class="metric-value" id="dash-total-plays">0</div>
-                    <div class="metric-footer"><span>+12% from last week</span></div>
+                    <div class="metric-footer"><span>Live Playback Count</span></div>
                 </div>
                 <div class="metric-card orange">
-                    <div class="metric-header"><i data-lucide="zap"></i> Current Plan</div>
-                    <div class="metric-value" id="dash-current-plan">Premium</div>
-                    <div class="metric-footer"><span>Next billing: April 15</span></div>
+                    <div class="metric-header"><i data-lucide="eye"></i> Est. Impressions</div>
+                    <div class="metric-value" id="dash-est-impressions">0</div>
+                    <div class="metric-footer"><span>Based on audience data</span></div>
                 </div>
             </div>
 
             <div class="dashboard-main-grid">
                 <div class="glass-panel" style="padding: 1.5rem;">
                     <div class="panel-header">
-                        <h2 class="panel-title">Plays Over Time</h2>
+                        <h2 class="panel-title">Daily Proof of Play</h2>
                         <a href="#" style="color:var(--accent); font-size:0.85rem; font-weight:600;">View all ></a>
                     </div>
                     <div class="chart-container">
@@ -365,11 +371,12 @@
                                 <th>Asset Name</th>
                                 <th>Type</th>
                                 <th>Moderation Status</th>
+                                <th>Assigned To</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody id="creatives-table-body">
-                            <tr><td colspan="5" style="text-align:center; padding:3rem; color:var(--text-muted);">Syncing with Xibo Cloud Library...</td></tr>
+                            <tr><td colspan="6" style="text-align:center; padding:3rem; color:var(--text-muted);">Syncing with Xibo Cloud Library...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -436,6 +443,28 @@
                 </div>
                 <div id="sub-empty" style="display:none;text-align:center;padding:2rem;color:var(--text-muted);">
                     No active subscription found. Contact your account manager to get started.
+                </div>
+            </div>
+
+            <!-- Detailed Subscribed Slots Table -->
+            <div id="sub-active-slots-container" class="glass-panel" style="margin-bottom: 1.5rem; display: none;">
+                <h3 style="font-size: 1.1rem; font-weight: 600; border-bottom: 1px solid rgba(0,0,0,0.05); padding: 1.25rem 1.5rem; margin: 0;">My Active Slots</h3>
+                <div class="table-responsive">
+                    <table id="sub-campaigns-table">
+                        <thead>
+                            <tr>
+                                <th>Campaign Name</th>
+                                <th>Screen / Location</th>
+                                <th>Slot Number</th>
+                                <th>Dates</th>
+                                <th>Total Plays</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sub-campaigns-body">
+                            <tr><td colspan="6" style="text-align:center; padding:2rem; color:var(--text-muted);">Loading active slot assignments...</td></tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
 

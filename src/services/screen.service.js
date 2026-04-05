@@ -118,13 +118,6 @@ class ScreenService {
    */
   async syncLocation(displayId) {
     try {
-      // 1. Skip locked screens
-      const screen = await dbGet('SELECT is_fixed_location, location_source FROM screens WHERE xibo_display_id = ?', [displayId]);
-      if (screen?.is_fixed_location) {
-          console.log(`[ScreenService] Skipping location sync for Display ${displayId} (Fixed Location)`);
-          return;
-      }
-
       const displays = await xiboService.getDisplays({ displayId });
       const d = displays.find(disp => String(disp.displayId) === String(displayId));
       if (!d) return;

@@ -45,6 +45,11 @@
             transition: opacity 0.2s;
         }
 
+        .nav-links li a {
+            color: inherit;
+            text-decoration: none;
+        }
+
         .nav-links li:hover, .nav-links li.active {
             opacity: 1;
             border-bottom: 2px solid var(--primary);
@@ -179,6 +184,19 @@
             text-align: center;
         }
 
+        .locked-badge {
+            display: inline-block;
+            font-size: 0.7rem;
+            font-weight: bold;
+            background-color: #fef3c7;
+            color: #d97706;
+            padding: 2px 8px;
+            border-radius: 4px;
+            margin-bottom: 0.5rem;
+            width: fit-content;
+            border: 1px solid #fde68a;
+        }
+
         .slot-actions {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -214,6 +232,26 @@
             justify-content: center;
             font-weight: 600;
         }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5); z-index: 10000;
+            display: none; align-items: center; justify-content: center;
+        }
+        .modal-content {
+            background: white; padding: 24px; border-radius: 12px;
+            width: 400px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
+        }
+        .modal-header { font-size: 1.25rem; font-weight: 600; margin-bottom: 1rem; color: #0f172a; }
+        .form-group { margin-bottom: 1rem; }
+        .form-group label { display: block; font-size: 0.875rem; font-weight: 500; color: #475569; margin-bottom: 0.5rem; }
+        .form-select { width: 100%; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.875rem; color: #1e293b; background: white; }
+        .preview-container { margin-top: 1rem; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 0.5rem; text-align: center; background: #f8fafc; min-height: 120px; display:flex; align-items:center; justify-content:center;}
+        .preview-container img { max-width: 100%; max-height: 150px; border-radius: 4px; display: none; }
+        .modal-actions { display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem; }
+        .btn-cancel { background: #f1f5f9; color: #475569; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 500; }
+        .btn-submit { background: var(--primary); color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 500; }
     </style>
 </head>
 <body>
@@ -224,10 +262,10 @@
             <span style="font-weight:bold; font-size:1.2rem;">SignTral</span>
         </div>
         <ul class="nav-links">
-            <li class="active">Screens</li>
-            <li>Brands</li>
-            <li>Partners</li>
-            <li>Campaigns</li>
+            <li class="active"><a href="/manager.html">Screens</a></li>
+            <li><a href="/brand">Brands</a></li>
+            <li><a href="/partner">Partners</a></li>
+            <li><a href="/admin">Campaigns</a></li>
         </ul>
         <div class="logout-btn">Logout</div>
     </nav>
@@ -254,10 +292,60 @@
         </div>
     </div>
 
+    <!-- Modals & Overlays -->
     <div id="loader">Processing...</div>
-
-    <!-- Hidden File Input -->
     <input type="file" id="media-input" style="display:none" accept="image/*,video/*">
+
+    <!-- Brand Assignment Modal -->
+    <div class="modal-overlay" id="brand-assign-modal">
+        <div class="modal-content">
+            <div class="modal-header">Assign Brand Creative</div>
+            
+            <div class="form-group">
+                <label>Select Brand</label>
+                <select class="form-select" id="brand-select">
+                    <option value="">-- Choose a Brand --</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Select Creative Option</label>
+                <select class="form-select" id="creative-select" disabled>
+                    <option value="">-- Select Brand first --</option>
+                </select>
+            </div>
+
+            <div class="preview-container" id="creative-preview-container">
+                <span id="preview-placeholder" style="color:#94a3b8; font-size:0.875rem;">Image Preview</span>
+                <img id="creative-preview-img" src="" alt="Creative Preview">
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn-cancel" onclick="closeBrandModal()">Cancel</button>
+                <button class="btn-submit" id="submit-assign-btn">Assign to Slot</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Brand Link Modal (Post-Upload) -->
+    <div class="modal-overlay" id="brand-link-modal">
+        <div class="modal-content">
+            <div class="modal-header">Link Uploaded Media</div>
+            <p style="font-size: 0.875rem; color: #64748b; margin-bottom: 1rem;">
+                Select a Brand to automatically grant them access to this media for their Proof of Play and campaign reporting.
+            </p>
+            <div class="form-group">
+                <label>Select Brand</label>
+                <select class="form-select" id="link-brand-select">
+                    <option value="">-- Optional: Assign to Brand --</option>
+                </select>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-cancel" onclick="closeLinkModal()">Skip</button>
+                <button class="btn-submit" id="submit-link-btn">Link Brand</button>
+            </div>
+        </div>
+    </div>
 
     <script src="manager.js"></script>
 </body>

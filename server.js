@@ -11,6 +11,7 @@ const statsService = require('./src/services/stats.service');
 
 const http = require('http');
 const { Server } = require('socket.io');
+const jwt = require('jsonwebtoken');
 
 const app = express();
 const server = http.createServer(app);
@@ -26,9 +27,30 @@ const XIBO_CLIENT_SECRET = process.env.XIBO_CLIENT_SECRET;
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-// Root serves the Signtral homepage
+// --- Portal Routes (Serve HTML with correct Content-Type) ---
+
+// 1. Web App / Homepage
 app.get('/', (req, res) => {
+    res.setHeader('Content-Type', 'text/html');
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// 2. Admin Portal
+app.get('/admin', (req, res) => {
+    res.setHeader('Content-Type', 'text/html');
+    res.sendFile(path.join(__dirname, 'public', 'admin', 'index.html'));
+});
+
+// 3. Brand Portal
+app.get('/brand', (req, res) => {
+    res.setHeader('Content-Type', 'text/html');
+    res.sendFile(path.join(__dirname, 'public', 'brandportal', 'index.html'));
+});
+
+// 4. Partner Portal
+app.get('/partner', (req, res) => {
+    res.setHeader('Content-Type', 'text/html');
+    res.sendFile(path.join(__dirname, 'public', 'partnerportal', 'index.html'));
 });
 
 app.get('/health', (req, res) => res.json({ status: 'OK', uptime: process.uptime() }));
@@ -38,17 +60,38 @@ app.use(cookieParser());
 const authRoutes = require('./src/routes/auth.routes');
 app.use('/auth', authRoutes);
 
+/**
+ * authenticateToken
+ * Specific middleware for API Bearer token validation.
+ * Keeps /health and /status public.
+ */
+const authenticateToken = (req, res, next) => {
+    const publicPaths = ['/health', '/status'];
+    if (publicPaths.includes(req.path)) return next();
+
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+
+    jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+        if (err) return res.status(401).json({ error: 'Unauthorized' });
+        req.user = user;
+        next();
+    });
+};
+
 const apiRoutes = require('./src/routes/api.routes');
-app.use('/api', apiRoutes);
+app.use('/api', authenticateToken, apiRoutes);
 
 const screenRoutes = require('./src/routes/screen.routes');
-app.use('/api/screens', screenRoutes);
+app.use('/api/screens', authenticateToken, screenRoutes);
 
 const campaignRoutes = require('./src/routes/campaign.routes');
-app.use('/api/campaigns', campaignRoutes);
+app.use('/api/campaigns', authenticateToken, campaignRoutes);
 
 const creativeRoutes = require('./src/routes/creative.routes');
-app.use('/api/creative', creativeRoutes);
+app.use('/api/creative', authenticateToken, creativeRoutes);
 
 // Mount Protected Admin APIs
 const adminRoutes = require('./src/routes/admin.routes');
@@ -234,10 +277,69 @@ app.get('/xibo/displays/locations', async (req, res) => {
 
 
 
-// --- Simple Cache for Rate Limit Resilience ---
+// --- Simple Caches for Rate Limit Resilience ---
+let displaysCache = null;
+let displaysCacheTime = 0;
 let statsCache = null;
 let statsCacheTime = 0;
 const CACHE_TTL = 60000; // 60 seconds
+const DISPLAYS_CACHE_TTL = 30000; // 30 seconds
+
+app.get('/xibo/displays', async (req, res) => {
+    // Check Cache
+    const now = Date.now();
+    if (displaysCache && (now - displaysCacheTime < DISPLAYS_CACHE_TTL)) {
+        return res.json(displaysCache);
+    }
+
+    try {
+        const headers = await authHeader();
+        
+        // 1. Get all displays
+        const response = await axios.get(`${XIBO_BASE_URL}/api/display`, { headers });
+        
+        // 2. Batch fetch ALL playlists that follow our naming convention
+        // This avoids N separate API calls for N displays.
+        const allPlaylistsResp = await axios.get(`${XIBO_BASE_URL}/api/playlist`, {
+            headers,
+            params: { name: 'SCREEN_', length: 1000 }
+        });
+        const allPlaylists = allPlaylistsResp.data || [];
+
+        const displays = response.data.map((d) => {
+            // Find MAIN_LOOP or legacy PLAYLIST in the pre-fetched list
+            const mainLoopName = `SCREEN_${d.displayId}_MAIN_LOOP`;
+            const legacyName = `SCREEN_${d.displayId}_PLAYLIST`;
+            
+            const playlist = allPlaylists.find(p => (p.playlist === mainLoopName || p.name === mainLoopName)) 
+                          || allPlaylists.find(p => (p.playlist === legacyName || p.name === legacyName));
+            
+            const playlistId = playlist ? playlist.playlistId : null;
+
+            // Custom Online Logic: 
+            // In Xibo v4, d.loggedIn is the most direct indicator.
+            const lastAccessedTime = d.lastAccessed ? new Date(d.lastAccessed + ' UTC').getTime() : 0;
+            const isOnline = Number(d.loggedIn) === 1 || (Date.now() - lastAccessedTime < 24 * 60 * 60 * 1000);
+
+            return {
+                displayId: d.displayId,
+                displayGroupId: d.displayGroupId,
+                name: d.display,
+                isOnline: isOnline,
+                playlistId: playlistId
+            };
+        });
+        
+        // Update Cache
+        displaysCache = displays;
+        displaysCacheTime = Date.now();
+
+        res.json(displays);
+    } catch (err) {
+        console.error('[GET /xibo/displays]', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
 
 /**
  * GET /xibo/stats/live (Phase 5: Live Now Playing)
@@ -774,67 +876,6 @@ async function getSlotPlaylistForDisplay(displayId, slotId) {
 }
 
 
-async function getPlaylistForDisplay(displayId) {
-    const headers = await authHeader();
-    
-    // For the main loop
-    const pResp = await axios.get(`${XIBO_BASE_URL}/api/playlist`, {
-        headers,
-        params: { name: `SCREEN_${displayId}_MAIN_LOOP` }
-    });
-    if (pResp.data && pResp.data.length > 0) {
-        return pResp.data[0].playlistId;
-    }
-
-    // Fallback to legacy name if MAIN_LOOP doesn't exist yet
-    const legacyResp = await axios.get(`${XIBO_BASE_URL}/api/playlist`, {
-        headers,
-        params: { name: `SCREEN_${displayId}_PLAYLIST` }
-    });
-    if (legacyResp.data && legacyResp.data.length > 0) {
-        return legacyResp.data[0].playlistId;
-    }
-
-    throw new Error(`Main Loop Playlist (SCREEN_${displayId}_MAIN_LOOP) not found.`);
-}
-
-
-app.get('/xibo/displays', async (req, res) => {
-    try {
-        const headers = await authHeader();
-        const response = await axios.get(`${XIBO_BASE_URL}/api/display`, { headers });
-        
-        const displays = await Promise.all(response.data.map(async (d) => {
-            let playlistId = null;
-            try {
-                playlistId = await getPlaylistForDisplay(d.displayId);
-            } catch (e) {
-                // Not finding a playlist for a display is okay in the list view
-                // It just means that screen won't be manageable yet
-            }
-
-            // Custom Online Logic: 
-            // In Xibo v4, d.loggedIn is the most direct indicator.
-            // We'll also consider it online if lastAccessed is within the last 24 hours to be safe.
-            const lastAccessedTime = d.lastAccessed ? new Date(d.lastAccessed + ' UTC').getTime() : 0;
-            const now = Date.now();
-            const isOnline = Number(d.loggedIn) === 1 || (now - lastAccessedTime < 24 * 60 * 60 * 1000);
-
-            return {
-                displayId: d.displayId,
-                displayGroupId: d.displayGroupId,
-                name: d.display,
-                isOnline: isOnline,
-                playlistId: playlistId
-            };
-        }));
-        
-        res.json(displays);
-    } catch (err) {
-        console.error('[GET /xibo/displays]', err.message);
-        res.status(500).json({ error: err.message });
-    }
-});
 
 /**
  * GET /xibo/displays/available
@@ -954,6 +995,25 @@ async function getSlotsForDisplay(displayId) {
             });
         }
         slots.push(slotData);
+    }
+
+    // --- PIPELINE: Fetch local DB mapping for locked brands ---
+    const { dbAll } = require('./src/db/database');
+    const localSlots = await dbAll(`
+        SELECT s.slot_number, s.brand_id, b.name as brand_name
+        FROM slots s
+        LEFT JOIN brands b ON s.brand_id = b.id
+        WHERE s.displayId = ? AND s.brand_id IS NOT NULL
+    `, [displayId]);
+
+    if (localSlots && localSlots.length > 0) {
+        slots.forEach(slot => {
+            const match = localSlots.find(ls => Number(ls.slot_number) === Number(slot.slot));
+            if (match) {
+                slot.lockedBrandId = match.brand_id;
+                slot.lockedBrandName = match.brand_name;
+            }
+        });
     }
 
     return slots;
@@ -1240,6 +1300,7 @@ app.post('/xibo/slots/add', upload.single('file'), async (req, res) => {
 
       // 2b. *** Enable Media Stats Collection (Proof of Play) for this item ***
       // Without this, Xibo defaults to 'Inherit' which may be Off at display/profile level.
+      let autoLinkedBrandId = null;
       try {
         await xiboService.setStatCollection('media', mediaId, true);
         console.log(`[Slots] Enabled stat collection for mediaId=${mediaId}`);
@@ -1248,11 +1309,13 @@ app.post('/xibo/slots/add', upload.single('file'), async (req, res) => {
         const { dbGet, dbRun } = require('./src/db/database');
         const slotRecord = await dbGet('SELECT brand_id FROM slots WHERE displayId = ? AND slot_number = ?', [displayId, slotId]);
         if (slotRecord && slotRecord.brand_id) {
-            await dbRun('REPLACE INTO media_brands (mediaId, brand_id) VALUES (?, ?)', [mediaId, slotRecord.brand_id]);
+            await dbRun('REPLACE INTO media_brands (mediaId, brand_id, status) VALUES (?, ?, "Approved")', [mediaId, slotRecord.brand_id]);
+            autoLinkedBrandId = slotRecord.brand_id;
             console.log(`[Slots] Linked mediaId ${mediaId} to brand ${slotRecord.brand_id} via slot ${slotId}`);
         } else if (req.user && req.user.brand_id) {
             // Fallback for brand portal direct uploads
-            await dbRun('REPLACE INTO media_brands (mediaId, brand_id) VALUES (?, ?)', [mediaId, req.user.brand_id]);
+            await dbRun('REPLACE INTO media_brands (mediaId, brand_id, status) VALUES (?, ?, "Approved")', [mediaId, req.user.brand_id]);
+            autoLinkedBrandId = req.user.brand_id;
         }
       } catch (statErr) {
         // Non-fatal — log and continue. Stats may still work via widget-level stats.
@@ -1293,7 +1356,7 @@ app.post('/xibo/slots/add', upload.single('file'), async (req, res) => {
       // Invalidate widget cache so next stats query picks up the new slot mapping
       statsService.invalidateWidgetCache();
 
-      res.json({ success: true, widgetId });
+      res.json({ success: true, widgetId, mediaId, autoLinkedBrandId });
 
     } catch (err) {
       if (uploadedMediaId) {
@@ -1306,6 +1369,96 @@ app.post('/xibo/slots/add', upload.single('file'), async (req, res) => {
 });
 
 /**
+ * POST /xibo/slots/assign
+ * Assigns an EXISTING media file (by mediaId) to a specific slot.
+ */
+app.post('/xibo/slots/assign', async (req, res) => {
+    const { displayId, displayGroupId, slotId, mediaId, duration, brandId } = req.body;
+    
+    if (!displayId || !slotId || !mediaId) {
+        return res.status(400).json({ error: 'Display, Slot, and Media ID are required.' });
+    }
+
+    const isReplace = req.body.replace === 'true' || req.body.replace === true;
+
+    try {
+        const headers = await authHeader();
+        const requestedDuration = parseInt(duration, 10) || SLOT_DURATION_LIMIT;
+        const playlistId = await getSlotPlaylistForDisplay(displayId, slotId);
+
+        // 1. Handle Replace
+        if (isReplace) {
+            const pResp = await axios.get(`${XIBO_BASE_URL}/api/playlist`, {
+                headers, params: { playlistId, embed: 'widgets' }
+            });
+            const widgets = pResp.data?.[0]?.widgets || [];
+            await Promise.all(widgets.map(w => 
+                axios.delete(`${XIBO_BASE_URL}/api/playlist/widget/${w.widgetId}`, { headers })
+                    .catch(e => console.warn(`Failed to delete widget ${w.widgetId} during replace:`, e.message))
+            ));
+        } else {
+            // Duration Validation
+            const currentSlots = await getSlotsForDisplay(displayId);
+            const targetSlot = currentSlots.find(s => String(s.slot) === String(slotId));
+            if (targetSlot && (targetSlot.totalDuration + requestedDuration > SLOT_DURATION_LIMIT)) {
+                return res.status(400).json({ error: `Slot ${slotId} is full. Max 13s allowed. Use Replace.` });
+            }
+        }
+
+        // 2. Enable Stats Collection & Brand Association
+        try {
+            await xiboService.setStatCollection('media', mediaId, true);
+            
+            const { dbGet, dbRun } = require('./src/db/database');
+            const targetBrandId = brandId || (await dbGet('SELECT brand_id FROM slots WHERE displayId = ? AND slot_number = ?', [displayId, slotId]))?.brand_id;
+            
+            if (targetBrandId) {
+                await dbRun('REPLACE INTO media_brands (mediaId, brand_id) VALUES (?, ?)', [mediaId, targetBrandId]);
+                console.log(`[Slots] Linked assigned mediaId ${mediaId} to brand ${targetBrandId}`);
+            }
+        } catch (statErr) {
+            console.warn(`[Slots] Could not enable stat/brand for assigned mediaId=${mediaId}:`, statErr.message);
+        }
+
+        // 3. Add as Widget
+        const widgetResp = await axios.post(`${XIBO_BASE_URL}/api/playlist/library/assign/${playlistId}`, `media[0]=${mediaId}&duration=${requestedDuration}&useDuration=1`, {
+            headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' }
+        });
+        const widgetId = widgetResp.data?.[0]?.widgetId;
+
+        // 4. Rename Widget
+        if (widgetId) {
+            await axios.put(`${XIBO_BASE_URL}/api/playlist/widget/${widgetId}`, `name=Slot ${slotId}: Brand Creative`, {
+                headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' }
+            });
+        }
+
+        // 5. Instant Sync
+        let syncId = displayGroupId;
+        if (!syncId || syncId === 'undefined' || syncId === 'null') {
+            try {
+                const dRes = await axios.get(`${XIBO_BASE_URL}/api/display?displayId=${displayId}`, { headers });
+                if (dRes.data && dRes.data.length > 0 && dRes.data[0].displayGroupId) {
+                    syncId = dRes.data[0].displayGroupId;
+                } else {
+                    syncId = displayId;
+                }
+            } catch(e) { syncId = displayId; }
+        }
+        await synchronizeMainLoop(displayId, syncId);
+        await axios.post(`${XIBO_BASE_URL}/api/displaygroup/${syncId}/action/collectNow`, null, { headers }).catch(() => {});
+        await axios.put(`${XIBO_BASE_URL}/api/display/requestscreenshot/${displayId}`, null, { headers }).catch(() => {});
+
+        statsService.invalidateWidgetCache();
+        res.json({ success: true, widgetId });
+    } catch (err) {
+        console.error('[POST /xibo/slots/assign]', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+
+/**
  * DELETE /xibo/slots/media/:widgetId
  */
 app.delete('/xibo/slots/media/:widgetId', async (req, res) => {
@@ -1315,34 +1468,21 @@ app.delete('/xibo/slots/media/:widgetId', async (req, res) => {
   try {
     const headers = await authHeader();
     
-    // 1. Delete the widget
+    // 1. Delete the widget from Xibo CMS
     await axios.delete(`${XIBO_BASE_URL}/api/playlist/widget/${widgetId}`, { headers });
     
-    // 2. If it's the last one in the slot, add placeholder
-    if (displayId && slotId && process.env.PLACEHOLDER_MEDIA_ID) {
-        try {
-            const currentSlots = await getSlotsForDisplay(displayId);
-            const targetSlot = currentSlots.find(s => s.slot == slotId);
-            const playlistId = targetSlot?.playlistId;
-
-            if (playlistId && (!targetSlot || targetSlot.media.length === 0)) {
-                const mediaId = process.env.PLACEHOLDER_MEDIA_ID;
-                const widgetResp = await axios.post(`${XIBO_BASE_URL}/api/playlist/library/assign/${playlistId}`, `media[0]=${mediaId}&duration=13&useDuration=1`, {
-                    headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' }
-                });
-                const newWidgetId = widgetResp.data[0]?.widgetId;
-                if (newWidgetId) {
-                    await axios.put(`${XIBO_BASE_URL}/api/playlist/widget/${newWidgetId}`, `name=Slot ${slotId}: Placeholder`, {
-                        headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' }
-                    });
-                }
-            }
-        } catch(e) {
-            console.warn('Placeholder recovery failed:', e.message);
-        }
+    // 2. Clear local database state for this slot
+    // This prevents background sync scripts from re-assigning media to this slot.
+    if (displayId && slotId) {
+        const { dbRun } = require('./src/db/database');
+        await dbRun(
+            "UPDATE slots SET status='Available', mediaId=NULL, xibo_widget_id=NULL, brand_id=NULL WHERE displayId=? AND slot_number=?",
+            [displayId, slotId]
+        );
+        console.log(`[DELETE] Cleared slot ${slotId} for display ${displayId} in database.`);
     }
 
-    // 3. Sync
+    // 3. Sync Main Loop and refresh display
     if (displayId) {
         let syncId = displayGroupId;
         if (!syncId || syncId === 'undefined' || syncId === 'null') {
@@ -1417,6 +1557,16 @@ async function syncDisplayStats() {
   }
 }
 
+/**
+ * syncDisplayStatsToLocalDB
+ * Every 60 seconds: fetch 30 days of logs from Xibo and sync to local DB daily_media_stats.
+ * This powers the high-performance local dashboard.
+ */
+async function syncDisplayStatsToLocalDB() {
+  const statsService = require('./src/services/stats.service');
+  await statsService.syncAllStats();
+}
+
 // ─── BACKGROUND JOB REGISTRATION ─────────────────────────────────────────────
 
 setInterval(syncDisplayLocations, LOCATION_SYNC_INTERVAL);
@@ -1424,6 +1574,9 @@ setTimeout(syncDisplayLocations, 30000);
 
 setInterval(syncDisplayStats, STATS_SYNC_INTERVAL);
 setTimeout(syncDisplayStats, 10000);
+
+setInterval(syncDisplayStatsToLocalDB, 60 * 1000); // Sync to DB every minute
+setTimeout(syncDisplayStatsToLocalDB, 15000);    // Initial sync after 15s
 
 // Mount services to app settings for background access
 app.set('screenService', require('./src/services/screen.service'));

@@ -64,7 +64,7 @@ router.get('/dashboard', async (req, res) => {
         const screenPh = screenIds.map(() => '?').join(',');
 
         // 2. Aggregate queries based on campaigns
-        const [activeCampaigns, revenueResult, statsResult] = await Promise.all([
+        const [activeCampaigns, revenueResult, statsResult, slotCounts, brandEarnings] = await Promise.all([
             dbGet(`SELECT COUNT(*) as count FROM campaigns WHERE screen_id IN (${screenPh}) AND status = 'Active'`, screenIds),
             dbGet(`
                 SELECT 
@@ -74,13 +74,26 @@ router.get('/dashboard', async (req, res) => {
                 JOIN campaigns c ON i.brand_id = c.brand_id
                 WHERE c.screen_id IN (${screenPh})
             `, screenIds),
-            require('../services/stats.service').getRecentStats().catch(() => ({ data: [] }))
+            require('../services/stats.service').getRecentStats().catch(() => ({ data: [] })),
+            dbGet(`SELECT COUNT(*) as count FROM slots WHERE displayId IN (${displayIds.map(() => '?').join(',')}) AND brand_id IS NOT NULL`, displayIds),
+            dbAll(`
+                SELECT b.name as brand_name, COUNT(DISTINCT c.screen_id) as screen_count, SUM(i.amount) as earnings
+                FROM invoices i
+                JOIN brands b ON i.brand_id = b.id
+                JOIN campaigns c ON i.brand_id = c.brand_id
+                WHERE c.screen_id IN (${screenPh})
+                GROUP BY b.id
+            `, screenIds)
         ]);
 
         const totalScreens = enriched.length;
         const onlineScreens = enriched.filter(s => s.liveStatus === 'Online').length;
         const offlineScreens = enriched.filter(s => s.liveStatus === 'Offline').length;
-        const utilizationRate = totalScreens > 0 ? Math.round(((activeCampaigns?.count || 0) / (totalScreens * 20)) * 100) : 0;
+        
+        const totalSlots = totalScreens * 20;
+        const occupiedSlots = slotCounts?.count || 0;
+        const emptySlots = Math.max(0, totalSlots - occupiedSlots);
+        const utilizationRate = totalSlots > 0 ? Math.round((occupiedSlots / totalSlots) * 100) : 0;
 
         // Apply partner revenue share
         const share = (partner.revenue_share_percentage || 50) / 100;
@@ -88,17 +101,38 @@ router.get('/dashboard', async (req, res) => {
         const pendingPayments = (revenueResult?.pending || 0) * share;
 
         const recentPoP = (statsResult.data || [])
-            .filter(r => displayIds.includes(r.displayId))
-            .sort((a, b) => new Date(b.playedAt || 0) - new Date(a.playedAt || 0))
+            .filter(r => displayIds.includes(String(r.displayId)) || displayIds.includes(Number(r.displayId)))
+            .map(r => {
+                let playedAt = r.playedAt;
+                try {
+                    // Normalize to ISO if not already
+                    playedAt = new Date(r.playedAt).toISOString();
+                } catch (e) {
+                    playedAt = r.playedAt || new Date().toISOString();
+                }
+                return { ...r, playedAt };
+            })
+            .sort((a, b) => new Date(b.playedAt) - new Date(a.playedAt))
             .slice(0, 10);
 
         res.json({
-            partner: { name: partner?.name, company: partner?.company, email: partner?.email, share_percentage: partner.revenue_share_percentage },
-            totalScreens, onlineScreens, offlineScreens,
+            partner: { 
+                name: partner?.name, 
+                company: partner?.company, 
+                email: partner?.email, 
+                revenue_share_percentage: partner.revenue_share_percentage 
+            },
+            totalScreens, 
+            onlineScreens, 
+            offlineScreens,
+            totalSlots,
+            occupiedSlots,
+            emptySlots,
             activeCampaigns: activeCampaigns?.count || 0,
             utilizationRate,
             currentRevenue,
             pendingPayments,
+            earningsByBrand: brandEarnings || [],
             recentPoP
         });
     } catch (err) {

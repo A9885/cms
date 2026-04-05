@@ -124,19 +124,33 @@ async function initSchema() {
                 slot_number INT NOT NULL,
                 brand_id INT,
                 status VARCHAR(100) DEFAULT 'Available',
+                playlist_id INT,
+                xibo_widget_id INT,
+                mediaId INT,
+                duration INT DEFAULT 13,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 UNIQUE(displayId, slot_number),
                 FOREIGN KEY (brand_id) REFERENCES brands(id) ON DELETE SET NULL
             )
         `);
 
+        // Migration for existing slots table
+        try { await p.query("ALTER TABLE slots ADD COLUMN playlist_id INT"); } catch(e) {}
+        try { await p.query("ALTER TABLE slots ADD COLUMN xibo_widget_id INT"); } catch(e) {}
+        try { await p.query("ALTER TABLE slots ADD COLUMN mediaId INT"); } catch(e) {}
+        try { await p.query("ALTER TABLE slots ADD COLUMN duration INT DEFAULT 13"); } catch(e) {}
+
         await p.query(`
             CREATE TABLE IF NOT EXISTS media_brands (
                 mediaId INT PRIMARY KEY,
                 brand_id INT,
+                status VARCHAR(100) DEFAULT 'Approved',
                 FOREIGN KEY (brand_id) REFERENCES brands(id) ON DELETE SET NULL
             )
         `);
+
+        // Migration for existing media_brands table
+        try { await p.query("ALTER TABLE media_brands ADD COLUMN status VARCHAR(100) DEFAULT 'Approved'"); } catch(e) {}
 
         await p.query(`
             CREATE TABLE IF NOT EXISTS screens (
@@ -157,6 +171,16 @@ async function initSchema() {
                 FOREIGN KEY (partner_id) REFERENCES partners(id) ON DELETE SET NULL
             )
         `);
+ 
+        await p.query(`
+            CREATE TABLE IF NOT EXISTS daily_media_stats (
+                mediaId INT NOT NULL,
+                displayId INT NOT NULL,
+                date DATE NOT NULL,
+                count INT DEFAULT 0,
+                PRIMARY KEY (mediaId, displayId, date)
+            )
+        `);
 
         console.log('[DB] Connected to MySQL database successfully.');
 
@@ -166,7 +190,7 @@ async function initSchema() {
 }
 
 // Automatically init the schema on load
-initSchema();
+const dbReady = initSchema();
 
 /**
  * SQLite Translation layer for MySQL code compatibility.
@@ -203,6 +227,7 @@ module.exports = {
     db: {
         getPool // exported in case of direct access needs
     },
+    dbReady,
     dbRun,
     dbAll,
     dbGet

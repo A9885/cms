@@ -180,7 +180,15 @@ registerView('dashboard', async (wrap) => {
         const tbody = document.createElement('tbody');
         d.recentPoP.forEach(r => {
             const tr = document.createElement('tr');
-            const tdTime = document.createElement('td'); tdTime.textContent = r.playedAt ? new Date(r.playedAt).toLocaleString() : '—';
+            let dateStr = '—';
+            try {
+                if (r.playedAt) {
+                    const dt = new Date(r.playedAt);
+                    dateStr = isNaN(dt.getTime()) ? 'Invalid Date' : dt.toLocaleString();
+                }
+            } catch (e) { dateStr = 'Error'; }
+
+            const tdTime = document.createElement('td'); tdTime.textContent = dateStr;
             const tdAd = document.createElement('td'); tdAd.style.fontWeight = '600'; tdAd.textContent = r.adName || '—';
             const tdDisp = document.createElement('td'); tdDisp.textContent = r.displayName || r.displayId || '—';
             const tdCount = document.createElement('td'); tdCount.textContent = r.count || 1;

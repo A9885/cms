@@ -289,26 +289,19 @@ router.delete('/subscriptions/:id', async (req, res) => {
 router.get('/brands/:id/metrics', async (req, res) => {
     const brandId = req.params.id;
     try {
-        const [campaignsCount, screensCount, spendSum, brandMedia] = await Promise.all([
-            dbGet('SELECT COUNT(DISTINCT mediaId) as count FROM media_brands WHERE brand_id = ?', [brandId]),
+        const [campaignsCount, screensCount, spendSum, brandMedia, allStats] = await Promise.all([
+            dbGet('SELECT COUNT(DISTINCT id) as count FROM campaigns WHERE brand_id = ?', [brandId]),
             dbGet('SELECT COUNT(DISTINCT displayId) as count FROM slots WHERE brand_id = ?', [brandId]),
             dbGet('SELECT SUM(amount) as total FROM invoices WHERE brand_id = ?', [brandId]),
-            dbAll('SELECT mediaId FROM media_brands WHERE brand_id = ?', [brandId])
+            dbAll('SELECT mediaId FROM media_brands WHERE brand_id = ?', [brandId]),
+            statsService.getAllMediaStats()
         ]);
         
-        let totalPlays = 0;
-        try {
-            if (brandMedia && brandMedia.length > 0) {
-                const statsService = require('../services/stats.service');
-                const summary = await statsService.getAllMediaStats();
-                brandMedia.forEach(bm => {
-                    const match = summary.find(s => String(s.mediaId) === String(bm.mediaId));
-                    if (match) totalPlays += (match.totalPlays || 0);
-                });
-            }
-        } catch(e) {
-            console.error('[Admin API] Failed to fetch real PoP for brand ' + brandId, e.message);
-        }
+        const myMediaIds = new Set(brandMedia.map(bm => String(bm.mediaId)));
+        const totalPlays = allStats.reduce((sum, s) => {
+            if (myMediaIds.has(String(s.mediaId))) return sum + (s.totalPlays || 0);
+            return sum;
+        }, 0);
 
         res.json({
             totalCampaigns: campaignsCount.count || 0,
@@ -317,6 +310,7 @@ router.get('/brands/:id/metrics', async (req, res) => {
             totalPlays: totalPlays
         });
     } catch (err) {
+        console.error('[Admin API] Brand Metrics Error:', err.message);
         res.status(500).json({ error: err.message });
     }
 });
@@ -346,6 +340,79 @@ router.get('/brands/:id/campaigns', async (req, res) => {
         res.json(enriched);
     } catch (err) {
         console.error('[Admin API] Brand Campaigns Error:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/** GET /api/admin/brands/:id/creatives - List all library creatives assigned to a brand. */
+router.get('/brands/:id/creatives', async (req, res) => {
+    const brandId = req.params.id;
+    try {
+        const mappings = await dbAll('SELECT mediaId, status FROM media_brands WHERE brand_id = ?', [brandId]);
+        if (mappings.length === 0) return res.json([]);
+
+        const library = await xiboService.getLibrary({ length: 500 });
+        const mappingMap = new Map(mappings.map(m => [String(m.mediaId), m.status]));
+        
+        const filtered = library
+          .filter(media => mappingMap.has(String(media.mediaId)))
+          .map(media => ({
+            ...media,
+            status: mappingMap.get(String(media.mediaId)) || 'Pending'
+          }));
+
+        res.json(filtered);
+    } catch (err) {
+        console.error('[Admin API] Brand Creatives Error:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/** POST /api/admin/media/link-brand - Link an uploaded media artifact to a specific brand. */
+router.post('/media/link-brand', async (req, res) => {
+    const { mediaId, brandId, displayId, slotId } = req.body;
+    if (!mediaId || !brandId) return res.status(400).json({ error: 'Media ID and Brand ID are required' });
+    try {
+        await dbRun('REPLACE INTO media_brands (mediaId, brand_id, status) VALUES (?, ?, "Approved")', [mediaId, brandId]);
+        
+        // Also permanently lock the slot to this brand for future auto-linking!
+        if (displayId && slotId) {
+            await dbRun(
+                'INSERT INTO slots (displayId, slot_number, brand_id, status) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE brand_id = VALUES(brand_id), status = VALUES(status)',
+                [displayId, slotId, brandId, 'Assigned']
+            );
+        }
+
+        res.json({ success: true });
+    } catch (err) {
+        console.error('[Admin API] Link Brand Error:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/** GET /api/admin/media/brands - Get all media-to-brand mappings */
+router.get('/media/brands', async (req, res) => {
+    try {
+        const mappings = await dbAll('SELECT * FROM media_brands');
+        res.json(mappings);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/** POST /api/admin/media/assign - Admin Portal forced media-to-brand mapping */
+router.post('/media/assign', async (req, res) => {
+    const { mediaId, brand_id } = req.body;
+    if (!mediaId) return res.status(400).json({ error: 'Media ID is required' });
+    try {
+        if (!brand_id) {
+            await dbRun('DELETE FROM media_brands WHERE mediaId = ?', [mediaId]);
+        } else {
+            await dbRun('REPLACE INTO media_brands (mediaId, brand_id, status) VALUES (?, ?, "Approved")', [mediaId, brand_id]);
+        }
+        res.json({ success: true });
+    } catch (err) {
+        console.error('[Admin API] Media Assign Error:', err.message);
         res.status(500).json({ error: err.message });
     }
 });
@@ -683,7 +750,7 @@ router.get('/inventory', async (req, res) => {
 
 /** POST /api/admin/slots/assign - Allocate a specific slot to a brand (with subscription validation). */
 router.post('/slots/assign', async (req, res) => {
-    const { displayId, slot_number, brand_id, start_date, end_date, creative_name, subscription_id } = req.body;
+    const { displayId, slot_number, brand_id, start_date, end_date, creative_name, subscription_id, mediaId } = req.body;
 
     // --- Subscription Validation (only when assigning to a brand) ---
     if (brand_id) {
@@ -730,16 +797,17 @@ router.post('/slots/assign', async (req, res) => {
         const slotData = await dbGet('SELECT * FROM slots WHERE displayId = ? AND slot_number = ?', [displayId, slot_number]);
         const newStatus = brand_id ? 'Active' : 'Available';
         const subId = subscription_id || null;
+        const mId = mediaId || (slotData ? slotData.mediaId : null);
 
         if (slotData) {
             await dbRun(
-                `UPDATE slots SET brand_id = ?, status = ?, subscription_id = ?, start_date = ?, end_date = ?, creative_name = ?, updated_at = CURRENT_TIMESTAMP WHERE displayId = ? AND slot_number = ?`,
-                [brand_id || null, newStatus, subId, start_date || null, end_date || null, creative_name || null, displayId, slot_number]
+                `UPDATE slots SET brand_id = ?, status = ?, subscription_id = ?, start_date = ?, end_date = ?, creative_name = ?, mediaId = ?, updated_at = CURRENT_TIMESTAMP WHERE displayId = ? AND slot_number = ?`,
+                [brand_id || null, newStatus, subId, start_date || null, end_date || null, creative_name || null, mId, displayId, slot_number]
             );
         } else {
             await dbRun(
-                'INSERT INTO slots (displayId, slot_number, brand_id, status, subscription_id, start_date, end_date, creative_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                [displayId, slot_number, brand_id || null, newStatus, subId, start_date || null, end_date || null, creative_name || null]
+                'INSERT INTO slots (displayId, slot_number, brand_id, status, subscription_id, start_date, end_date, creative_name, mediaId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [displayId, slot_number, brand_id || null, newStatus, subId, start_date || null, end_date || null, creative_name || null, mId]
             );
         }
 

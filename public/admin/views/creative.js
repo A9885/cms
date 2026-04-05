@@ -17,6 +17,7 @@ App.registerView('creative', {
                                 <th>Creative Name</th>
                                 <th>Type</th>
                                 <th>Assigned Brand</th>
+                                <th>Status</th>
                                 <th>Size</th>
                                 <th style="text-align: right;">Action</th>
                             </tr>
@@ -154,7 +155,6 @@ App.registerView('creative', {
                 tdType.style.textTransform = 'capitalize';
                 tdType.textContent = m.type;
                 tr.appendChild(tdType);
-
                 const tdBrand = document.createElement('td');
                 tdBrand.style.fontSize = '0.85rem';
                 if (brand) {
@@ -167,6 +167,14 @@ App.registerView('creative', {
                     tdBrand.appendChild(unassigned);
                 }
                 tr.appendChild(tdBrand);
+
+                const tdStatus = document.createElement('td');
+                const status = map ? (map.status || 'Pending') : 'Pending';
+                const statusPill = document.createElement('span');
+                statusPill.className = `badge ${status.toLowerCase()}`;
+                statusPill.textContent = status;
+                tdStatus.appendChild(statusPill);
+                tr.appendChild(tdStatus);
 
                 const tdSize = document.createElement('td');
                 tdSize.style.color = 'var(--text-muted)';
@@ -201,7 +209,7 @@ App.registerView('creative', {
         } else {
             const tr = document.createElement('tr');
             const td = document.createElement('td');
-            td.colSpan = 5;
+            td.colSpan = 6;
             td.style.textAlign = 'center';
             td.style.color = 'var(--text-muted)';
             td.style.padding = '40px';

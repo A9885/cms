@@ -243,6 +243,14 @@ async function uploadMedia(slotId, file, duration, replace = false) {
         if (result.error) throw new Error(result.error);
         
         loadSlots(currentDisplayId);
+
+        // If upload returned a mediaId, prompt to link it to a brand
+        if (result.autoLinkedBrandId) {
+            showToast(`Media automatically linked to Assigned Brand!`, 'success');
+        } else if (result.mediaId) {
+            openLinkModal(result.mediaId, slotId);
+        }
+
     } catch (err) {
         showToast("Upload Failed: " + err.message, "error");
     } finally {
@@ -284,6 +292,14 @@ function createSlotCard(slot) {
     const title = document.createElement('span');
     title.textContent = `Slot ${slot.slot}`;
     header.appendChild(title);
+
+    if (slot.lockedBrandName) {
+        const lockBadge = document.createElement('div');
+        lockBadge.className = 'locked-badge';
+        lockBadge.innerHTML = `🔒 Locked to: ${slot.lockedBrandName}`;
+        card.appendChild(lockBadge);
+    }
+
     const badge = document.createElement('span');
     badge.className = 'duration-badge';
     badge.style.background = `${barColor}20`;
@@ -342,11 +358,26 @@ function createSlotCard(slot) {
     const actions = document.createElement('div');
     actions.className = 'slot-actions';
     if (slot.totalDuration < 13) {
-        const addBtn = document.createElement('button');
-        addBtn.className = 'btn btn-primary btn-full';
-        addBtn.textContent = '+ Add Slide';
-        addBtn.onclick = () => triggerUpload(slot.slot);
-        actions.appendChild(addBtn);
+        // Create a flex container for the two Add options
+        const addContainer = document.createElement('div');
+        addContainer.className = 'btn-full';
+        addContainer.style.cssText = 'display:flex; gap:0.5rem;';
+
+        const uploadBtn = document.createElement('button');
+        uploadBtn.className = 'btn btn-primary';
+        uploadBtn.style.flex = '1';
+        uploadBtn.textContent = '+ Upload';
+        uploadBtn.onclick = () => triggerUpload(slot.slot);
+
+        const brandBtn = document.createElement('button');
+        brandBtn.className = 'btn btn-replace';
+        brandBtn.style.flex = '1';
+        brandBtn.textContent = 'From Brand';
+        brandBtn.onclick = () => openBrandModal(slot);
+
+        addContainer.appendChild(uploadBtn);
+        addContainer.appendChild(brandBtn);
+        actions.appendChild(addContainer);
     }
     if (slot.media.length > 0) {
         const replaceBtn = document.createElement('button');
@@ -369,4 +400,218 @@ function createSlotCard(slot) {
 function showLoader(show) {
     loader.style.display = show ? 'flex' : 'none';
 }
+
+// --- Brand & Creative Modal Logic ---
+
+let assignSlotId = null;
+let brandCreatives = [];
+
+async function openBrandModal(slot) {
+    assignSlotId = slot.slot;
+    document.getElementById('brand-assign-modal').style.display = 'flex';
+    
+    // Reset form
+    const brandSelect = document.getElementById('brand-select');
+    const creativeSelect = document.getElementById('creative-select');
+    creativeSelect.disabled = true;
+    creativeSelect.innerHTML = '<option value="">-- Select Brand first --</option>';
+    document.getElementById('creative-preview-img').style.display = 'none';
+    document.getElementById('preview-placeholder').style.display = 'inline';
+    
+    // Fetch Brands
+    try {
+        const res = await fetch('/admin/api/brands');
+        const brands = await res.json();
+        brandSelect.innerHTML = '<option value="">-- Choose a Brand --</option>';
+        brands.forEach(b => {
+            const opt = document.createElement('option');
+            opt.value = b.id;
+            opt.textContent = b.name;
+            brandSelect.appendChild(opt);
+        });
+
+        if (slot.lockedBrandId) {
+            brandSelect.value = slot.lockedBrandId;
+            brandSelect.disabled = true; // Lock dropdown
+            brandSelect.dispatchEvent(new Event('change')); // Auto fetch creatives
+        } else {
+            brandSelect.disabled = false;
+        }
+
+    } catch (err) {
+        console.error('Failed to load brands:', err);
+        showToast('Could not load brands', 'error');
+    }
+}
+
+function closeBrandModal() {
+    document.getElementById('brand-assign-modal').style.display = 'none';
+    assignSlotId = null;
+}
+
+// Handle Brand Selection
+document.getElementById('brand-select')?.addEventListener('change', async (e) => {
+    const brandId = e.target.value;
+    const creativeSelect = document.getElementById('creative-select');
+    
+    if (!brandId) {
+        creativeSelect.disabled = true;
+        creativeSelect.innerHTML = '<option value="">-- Select Brand first --</option>';
+        document.getElementById('creative-preview-img').style.display = 'none';
+        document.getElementById('preview-placeholder').style.display = 'inline';
+        return;
+    }
+
+    try {
+        creativeSelect.disabled = true;
+        creativeSelect.innerHTML = '<option value="">Loading...</option>';
+        const res = await fetch(`/admin/api/brands/${brandId}/creatives`);
+        brandCreatives = await res.json();
+
+        creativeSelect.innerHTML = '<option value="">-- Choose an Option --</option>';
+        brandCreatives.forEach(c => {
+            if (c.status === 'Approved' || c.status === 'Active' || !c.status) { // Allow items
+                const opt = document.createElement('option');
+                opt.value = c.mediaId;
+                opt.textContent = c.name;
+                creativeSelect.appendChild(opt);
+            }
+        });
+        creativeSelect.disabled = false;
+    } catch (err) {
+        console.error('Failed to load creatives:', err);
+        creativeSelect.innerHTML = '<option value="">Error loading creatives</option>';
+    }
+});
+
+// Handle Creative Selection & Preview Fetch
+document.getElementById('creative-select')?.addEventListener('change', (e) => {
+    const mediaId = e.target.value;
+    const previewImg = document.getElementById('creative-preview-img');
+    const placeholder = document.getElementById('preview-placeholder');
+
+    if (!mediaId) {
+        previewImg.style.display = 'none';
+        placeholder.style.display = 'inline';
+        return;
+    }
+
+    const creative = brandCreatives.find(c => String(c.mediaId) === String(mediaId));
+    if (creative && creative.thumbnail) {
+        // Fetch the image link
+        previewImg.src = creative.thumbnail;
+        previewImg.style.display = 'inline';
+        placeholder.style.display = 'none';
+    } else {
+        previewImg.src = `/xibo/proxy/thumbnail/${mediaId}`; // Fallback route
+        previewImg.style.display = 'inline';
+        placeholder.style.display = 'none';
+    }
+});
+
+// Submit Assignment
+document.getElementById('submit-assign-btn')?.addEventListener('click', async () => {
+    const mediaId = document.getElementById('creative-select').value;
+    const brandId = document.getElementById('brand-select').value;
+    
+    if (!mediaId || !brandId) {
+        showToast('Please select a Brand and Creative option.', 'error');
+        return;
+    }
+
+    showLoader(true);
+
+    const btn = document.querySelector(`.tab.active`);
+    const displayGroupId = btn ? btn.dataset.displayGroupId : null;
+
+    try {
+        const resp = await fetch('/xibo/slots/assign', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                displayId: currentDisplayId,
+                displayGroupId: displayGroupId,
+                slotId: assignSlotId,
+                mediaId: mediaId,
+                brandId: brandId,
+                duration: 13,
+                replace: false
+            })
+        });
+
+        const result = await resp.json();
+        if (result.error) throw new Error(result.error);
+        
+        loadSlots(currentDisplayId);
+        showToast('Creative assigned successfully!');
+    } catch (err) {
+        showToast("Assignment Failed: " + err.message, "error");
+    } finally {
+        showLoader(false);
+        closeBrandModal();
+    }
+});
+
+// --- Brand Link Post-Upload Modal Logic ---
+let uploadedMediaIdToLink = null;
+let uploadedSlotIdToLink = null;
+
+async function openLinkModal(mediaId, slotId) {
+    uploadedMediaIdToLink = mediaId;
+    uploadedSlotIdToLink = slotId;
+    document.getElementById('brand-link-modal').style.display = 'flex';
+    
+    // Fetch Brands for linking
+    try {
+        const res = await fetch('/admin/api/brands');
+        const brands = await res.json();
+        const brandSelect = document.getElementById('link-brand-select');
+        brandSelect.innerHTML = '<option value="">-- Optional: Assign to Brand --</option>';
+        brands.forEach(b => {
+            const opt = document.createElement('option');
+            opt.value = b.id;
+            opt.textContent = b.name;
+            brandSelect.appendChild(opt);
+        });
+    } catch (err) {
+        console.error('Failed to load brands for linking:', err);
+    }
+}
+
+function closeLinkModal() {
+    document.getElementById('brand-link-modal').style.display = 'none';
+    uploadedMediaIdToLink = null;
+}
+
+document.getElementById('submit-link-btn')?.addEventListener('click', async () => {
+    const brandId = document.getElementById('link-brand-select').value;
+    if (!brandId) {
+        closeLinkModal();
+        return; // Skip if no brand selected
+    }
+
+    try {
+        showLoader(true);
+        const resp = await fetch('/admin/api/media/link-brand', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                mediaId: uploadedMediaIdToLink, 
+                brandId,
+                displayId: currentDisplayId,    // Native mapping anchor
+                slotId: uploadedSlotIdToLink    // Natively binds slot structure lock
+            })
+        });
+        const result = await resp.json();
+        if (result.error) throw new Error(result.error);
+        
+        loadSlots(currentDisplayId); // Refresh to display the lock badge
+        showToast('Media linked to brand successfully!');
+    } catch (err) {
+        showToast("Link Failed: " + err.message, "error");
+    } finally {
+        showLoader(false);
+        closeLinkModal();
+    }
+});
 

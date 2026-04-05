@@ -69,17 +69,35 @@ router.get('/list', async (req, res) => {
       return res.status(400).json({ error: 'Brand ID is required.' });
     }
 
-    const [library, mappings] = await Promise.all([
+    const [library, mappings, campaignsData] = await Promise.all([
       xiboService.getLibrary({ length: 500 }),
-      dbAll('SELECT mediaId, status FROM media_brands WHERE brand_id = ?', [brandId])
+      dbAll('SELECT mediaId, status FROM media_brands WHERE brand_id = ?', [brandId]),
+      dbAll(`
+        SELECT c.creative_id, c.slot_number, s.name as screen_name 
+        FROM campaigns c 
+        LEFT JOIN screens s ON c.screen_id = s.screen_id 
+        WHERE c.brand_id = ? AND c.status = 'Active'
+      `, [brandId])
     ]);
 
-    const mappingMap = new Map(mappings.map(m => [m.mediaId, m.status]));
+    const mappingMap = new Map(mappings.map(m => [String(m.mediaId), m.status]));
+    const campaignMap = {};
+    campaignsData.forEach(c => {
+      if (!campaignMap[String(c.creative_id)]) campaignMap[String(c.creative_id)] = [];
+      campaignMap[String(c.creative_id)].push(`${c.screen_name || 'Display'} - Slot ${c.slot_number}`);
+    });
+
     const filtered = library
-      .filter(media => mappingMap.has(media.mediaId))
+      .filter(media => mappingMap.has(String(media.mediaId)))
       .map(media => ({
-        ...media,
-        status: mappingMap.get(media.mediaId) || 'Pending'
+        mediaId: media.mediaId,
+        name: media.name,
+        type: media.mediaType,
+        mediaType: media.mediaType,
+        size: media.fileSize,
+        duration: media.duration,
+        status: mappingMap.get(String(media.mediaId)) || 'Pending',
+        assignedSlots: campaignMap[String(media.mediaId)] || []
       }));
 
     res.json(filtered);

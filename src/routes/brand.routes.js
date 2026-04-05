@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { dbAll, dbGet, dbRun } = require('../db/database');
 const xiboService = require('../services/xibo.service');
+const statsService = require('../services/stats.service');
 
 // ─── HELPER FUNCTIONS ─────────────────────────────────────────────────────
 
@@ -12,7 +13,6 @@ const xiboService = require('../services/xibo.service');
  */
 async function getStatsForBrand(brandId) {
     try {
-        const statsService = require('../services/stats.service');
         const [recent, mySlots] = await Promise.all([
             statsService.getRecentStats(),
             getBrandSlots(brandId)
@@ -162,54 +162,106 @@ router.get('/dashboard', async (req, res) => {
     try {
         const brandId = req.user.brand_id;
 
-        // 1. Fetch campaigns and unique screens from the NEW campaigns table
-        const [campaigns, statsSummary] = await Promise.all([
-            dbAll('SELECT id, screen_id, creative_id, status FROM campaigns WHERE brand_id = ? AND status = "Active"', [brandId]),
-            require('../services/stats.service').getAllMediaStats()
+        // 1. Fetch ALL slots (Active and Reserved) to show full inventory
+        const [mySlots, brandMedia, statsSummary] = await Promise.all([
+            dbAll('SELECT id, displayId, mediaId, status FROM slots WHERE brand_id = ?', [brandId]),
+            dbAll('SELECT mediaId FROM media_brands WHERE brand_id = ?', [brandId]),
+            statsService.getAllMediaStats()
         ]);
 
-        const uniqueScreens = new Set(campaigns.map(c => c.screen_id)).size;
-        const totalCampaigns = campaigns.length;
+        const uniqueScreens = new Set(mySlots.map(s => s.displayId).filter(Boolean)).size;
+        const totalSlots = mySlots.length;
+        const activeCount = mySlots.filter(s => s.status === 'Active').length;
+        const reservedCount = mySlots.filter(s => s.status === 'Reserved').length;
 
-        // 2. Calculate total plays for all this brand's creatives
-        const myMediaIds = new Set(campaigns.map(c => c.creative_id));
-        const totalPlays = statsSummary.reduce((sum, s) => {
-            if (myMediaIds.has(s.mediaId)) return sum + (s.totalPlays || 0);
-            return sum;
-        }, 0);
+        // 2. Fetch coordinates for ALL brand screens for the map
+        const displayIds = [...new Set(mySlots.map(s => s.displayId).filter(Boolean))];
+        let brandScreens = [];
+        if (displayIds.length > 0) {
+            const placeholders = displayIds.map(() => '?').join(',');
+            brandScreens = await dbAll(`SELECT xibo_display_id as displayId, name, latitude, longitude, status FROM screens WHERE xibo_display_id IN (${placeholders})`, displayIds);
+        }
 
-        // 3. Online Screen check (from Xibo)
+        // 3. Calculate total plays directly from local DB to avoid noise filtering mismatches
+        const totalPlaysRow = await dbGet(`
+            SELECT SUM(count) as total 
+            FROM daily_media_stats 
+            WHERE mediaId IN (SELECT mediaId FROM media_brands WHERE brand_id = ?)
+        `, [brandId]);
+        const totalPlays = totalPlaysRow ? parseInt(totalPlaysRow.total || 0, 10) : 0;
+
+        // 4. Online Screen check (from Xibo)
         let onlineNow = 0;
         try {
             const displays = await xiboService.getDisplays();
-            const activeScreenIds = new Set(campaigns.map(c => c.screen_id));
+            const myDisplayIds = new Set(displayIds.map(id => String(id)));
             onlineNow = displays.filter(d => 
-                activeScreenIds.has(d.display) && (d.loggedIn === 1 || d.loggedIn === true)
+                myDisplayIds.has(String(d.displayId)) && (d.loggedIn === 1 || d.loggedIn === true)
             ).length;
         } catch (e) {
             console.warn('[Dashboard] Display sync error:', e.message);
         }
 
-        // 4. Recent Proof of Play
-        const recentStats = await require('../services/stats.service').getRecentStats();
-        const recentPoP = (recentStats.data || [])
-            .filter(r => myMediaIds.has(r.mediaId))
-            .slice(0, 10)
-            .map(r => ({
-                adName: beautifyMediaName(r.adName),
-                displayId: r.displayId,
-                displayName: r.displayName,
-                playedAt: r.playedAt,
-                count: r.count
-            }));
+        // 5. Daily Breakdown (last 7 days) from local DB cache
+        const dailyData = await dbAll(`
+            SELECT date, SUM(count) as counts
+            FROM daily_media_stats
+            WHERE mediaId IN (SELECT mediaId FROM media_brands WHERE brand_id = ?)
+              AND date >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
+            GROUP BY date
+            ORDER BY date ASC
+        `, [brandId]);
+
+        const dailyMap = {};
+        const labels = [];
+        for (let i = 6; i >= 0; i--) {
+            const dateStr = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+            dailyMap[dateStr] = 0;
+            labels.push(dateStr);
+        }
+        dailyData.forEach(row => {
+            const d = row.date instanceof Date ? row.date.toISOString().slice(0, 10) : String(row.date).slice(0, 10);
+            if (dailyMap.hasOwnProperty(d)) dailyMap[d] = row.counts;
+        });
+
+        const dailyStats = labels.map(date => ({ date, count: dailyMap[date] }));
+
+        // 6. Recent Proof of Play from local cache (top 10)
+        const [recentPoPRecords, library, displaysList] = await Promise.all([
+            dbAll(`
+                SELECT s.mediaId, s.displayId, s.date, s.count, m.brand_id
+                FROM daily_media_stats s
+                JOIN media_brands m ON s.mediaId = m.mediaId
+                WHERE m.brand_id = ?
+                ORDER BY s.date DESC
+                LIMIT 10
+            `, [brandId]),
+            xiboService.getLibrary({ length: 500 }),
+            xiboService.getDisplays()
+        ]);
+
+        const libraryMap = new Map(library.map(m => [String(m.mediaId), m.name]));
+        const displayMap = new Map(displaysList.map(d => [String(d.displayId), d.display]));
+
+        const recentPoP = recentPoPRecords.map(r => ({
+            adName: beautifyMediaName(libraryMap.get(String(r.mediaId)) || `Media #${r.mediaId}`),
+            displayId: r.displayId,
+            displayName: displayMap.get(String(r.displayId)) || `Display #${r.displayId}`,
+            playedAt: r.date,
+            count: r.count
+        }));
 
         res.json({
             activeScreens:  uniqueScreens,
-            totalCampaigns: totalCampaigns,
+            totalSlots:     totalSlots, 
+            activeCount,
+            reservedCount,
             onlineScreens:  onlineNow,
             totalPlays:     totalPlays,
-            estimatedImpressions: totalPlays * 45, // Global brand avg
-            recentPoP
+            estimatedImpressions: totalPlays * 45, 
+            recentPoP,
+            dailyStats,
+            brandScreens // Added coordinates for mapping
         });
     } catch (err) {
         console.error('[Brand API] Dashboard Error:', err);
@@ -480,6 +532,18 @@ router.get('/invoices', async (req, res) => {
         res.json(invoices);
     } catch (err) {
         res.status(500).json({ error: err.message });
+    }
+});
+
+/** POST /api/sync-stats - Force a manual data refresh from Xibo. */
+router.post('/sync-stats', async (req, res) => {
+    try {
+        // Trigger the global sync service
+        await statsService.syncAllStats();
+        res.json({ success: true, message: 'Data synchronization complete.' });
+    } catch (err) {
+        console.error('[Brand Sync] Manual sync failed:', err.message);
+        res.status(500).json({ error: 'Manual synchronization failed. Please try again later.' });
     }
 });
 

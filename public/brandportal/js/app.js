@@ -99,6 +99,35 @@ function showToast(message, type = 'info') {
     setTimeout(() => toast.remove(), 4000);
 }
 
+async function refreshDashboard() {
+    const btn = document.getElementById('refresh-dashboard-btn');
+    if (!btn) return;
+
+    const originalContent = btn.innerHTML;
+    btn.disabled = true;
+    btn.classList.add('loading');
+    btn.innerHTML = '<i data-lucide="refresh-cw" class="spin" size="16"></i> Refreshing...';
+    lucide.createIcons();
+
+    try {
+        const res = await fetch('/brandportal/api/sync-stats', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+            showToast('✅ Dashboard updated with latest stats.', 'success');
+            await loadDashboard(); 
+        } else {
+            showToast(data.error || 'Refresh failed.', 'error');
+        }
+    } catch (e) {
+        showToast('Connection error during sync.', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.classList.remove('loading');
+        btn.innerHTML = originalContent;
+        lucide.createIcons();
+    }
+}
+
 async function logout() {
     await safeFetch('/auth/logout', { method: 'POST' });
     window.location.href = '/admin/login.html';
@@ -157,6 +186,9 @@ async function loadDashboard() {
     document.getElementById('dash-active-screens').innerText = data.activeScreens || 0;
     document.getElementById('dash-total-screens').innerText = data.totalSlots || 0;
     document.getElementById('dash-total-plays').innerText    = (data.totalPlays || 0).toLocaleString();
+    
+    const estImp = document.getElementById('dash-est-impressions');
+    if (estImp) estImp.innerText = (data.estimatedImpressions || 0).toLocaleString();
 
     // Render recent Activity
     const activityList = document.getElementById('recent-activity-list');
@@ -216,7 +248,7 @@ async function loadDashboard() {
     }
 
     initDashboardCharts(data);
-    initDashboardMap(data.recentPoP || []);
+    initDashboardMap(data.brandScreens || []);
 }
 
 async function initDashboardCharts(dashData) {
@@ -224,57 +256,69 @@ async function initDashboardCharts(dashData) {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     
-    // Premium Gradient
-    const gradient = ctx.createLinearGradient(0, 0, 0, 400);
-    gradient.addColorStop(0, 'rgba(59, 130, 246, 0.3)');
-    gradient.addColorStop(1, 'rgba(59, 130, 246, 0)');
+    const dailyStats = dashData.dailyStats || [];
+    const labels = dailyStats.map(s => {
+        const d = new Date(s.date);
+        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    });
+    const counts = dailyStats.map(s => s.count);
 
-    const labels = ['Week 1', 'Week 2', 'Week 3', 'Week 4'];
-    const dummyData = [3000, 4500, 3800, dashData.totalPlays || 8240]; 
+    // Premium Gradient for Bars
+    const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+    gradient.addColorStop(0, '#3b82f6');
+    gradient.addColorStop(1, 'rgba(59, 130, 246, 0.1)');
 
     if (performanceChart) performanceChart.destroy();
 
     performanceChart = new Chart(ctx, {
-        type: 'line',
+        type: 'bar',
         data: {
-            labels: labels,
+            labels: labels.length ? labels : ['No Data'],
             datasets: [{
-                label: 'Plays',
-                data: dummyData,
-                borderColor: '#3b82f6',
+                label: 'Daily Plays',
+                data: counts.length ? counts : [0],
                 backgroundColor: gradient,
-                borderWidth: 3,
-                fill: true,
-                tension: 0.4,
-                pointRadius: 4,
-                pointBackgroundColor: '#fff',
-                pointBorderColor: '#3b82f6',
-                pointBorderWidth: 2
+                borderColor: '#3b82f6',
+                borderWidth: 1,
+                borderRadius: 8,
+                borderSkipped: false,
+                hoverBackgroundColor: '#2563eb',
+                barPercentage: 0.6
             }]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
             scales: {
-                y: { display: false, beginAtZero: true },
-                x: { grid: { display: false }, ticks: { color: '#94a3b8', font: { size: 11, family: "'Inter', sans-serif" } } }
+                y: { 
+                    beginAtZero: true,
+                    grid: { color: 'rgba(226, 232, 240, 0.5)', drawBorder: false },
+                    ticks: { color: '#94a3b8', font: { size: 10 } }
+                },
+                x: { 
+                    grid: { display: false }, 
+                    ticks: { color: '#94a3b8', font: { size: 11, weight: '500' } } 
+                }
             },
             plugins: {
                 legend: { display: false },
                 tooltip: { 
-                    backgroundColor: '#0d121f', 
+                    backgroundColor: '#1e293b', 
                     padding: 12, 
-                    titleFont: { size: 13, weight: '600' }, 
-                    bodyFont: { size: 13 },
+                    titleFont: { size: 13, weight: '600', family: "'Outfit', sans-serif" }, 
+                    bodyFont: { size: 13, family: "'Inter', sans-serif" },
                     cornerRadius: 8,
-                    displayColors: false
+                    displayColors: false,
+                    callbacks: {
+                        label: (context) => ` ${context.parsed.y.toLocaleString()} Plays`
+                    }
                 }
             }
         }
     });
 }
 
-function initDashboardMap(recentPoP) {
+function initDashboardMap(brandScreens) {
     if (!dashMap) {
         dashMap = L.map('screens-map', { zoomControl: false }).setView([20.5937, 78.9629], 5);
         L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png').addTo(dashMap);
@@ -282,34 +326,27 @@ function initDashboardMap(recentPoP) {
     dashMarkers.forEach(m => dashMap.removeLayer(m));
     dashMarkers = [];
 
-    // Fetch live GPS locations from the backend
-    fetch('/brandportal/api/screens/locations')
-        .then(r => r.json())
-        .then(locations => {
-            const validSpots = locations.filter(s => s.lat && s.lng);
-            if (validSpots.length === 0) {
-                // fallback if no GPS data
-                const fallback = L.circleMarker([17.3850, 78.4867], {
-                    radius: 8, fillColor: "#3b82f6", color: "#fff", weight: 2, fillOpacity: 0.8
-                }).bindTooltip('Hyderabad').addTo(dashMap);
-                dashMarkers.push(fallback);
-                dashMap.setView([17.3850, 78.4867], 11);
-                return;
-            }
-            validSpots.forEach(spot => {
-                const marker = L.circleMarker([spot.lat, spot.lng], {
-                    radius: 9, fillColor: "#3b82f6", color: "#fff", weight: 2, opacity: 1, fillOpacity: 0.85
-                }).bindTooltip(`<b>${spot.name}</b><br>${spot.city || ''}<br>${spot.slots?.length || 0} slot(s)`, { permanent: false })
-                  .addTo(dashMap);
-                dashMarkers.push(marker);
-            });
+    const screens = brandScreens || [];
+    const validSpots = screens.filter(s => s.latitude && s.longitude);
 
-            const bounds = L.latLngBounds(validSpots.map(s => [s.lat, s.lng]));
-            dashMap.fitBounds(bounds, { padding: [30, 30], maxZoom: 14 });
-        })
-        .catch(() => {
-            // Silently fallback if location API fails
-        });
+    if (validSpots.length === 0) {
+        // Fallback to a clear state if no screens
+        return;
+    }
+
+    validSpots.forEach(spot => {
+        const isActive = spot.status === 'online' || spot.status === 'Active';
+        const markerColor = isActive ? "#3b82f6" : "#94a3b8"; // Blue for active, Gray for inactive
+        
+        const marker = L.circleMarker([spot.latitude, spot.longitude], {
+            radius: 8, fillColor: markerColor, color: "#fff", weight: 2, opacity: 1, fillOpacity: 0.85
+        }).bindTooltip(`<b>${spot.name}</b><br>ID: ${spot.displayId}<br>Status: ${spot.status}`, { permanent: false })
+          .addTo(dashMap);
+        dashMarkers.push(marker);
+    });
+
+    const bounds = L.latLngBounds(validSpots.map(s => [s.latitude, s.longitude]));
+    dashMap.fitBounds(bounds, { padding: [30, 30], maxZoom: 14 });
 }
 
 
@@ -384,7 +421,7 @@ async function loadScreens() {
         const tdMobility = document.createElement('td');
         tdMobility.style.color = 'var(--text-muted)';
         tdMobility.style.fontSize = '0.85rem';
-        tdMobility.textContent = 'Fixed';
+        tdMobility.innerHTML = '<i data-lucide="map-pin" size="14" style="margin-right:4px;"></i>GPS';
         tr.appendChild(tdMobility);
 
         const tdStatus = document.createElement('td');
@@ -545,7 +582,7 @@ function closeModal() {
 async function confirmPurchase() {
     if (currentSelectedSlots.size === 0) return showToast('Select at least one slot.', 'error');
     const displayId = document.getElementById('modal-display-id').value;
-    const res = await safeFetch('/brand/slots/assign', {
+    const res = await safeFetch('/brandportal/api/slots/purchase', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ displayId: parseInt(displayId, 10), slot_numbers: Array.from(currentSelectedSlots) })
@@ -875,6 +912,31 @@ async function loadSubscription() {
         slotsBar.style.width = Math.min(100, Math.round((sub.slotsUsed / sub.slotsIncluded) * 100)) + '%';
     }
 
+    // Load Active Campaigns / Slots
+    const campaignsContainer = document.getElementById('sub-active-slots-container');
+    const campaignsBody = document.getElementById('sub-campaigns-body');
+    if (campaignsContainer && campaignsBody) {
+        const campaigns = await safeFetch('/brandportal/api/campaigns');
+        if (campaigns && campaigns.length > 0) {
+            campaignsContainer.style.display = 'block';
+            campaignsBody.innerHTML = '';
+            campaigns.forEach(c => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td style="font-weight:600;">${c.name}</td>
+                    <td>${c.screen} <span style="display:block;font-size:0.75rem;color:var(--text-muted);">${c.location}</span></td>
+                    <td><div class="badge-lastseen" style="display:inline-block;">Slot ${c.slot}</div></td>
+                    <td style="font-size:0.85rem;color:var(--text-muted);">${c.startDate} to ${c.endDate}</td>
+                    <td style="font-weight:700;color:#3b82f6;">${c.plays > 0 ? c.plays + ' plays' : '-'}</td>
+                    <td><span class="status-pill status-active" style="padding:2px 8px;font-size:0.7rem;font-weight:700;">${c.status}</span></td>
+                `;
+                campaignsBody.appendChild(tr);
+            });
+        } else {
+            campaignsContainer.style.display = 'block';
+            campaignsBody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:2rem; color:var(--text-muted);">No active slot assignments found.</td></tr>`;
+        }
+    }
     // Renewal Warning
     const warnEl = document.getElementById('sub-renewal-warn');
     if (warnEl) {
@@ -892,7 +954,12 @@ async function loadSubscription() {
 async function loadCreatives() {
     const data = await safeFetch('/api/creative/list');
     const tbody = document.getElementById('creatives-table-body');
-    if (!tbody || !data) return;
+    if (!tbody) return;
+
+    if (!data) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:3rem; color:var(--danger);">Error loading library. Please refresh.</td></tr>';
+        return;
+    }
 
     tbody.innerHTML = '';
     if (data.length === 0) {
@@ -907,7 +974,8 @@ async function loadCreatives() {
         const iconWrap = document.createElement('div');
         iconWrap.style.cssText = 'width:42px; height:35px; background:rgba(59,130,246,0.1); border-radius:6px; display:flex; align-items:center; justify-content:center;';
         const i = document.createElement('i');
-        i.setAttribute('data-lucide', m.mediaType === 'video' ? 'film' : 'image');
+        const mediaType = m.mediaType || m.type || 'image';
+        i.setAttribute('data-lucide', mediaType === 'video' ? 'film' : 'image');
         i.style.color = '#3b82f6';
         iconWrap.appendChild(i);
         tdPrev.appendChild(iconWrap);
@@ -920,7 +988,7 @@ async function loadCreatives() {
 
         const tdType = document.createElement('td');
         tdType.style.textTransform = 'capitalize';
-        tdType.textContent = m.mediaType || 'media';
+        tdType.textContent = mediaType;
         tr.appendChild(tdType);
 
         const tdStatus = document.createElement('td');
@@ -953,6 +1021,29 @@ async function loadCreatives() {
             tdStatus.appendChild(tip);
         }
         tr.appendChild(tdStatus);
+
+        const tdAssigned = document.createElement('td');
+        const assignedSlots = m.assignedSlots || [];
+        if (assignedSlots.length === 0) {
+            const span = document.createElement('span');
+            span.style.color = '#94a3b8';
+            span.style.fontSize = '0.8rem';
+            span.textContent = 'Unassigned';
+            tdAssigned.appendChild(span);
+        } else {
+            assignedSlots.forEach(slotInfo => {
+                const badge = document.createElement('div');
+                badge.className = 'badge-lastseen';
+                badge.style.display = 'inline-block';
+                badge.style.margin = '2px';
+                badge.style.background = 'rgba(139, 92, 246, 0.1)';
+                badge.style.color = '#7c3aed';
+                badge.style.borderColor = 'rgba(139, 92, 246, 0.2)';
+                badge.textContent = slotInfo;
+                tdAssigned.appendChild(badge);
+            });
+        }
+        tr.appendChild(tdAssigned);
 
         const tdAction = document.createElement('td');
         const btn = document.createElement('button');

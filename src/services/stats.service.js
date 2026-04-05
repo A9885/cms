@@ -25,6 +25,12 @@ class StatsService {
     this._recentStatsCacheTime = 0;
     this._liveSnapshotCache = null;
     this._liveSnapshotCacheTime = 0;
+    this._noiseBlacklist = ['Logo', 'Screenshot', 'S3 Screenshot', 'Default', 'Empty'];
+  }
+
+  _isNoise(name) {
+    if (!name) return true;
+    return this._noiseBlacklist.some(noise => name.toLowerCase().includes(noise.toLowerCase()));
   }
 
   // ─── PRIVATE HELPERS ────────────────────────────────────────────────────
@@ -128,6 +134,67 @@ class StatsService {
     });
   }
 
+  /**
+   * Performs a global sync of Xibo playback logs into the local daily_media_stats table.
+   * This is called by a background worker in server.js.
+   */
+  async syncAllStats() {
+    console.log('[StatsService] Starting global playback synchronization...');
+    try {
+      const now = new Date();
+      const thirtyDaysAgo = new Date(now.getTime() - 25 * 24 * 60 * 60 * 1000);
+      const fortyEightHoursAgo = new Date(now.getTime() - 48 * 60 * 60 * 1000);
+      
+      const fromDt = this._formatLocal(thirtyDaysAgo);
+      const fromDtRaw = this._formatLocal(fortyEightHoursAgo);
+      const toDt = this._formatLocal(now);
+
+      const params = { fromDt, toDt, length: 10000 };
+      const [mediaRes, widgetRes, rawRes] = await Promise.all([
+        this._getStatsWithRetry('media', params).catch(() => ({ data: [] })),
+        this._getStatsWithRetry('widget', params).catch(() => ({ data: [] })),
+        this._getStatsWithRetry('raw', { fromDt: fromDtRaw, toDt, length: 5000 }).catch(() => ({ data: [] }))
+      ]);
+
+      const allStats = [
+        ...(mediaRes.data || mediaRes || []),
+        ...(widgetRes.data || widgetRes || []),
+        ...(rawRes.data || rawRes || [])
+      ];
+
+      if (allStats.length === 0) return { success: true, count: 0 };
+
+      // Group by mediaId, displayId, and date
+      const aggregated = {}; 
+      allStats.forEach(r => {
+        if (!r.mediaId || !r.displayId) return;
+        const dateRaw = r.start || r.statDate || r.fromDt || '';
+        const dateStr = dateRaw.toString().slice(0, 10);
+        if (!dateStr || !dateStr.includes('-')) return;
+        
+        const key = `${r.mediaId}|${r.displayId}|${dateStr}`;
+        if (!aggregated[key]) aggregated[key] = 0;
+        aggregated[key] += (parseInt(r.numberPlays || r.count || 1, 10));
+      });
+
+      // Update database using REPLACE (upsert)
+      for (const [key, count] of Object.entries(aggregated)) {
+        const [mId, dId, date] = key.split('|');
+        await dbRun(
+          'REPLACE INTO daily_media_stats (mediaId, displayId, date, count) VALUES (?, ?, ?, ?)',
+          [mId, dId, date, count]
+        );
+      }
+      
+      console.log(`[StatsService] Synced ${Object.keys(aggregated).length} playback entries to local DB.`);
+      this.invalidateCache();
+      return { success: true, count: Object.keys(aggregated).length };
+    } catch (err) {
+      console.error('[StatsService] Global sync failed:', err.message);
+      return { success: false, error: err.message };
+    }
+  }
+
   // ─── PUBLIC METHODS ─────────────────────────────────────────────────────
 
   async getRecentStats() {
@@ -136,81 +203,43 @@ class StatsService {
     if (this._recentStatsCache && (now - this._recentStatsCacheTime) < 120000) return this._recentStatsCache;
     
     try {
-      // Use local date strings for Xibo (it expects CMS local time, e.g. IST)
-      const now = new Date();
-      const thirtyDaysAgo = new Date(now.getTime() - 2592000000);
-      
-      const thirtyDaysAgoStr = this._formatLocal(thirtyDaysAgo);
-      const nowStr = this._formatLocal(now);
-      
-      const yesterday = new Date(now.getTime() - 86400000);
-      const yesterdayStr = this._formatLocal(yesterday);
-
-      const params = { fromDt: thirtyDaysAgoStr, toDt: nowStr, length: 5000 };
-
-      // --- HYBRID FIX: Fetch both Aggregated and Raw Logs (Core Fix) ---
-      const [mediaRes, widgetRes, rawRes] = await Promise.all([
-        this._getStatsWithRetry('media', params),
-        this._getStatsWithRetry('widget', params),
-        this._getStatsWithRetry('raw', { fromDt: yesterdayStr, toDt: nowStr, length: 2000 }).catch(() => ({ data: [] }))
-      ]);
-
-      const allRaw = [
-        ...(mediaRes.data || mediaRes || []), 
-        ...(widgetRes.data || widgetRes || []),
-        ...(rawRes.data || rawRes || [])
-      ];
-      const seen = new Set();
-      const deduped = allRaw.filter(r => {
-        const key = `${r.type}|${r.displayId}|${r.widgetId}|${r.start}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
-
-      const [mediaMappings, slotMappings, brandsList] = await Promise.all([
+      const [mediaMappings, brandsList] = await Promise.all([
           dbAll('SELECT * FROM media_brands'),
-          dbAll('SELECT * FROM slots'),
           dbAll('SELECT id, name FROM brands')
       ]);
 
-      const results = deduped.map(r => {
-        let adName = r.media || r.layout || (r.widgetId ? `Widget ${r.widgetId}` : 'Unknown Ad');
-        let playedAt = r.start || r.statDate || r.fromDt;
-        if (playedAt && !playedAt.endsWith('Z')) playedAt += 'Z';
+      // Optimization: Read daily counts from local DB for the last 30 days
+      const localStats = await dbAll(`
+        SELECT s.*, m.brand_id, sl.slot_number
+        FROM daily_media_stats s
+        JOIN media_brands m ON s.mediaId = m.mediaId
+        LEFT JOIN slots sl ON s.mediaId = sl.mediaId AND s.displayId = sl.displayId
+        WHERE s.date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+      `);
 
-        let brandName = 'Local/Unlinked', slotNumber = '-';
-
-        // 1. Identify slot from filename or layout (most accurate)
-        const nameMatch = (r.media || r.layout || '').match(/(?:Slot_|S)(\d+)_/i);
-        if (nameMatch) slotNumber = parseInt(nameMatch[1], 10);
-
-        const mapping = mediaMappings.find(m => String(m.mediaId) === String(r.mediaId));
-        if (mapping) {
-          const brand = brandsList.find(b => String(b.id) === String(mapping.brand_id));
-          if (brand) {
-            brandName = brand.name;
-            if (slotNumber === '-') {
-                const slot = slotMappings.find(s => String(s.displayId) === String(r.displayId) && String(s.brand_id) === String(brand.id));
-                if (slot) slotNumber = slot.slot_number;
-            }
+      const results = localStats.map(s => {
+        const brand = brandsList.find(b => String(b.id) === String(s.brand_id));
+        let playedAt = new Date().toISOString(); // fallback
+        try {
+          if (s.date) {
+            // s.date is a Date object from mysql2
+            playedAt = new Date(s.date).toISOString().split('T')[0] + 'T00:00:00.000Z';
           }
-        }
-        return { 
-          mediaId: r.mediaId,
-          adName, 
-          displayName: r.display || `Display ${r.displayId}`, 
-          displayId: r.displayId, 
-          playedAt, 
-          count: r.numberPlays || 1, 
-          brandName, 
-          slot: slotNumber, 
-          source: 'Xibo API' 
+        } catch (e) {}
+
+        return {
+          mediaId: s.mediaId,
+          adName: `Media #${s.mediaId}`, 
+          displayId: s.displayId,
+          playedAt,
+          count: s.count,
+          brandName: brand ? brand.name : 'Unknown',
+          slot: s.slot_number || '-',
+          source: 'Local DB'
         };
       });
 
-      results.sort((a, b) => new Date(b.playedAt) - new Date(a.playedAt));
-      const finalResult = { data: results.slice(0, 500), total: results.length };
+      const finalResult = { data: results.sort((a,b) => b.playedAt.localeCompare(a.playedAt)).slice(0, 500), total: results.length };
       this._recentStatsCache = finalResult;
       this._recentStatsCacheTime = Date.now();
       return finalResult;
@@ -282,9 +311,16 @@ class StatsService {
           const nameMatch = (r.media || r.layout || '').match(/(?:Slot_|S)(\d+)_/i);
           if (nameMatch) {
             slot = parseInt(nameMatch[1], 10);
-          } else if (mediaMapping) {
-            const sMatch = slotMappings.find(s => String(s.displayId) === String(r.displayId) && String(s.brand_id) === String(mediaMapping.brand_id));
-            if (sMatch) slot = sMatch.slot_number;
+          } else {
+            // Priority 1: Match by mediaId AND displayId in slots table
+            const sMatch = slotMappings.find(s => String(s.displayId) === String(r.displayId) && String(s.mediaId) === String(mediaId));
+            if (sMatch) {
+              slot = sMatch.slot_number;
+            } else if (mediaMapping) {
+              // Priority 2: Match by brand fallback (if unique slot for brand on display)
+              const bMatches = slotMappings.filter(s => String(s.displayId) === String(r.displayId) && String(s.brand_id) === String(mediaMapping.brand_id));
+              if (bMatches.length === 1) slot = bMatches[0].slot_number;
+            }
           }
 
           return { time, display: r.display || `Display ${r.displayId}`, slot, brandName: brand ? brand.name : 'Unlinked' };
@@ -362,24 +398,35 @@ class StatsService {
     const now = Date.now();
     if (this._allMediaStatsCache && (now - this._allMediaStatsCacheTime) < 900000) return this._allMediaStatsCache;
     try {
-      const ninetyDaysAgo = new Date(Date.now() - 7776000000).toISOString().split('.')[0].replace('T', ' ');
-      const nowStr = new Date().toISOString().split('.')[0].replace('T', ' ');
-      const [library, statsRes] = await Promise.all([
-          xiboService.getLibrary({ length: 500 }),
-          this._getStatsWithRetry('media', { fromDt: ninetyDaysAgo, toDt: nowStr, length: 5000 })
-      ]);
-      const statsData = statsRes.data || statsRes || [];
-      const summary = library.map(m => {
-        const mId = m.mediaId;
-        const records = statsData.filter(r => String(r.mediaId) === String(mId) || (r.media || '').startsWith(`Slot_${mId}_`));
-        const sorted = [...records].sort((a,b) => (b.start||'') > (a.start||'') ? 1 : -1);
-        return { mediaId: mId, name: m.name, totalPlays: records.reduce((sum, r) => sum + (r.numberPlays || 1), 0), lastPlay: sorted[0]?.start || null, uniqueDisplays: new Set(records.map(r => r.displayId)).size, type: m.mediaType };
-      });
+      const dbStats = await dbAll(`
+        SELECT mediaId, SUM(count) as totalPlays, MAX(date) as lastPlay, COUNT(DISTINCT displayId) as uniqueDisplays
+        FROM daily_media_stats
+        GROUP BY mediaId
+      `);
+
+      const library = await xiboService.getLibrary({ length: 500 });
+      const summary = library
+        .filter(m => !this._isNoise(m.name))
+        .map(m => {
+          const stats = dbStats.find(s => String(s.mediaId) === String(m.mediaId)) || { totalPlays: 0, lastPlay: null, uniqueDisplays: 0 };
+          return {
+            mediaId: m.mediaId,
+            name: m.name,
+            totalPlays: stats.totalPlays,
+            lastPlay: stats.lastPlay,
+            uniqueDisplays: stats.uniqueDisplays,
+            type: m.mediaType
+          };
+        });
+
       const result = summary.sort((a, b) => b.totalPlays - a.totalPlays);
       this._allMediaStatsCache = result;
       this._allMediaStatsCacheTime = Date.now();
       return result;
-    } catch (err) { return []; }
+    } catch (err) { 
+      console.error('[StatsService] getAllMediaStats failed:', err.message);
+      return []; 
+    }
   }
 
   async forceSync(displayId) {
