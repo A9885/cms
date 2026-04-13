@@ -16,6 +16,7 @@ require('dotenv').config();
 
 const express = require('express');
 const helmet  = require('helmet');
+const cors    = require('cors');
 const { rateLimit } = require('express-rate-limit');
 const axios = require('axios');
 const multer = require('multer');
@@ -57,6 +58,7 @@ Object.defineProperty(global, 'XIBO_CLIENT_SECRET',{ get: getXiboSecret,  config
 // watcher re-runs dotenv, flushes the old OAuth token, and the *next* API call
 // automatically re-authenticates with the new credentials — zero restarts needed.
 (function watchEnvFile() {
+    if (process.env.NODE_ENV === 'production') return; // Skip watcher in production
     const envPath = path.resolve(__dirname, '.env');
     let debounceTimer = null;
 
@@ -130,12 +132,13 @@ Object.defineProperty(global, 'XIBO_CLIENT_SECRET',{ get: getXiboSecret,  config
 
 
 
-// ─── SECURITY MIDDLEWARE ──────────────────────────────────────────────────────
 // helmet sets 14 security-related HTTP headers in one call.
 app.use(helmet({
-    // Allow inline scripts/styles for the admin portal dashboards
     contentSecurityPolicy: false
 }));
+
+// Enable CORS for all routes (refine origins in production)
+app.use(cors());
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
@@ -243,21 +246,26 @@ app.use('/api/creative', authenticateToken, creativeRoutes);
 // Mount Protected Admin APIs
 const adminRoutes = require('./src/routes/admin.routes');
 const { authMiddleware } = require('./src/middleware/auth.middleware');
-app.use('/admin/api', authMiddleware, adminRoutes);
+app.use('/admin/api', apiLimiter, authMiddleware, adminRoutes);
 
 // Protect Xibo proxy routes
-app.use('/xibo', authMiddleware);
+app.use('/xibo', apiLimiter, authMiddleware);
 
-// Mount Protected Brand APIs
+// Mount Brand & Partner routes
 const brandRoutes = require('./src/routes/brand.routes');
-app.use('/brandportal/api', authMiddleware, hasPermission('own_creative:manage'), (req, res, next) => {
+const partnerRoutes = require('./src/routes/partner.routes');
+
+// API prefixes
+app.use('/api/brand', apiLimiter, authMiddleware, brandRoutes);
+app.use('/api/partner', apiLimiter, authMiddleware, partnerRoutes);
+
+// Portal prefixes (compatibility)
+app.use('/brandportal/api', apiLimiter, authMiddleware, hasPermission('own_creative:manage'), (req, res, next) => {
     if (!req.user.brand_id && req.user.role === 'Brand') return res.status(400).json({ error: 'No brand assigned to this user' });
     next();
 }, brandRoutes);
 
-// Mount Protected Partner APIs
-const partnerRoutes = require('./src/routes/partner.routes');
-app.use('/partnerportal/api', authMiddleware, hasPermission('own_screens:manage'), (req, res, next) => {
+app.use('/partnerportal/api', apiLimiter, authMiddleware, hasPermission('own_screens:manage'), (req, res, next) => {
     if (!req.user.partner_id && req.user.role === 'Partner') return res.status(400).json({ error: 'No partner assigned to this user' });
     next();
 }, partnerRoutes);

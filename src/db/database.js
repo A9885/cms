@@ -3,25 +3,31 @@ const bcrypt = require('bcryptjs');
 
 const dbConfig = {
     host: process.env.DB_HOST || '127.0.0.1',
+    port: process.env.DB_PORT || 3306,
     user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || ''
+    password: process.env.DB_PASSWORD || '',
+    database: process.env.DB_NAME || 'xibo_crm',
+    // Production tuning
+    connectionLimit: 10,
+    waitForConnections: true,
+    queueLimit: 0
 };
-const dbName = process.env.DB_NAME || 'xibo_crm';
 
 let pool;
 
 const getPool = async () => {
     if (pool) return pool;
     try {
-        pool = mysql.createPool({ ...dbConfig, database: dbName });
+        pool = mysql.createPool(dbConfig);
         await pool.query('SELECT 1'); // Test connection
     } catch (err) {
         if (err.code === 'ER_BAD_DB_ERROR') {
-            console.log(`[DB] Database ${dbName} not found. Creating it...`);
-            const tempConn = await mysql.createConnection(dbConfig);
-            await tempConn.query(`CREATE DATABASE IF NOT EXISTS \`${dbName}\``);
+            console.log(`[DB] Database ${dbConfig.database} not found. Creating it...`);
+            const { database, ...connConfig } = dbConfig;
+            const tempConn = await mysql.createConnection(connConfig);
+            await tempConn.query(`CREATE DATABASE IF NOT EXISTS \`${database}\``);
             await tempConn.end();
-            pool = mysql.createPool({ ...dbConfig, database: dbName });
+            pool = mysql.createPool(dbConfig);
         } else {
             console.error('[DB] Database connection failed:', err.message);
             // Don't throw here to prevent server crash during boot if MySQL is offline
