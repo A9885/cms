@@ -51,25 +51,33 @@
             err.style.display = 'none';
 
             try {
-                const res = await fetch('/auth/login', {
+                const usernameInput = document.getElementById('username').value;
+                const passwordInput = document.getElementById('password').value;
+                const isEmail = usernameInput.includes('@');
+                const endpoint = isEmail ? '/api/auth/sign-in/email' : '/api/auth/sign-in/username';
+                const body = isEmail ? { email: usernameInput, password: passwordInput } : { username: usernameInput, password: passwordInput };
+
+                const res = await fetch(endpoint, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        username: document.getElementById('username').value,
-                        password: document.getElementById('password').value
-                    })
+                    body: JSON.stringify(body)
                 });
+                
                 const data = await res.json();
-                if (data.success) {
-                    if (data.user.role === 'Brand') {
+                if (res.ok) {
+                    // Successful login, Better Auth has already set the cookies.
+                    // Now we get user role to decide redirect. 
+                    // Better Auth returns { user, session }
+                    const user = data.user;
+                    if (user.role === 'Brand') {
                         window.location.href = '/brandportal/index.html';
-                    } else if (data.user.role === 'Partner') {
+                    } else if (user.role === 'Partner') {
                         window.location.href = '/partnerportal/index.html';
                     } else {
                         window.location.href = '/admin/index.html';
                     }
                 } else {
-                    err.innerText = data.error || 'Login failed';
+                    err.innerText = data.message || 'Login failed';
                     err.style.display = 'block';
                 }
             } catch (e) {

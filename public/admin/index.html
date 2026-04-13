@@ -83,11 +83,14 @@
                     <input type="text" placeholder="Search...">
                     <div class="user-profile"
                         style="margin-left: 10px; border-left: 1px solid var(--border); padding-left: 15px;">
-                        <img src="https://ui-avatars.com/api/?name=Alan+Cooper&background=random" alt="User">
+                        <img id="user-avatar" src="https://ui-avatars.com/api/?name=Admin&background=random" alt="User">
                         <div class="user-info">
-                            <span class="name">Alan Cooper</span>
-                            <span class="email">admin@signtral.com</span>
+                            <span class="name" id="admin-user-name">Loading...</span>
+                            <span class="email" id="admin-user-email">...</span>
                         </div>
+                        <button onclick="App.logout()" title="Logout" style="background:none; border:none; color:var(--text-muted); cursor:pointer; margin-left:15px; display:flex; align-items:center;">
+                            <i data-lucide="log-out" style="width:18px;"></i>
+                        </button>
                     </div>
                 </div>
             </header>

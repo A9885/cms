@@ -4,40 +4,59 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { dbGet, dbRun } = require('../db/database');
 const { JWT_SECRET, authMiddleware } = require('../middleware/auth.middleware');
+const { getAuth } = require('../auth.js');
 
 router.post('/login', async (req, res) => {
     const { username, password } = req.body;
     try {
-        const user = await dbGet('SELECT * FROM users WHERE username = ?', [username]);
-        if (!user) return res.status(401).json({ error: 'Invalid credentials' });
-
-        const isMatch = bcrypt.compareSync(password, user.password_hash);
-        if (!isMatch) return res.status(401).json({ error: 'Invalid credentials' });
-
-        const token = jwt.sign({
-            id: user.id,
-            username: user.username,
-            role: user.role,
-            brand_id: user.brand_id || null,
-            partner_id: user.partner_id || null
-        }, JWT_SECRET, { expiresIn: '12h' });
-
-        // Determine redirect portal and cookie name
-        let portalUrl = '/admin/';
-        let cookieName = 'admin_token';
+        const { auth } = await getAuth();
+        const { fromNodeHeaders } = await import('better-auth/node');
         
+        const isEmail = username.includes('@');
+        let result;
+
+        if (isEmail) {
+            // Find the user by actual username if they entered an email as username, 
+            // OR find by email if it matches user.email.
+            // Better Auth signInEmail uses the 'email' field.
+            // However, our users table has dummy emails like user1@signtral.com.
+            // If the user entered their username (which happens to be an email), 
+            // Better Auth's signInEmail might fail if it doesn't match the 'email' column.
+            
+            // To be safe, we first try signInEmail. If that fails, we try signInUsername 
+            // (though Better Auth plugin might reject it).
+            result = await auth.api.signInEmail({
+                body: { email: username, password },
+                headers: fromNodeHeaders(req.headers)
+            }).catch(() => null);
+
+            if (!result) {
+                // Try as username even if it has an @
+                result = await auth.api.signInUsername({
+                    body: { username, password },
+                    headers: fromNodeHeaders(req.headers)
+                }).catch(() => null);
+            }
+        } else {
+            result = await auth.api.signInUsername({
+                body: { username, password },
+                headers: fromNodeHeaders(req.headers)
+            }).catch(() => null);
+        }
+
+        if (!result || !result.user) {
+            return res.status(401).json({ error: 'Invalid credentials' });
+        }
+
+        const user = result.user;
+        
+        // Determine redirect portal
+        let portalUrl = '/admin/';
         if (user.role === 'Brand') {
             portalUrl = '/brandportal/index.html';
-            cookieName = 'brand_token';
         } else if (user.role === 'Partner') {
             portalUrl = '/partnerportal/index.html';
-            cookieName = 'partner_token';
         }
-        
-        // Set cookie
-        res.cookie(cookieName, token, { httpOnly: true, secure: false, maxAge: 12 * 60 * 60 * 1000 });
-        // Also clear any legacy 'token' to avoid confusion
-        if (cookieName !== 'token') res.clearCookie('token');
 
         res.json({ 
             success: true, 
@@ -47,55 +66,57 @@ router.post('/login', async (req, res) => {
         });
     } catch (err) {
         console.error('Login error:', err);
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(401).json({ error: 'Invalid credentials' });
     }
 });
 
-router.post('/logout', (req, res) => {
-    res.clearCookie('admin_token');
-    res.clearCookie('brand_token');
-    res.clearCookie('partner_token');
-    res.clearCookie('token');
+router.post('/logout', async (req, res) => {
+    try {
+        const { auth } = await getAuth();
+        const { fromNodeHeaders } = await import('better-auth/node');
+        await auth.api.signOut({
+            headers: fromNodeHeaders(req.headers)
+        });
+    } catch (e) {}
     res.json({ success: true });
 });
 
 // GET logout — for browser-based href links
-router.get('/logout', (req, res) => {
-    res.clearCookie('admin_token');
-    res.clearCookie('brand_token');
-    res.clearCookie('partner_token');
-    res.clearCookie('token');
+router.get('/logout', async (req, res) => {
+    try {
+        const { auth } = await getAuth();
+        const { fromNodeHeaders } = await import('better-auth/node');
+        await auth.api.signOut({
+            headers: fromNodeHeaders(req.headers)
+        });
+    } catch (e) {}
     res.redirect('/admin/login.html');
 });
 
 
-router.get('/me', (req, res) => {
-    // Prioritize role-specific tokens over the generic admin token
-    // This prevents a stale admin_token from shadowing a brand/partner session
-    const token = req.cookies?.brand_token || 
-                  req.cookies?.partner_token || 
-                  req.cookies?.admin_token || 
-                  req.cookies?.token;
-
-    if (!token) return res.status(401).json({ error: 'Not logged in' });
+router.get('/me', async (req, res) => {
     try {
-        const decoded = jwt.verify(token, JWT_SECRET);
-        // Fetch fresh state from DB for force_password_reset
-        dbGet('SELECT force_password_reset FROM users WHERE id = ?', [decoded.id]).then(user => {
-            res.json({ 
-                user: {
-                    ...decoded,
-                    forcePasswordReset: !!user?.force_password_reset
-                }
-            });
+        const { auth } = await getAuth();
+        const { fromNodeHeaders } = await import('better-auth/node');
+        const session = await auth.api.getSession({
+            headers: fromNodeHeaders(req.headers)
         });
-    } catch {
-        res.status(401).json({ error: 'Expired token' });
+
+        if (!session) return res.status(401).json({ error: 'Not logged in' });
+        
+        res.json({ 
+            user: {
+                ...session.user,
+                forcePasswordReset: !!session.user.force_password_reset
+            }
+        });
+    } catch (err) {
+        res.status(401).json({ error: 'Expired session' });
     }
 });
 
 /**
- * POST /api/auth/change-password
+ * POST /auth/change-password
  * Allows users to update their password. Also clears the force_password_reset flag.
  */
 router.post('/change-password', authMiddleware, async (req, res) => {
@@ -105,11 +126,17 @@ router.post('/change-password', authMiddleware, async (req, res) => {
     }
 
     try {
-        const hash = bcrypt.hashSync(newPassword, 10);
-        await dbRun(
-            'UPDATE users SET password_hash = ?, force_password_reset = 0 WHERE id = ?',
-            [hash, req.user.id]
-        );
+        const { auth } = await getAuth();
+        const { fromNodeHeaders } = await import('better-auth/node');
+        await auth.api.changePassword({
+            body: { 
+                newPassword: newPassword,
+                revokeOtherSessions: true 
+            },
+            headers: fromNodeHeaders(req.headers)
+        });
+        
+        await dbRun('UPDATE users SET force_password_reset = 0 WHERE id = ?', [req.user.id]);
         res.json({ success: true, message: 'Password updated successfully.' });
     } catch (err) {
         console.error('Change password error:', err);

@@ -83,29 +83,54 @@ App.registerView('partners', {
                     </div>
                     <div class="modal-body">
                         <form id="partner-form">
-                            <div class="form-group">
-                                <label>Contact Name</label>
-                                <input type="text" class="form-control" id="partner-name" required>
+                            <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                                <div class="form-group">
+                                    <label>Contact Name</label>
+                                    <input type="text" class="form-control" id="partner-name" required>
+                                </div>
+                                <div class="form-group">
+                                    <label>Company Name</label>
+                                    <input type="text" class="form-control" id="partner-company" required>
+                                </div>
+                            </div>
+                            <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                                <div class="form-group">
+                                    <label>Email Address</label>
+                                    <input type="email" class="form-control" id="partner-email" required>
+                                </div>
+                                <div class="form-group">
+                                    <label>Phone Number</label>
+                                    <input type="text" class="form-control" id="partner-phone">
+                                </div>
+                            </div>
+                            <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                                <div class="form-group">
+                                    <label>City</label>
+                                    <input type="text" class="form-control" id="partner-city">
+                                </div>
+                                <div class="form-group">
+                                    <label>Revenue Share (%)</label>
+                                    <input type="number" class="form-control" id="partner-revshare" value="50">
+                                </div>
                             </div>
                             <div class="form-group">
-                                <label>Company Name</label>
-                                <input type="text" class="form-control" id="partner-company" required>
+                                <label>Mailing Address</label>
+                                <textarea class="form-control" id="partner-address" rows="2"></textarea>
                             </div>
-                            <div class="form-group">
-                                <label>Email Address</label>
-                                <input type="email" class="form-control" id="partner-email">
-                            </div>
-                            <div class="form-group">
-                                <label>Revenue Share (%)</label>
-                                <input type="number" class="form-control" id="partner-revshare" value="50">
-                            </div>
-                            <div class="form-group">
-                                <label>Status</label>
-                                <select class="form-control" id="partner-status">
-                                    <option value="Active">Active</option>
-                                    <option value="Pending">Pending</option>
-                                    <option value="Disabled">Disabled</option>
-                                </select>
+                            <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                                <div class="form-group">
+                                    <label>Login Password</label>
+                                    <input type="password" class="form-control" id="partner-password" placeholder="Leave empty for default (Partner@123)">
+                                    <small style="color:var(--text-muted); font-size:0.7rem;">Defaults to Partner@123 if creating new.</small>
+                                </div>
+                                <div class="form-group">
+                                    <label>Status</label>
+                                    <select class="form-control" id="partner-status">
+                                        <option value="Active">Active</option>
+                                        <option value="Pending">Pending</option>
+                                        <option value="Disabled">Disabled</option>
+                                    </select>
+                                </div>
                             </div>
                         </form>
                     </div>
@@ -309,11 +334,15 @@ App.registerView('partners', {
             title.innerText = 'Edit Partner';
             const p = this.partnersData.find(x => x.id === id);
             if (p) {
-                document.getElementById('partner-name').value = p.name;
-                document.getElementById('partner-company').value = p.company;
+                document.getElementById('partner-name').value = p.name || '';
+                document.getElementById('partner-company').value = p.company || '';
                 document.getElementById('partner-email').value = p.email || '';
+                document.getElementById('partner-phone').value = p.phone || '';
+                document.getElementById('partner-city').value = p.city || '';
+                document.getElementById('partner-address').value = p.address || '';
                 document.getElementById('partner-revshare').value = p.revenue_share_percentage;
                 document.getElementById('partner-status').value = p.status;
+                document.getElementById('partner-password').value = '';
             }
         } else {
             title.innerText = 'Add New Partner';
@@ -332,11 +361,15 @@ App.registerView('partners', {
             name: document.getElementById('partner-name').value,
             company: document.getElementById('partner-company').value,
             email: document.getElementById('partner-email').value,
+            phone: document.getElementById('partner-phone').value,
+            city: document.getElementById('partner-city').value,
+            address: document.getElementById('partner-address').value,
             revenue_share_percentage: document.getElementById('partner-revshare').value,
-            status: document.getElementById('partner-status').value
+            status: document.getElementById('partner-status').value,
+            password: document.getElementById('partner-password').value
         };
 
-        if(!payload.name) return App.showToast('Name is required', 'error');
+        if(!payload.name || !payload.email) return App.showToast('Name and Email are required', 'error');
 
         let res;
         if (this.editingId) {

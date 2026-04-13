@@ -137,36 +137,51 @@ router.get('/brands/:id', async (req, res) => {
 
 /** POST /api/admin/brands - Create a brand with email validation and conflict check. */
 router.post('/brands', async (req, res) => {
-    const { company_name, name, industry, contact_person, email, phone } = req.body;
+    const { company_name, name, industry, contact_person, email, phone, password } = req.body;
     const finalName = company_name || name;
     
     if (!finalName || !email) {
         return res.status(400).json({ error: 'Brand name and email are required' });
     }
 
-    // Basic email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
         return res.status(400).json({ error: 'Invalid email format' });
     }
 
     try {
-        // Conflict check
         const existing = await dbGet('SELECT id FROM brands WHERE email = ?', [email]);
         if (existing) return res.status(409).json({ error: 'Email already exists' });
 
         const result = await dbRun(
-            `INSERT INTO brands (name, industry, contact_person, email, phone, status) VALUES (?, ?, ?, ?, ?, 'Pending')`,
+            `INSERT INTO brands (name, industry, contact_person, email, phone, status) VALUES (?, ?, ?, ?, ?, 'Active')`,
             [finalName, industry, contact_person, email, phone]
         );
         
-        // Preserve user account creation (from legacy logic)
-        const bcrypt = require('bcryptjs');
-        const hash = bcrypt.hashSync('Brand@123', 10);
+        const { hashPassword } = await import('@better-auth/utils/password');
+        const hash = await hashPassword(password || 'Brand@123');
+        
+        // 1. Create or update user
         await dbRun(
-            `INSERT INTO users (username, password_hash, role, brand_id, force_password_reset) VALUES (?, ?, 'Brand', ?, 1)`,
-            [email, hash, result.id]
-        ).catch(e => console.error('Failed to create user for brand:', e.message));
+            `INSERT INTO users (username, email, password_hash, role, brand_id, force_password_reset) 
+             VALUES (?, ?, ?, 'Brand', ?, 1)
+             ON DUPLICATE KEY UPDATE brand_id = VALUES(brand_id), role = VALUES(role), password_hash = VALUES(password_hash)`,
+            [email, email, hash, result.id]
+        );
+
+        // 2. Get the actual userId (since insertId might be 0 on update)
+        const user = await dbGet('SELECT id FROM users WHERE email = ?', [email]);
+        const userId = user ? user.id : null;
+
+        // 3. Ensure Better Auth account exists and is synced
+        if (userId) {
+            await dbRun(
+                `INSERT INTO account (id, userId, providerId, accountId, password) 
+                 VALUES (?, ?, 'credential', ?, ?)
+                 ON DUPLICATE KEY UPDATE password = VALUES(password)`,
+                [`acc_${userId}`, userId, email, hash]
+            );
+        }
 
         res.status(201).json({ success: true, brand_id: result.id });
     } catch(err) { res.status(500).json({ error: err.message }); }
@@ -193,12 +208,43 @@ router.patch('/brands/:id/disable', async (req, res) => {
 
 /** PUT /api/admin/brands/:id - Update brand profile. */
 router.put('/brands/:id', async (req, res) => {
-    const { name, industry, contact_person, email, phone, status } = req.body;
+    const { name, industry, contact_person, email, phone, status, password } = req.body;
     try {
         await dbRun(
             `UPDATE brands SET name=?, industry=?, contact_person=?, email=?, phone=?, status=? WHERE id=?`,
             [name, industry, contact_person, email, phone, status, req.params.id]
         );
+
+        if (email) {
+            const { hashPassword } = await import('@better-auth/utils/password');
+            const hash = password ? await hashPassword(password) : null;
+            
+            // Sync user record
+            const userUpdateSql = hash 
+                ? `INSERT INTO users (username, email, password_hash, role, brand_id, force_password_reset) 
+                   VALUES (?, ?, ?, 'Brand', ?, 1)
+                   ON DUPLICATE KEY UPDATE brand_id = VALUES(brand_id), role = VALUES(role), password_hash = VALUES(password_hash)`
+                : `INSERT INTO users (username, email, password_hash, role, brand_id, force_password_reset) 
+                   VALUES (?, ?, '---', 'Brand', ?, 0)
+                   ON DUPLICATE KEY UPDATE brand_id = VALUES(brand_id), role = VALUES(role)`;
+            
+            const params = hash ? [email, email, hash, req.params.id] : [email, email, req.params.id];
+            await dbRun(userUpdateSql, params);
+
+            const user = await dbGet('SELECT id FROM users WHERE email = ?', [email]);
+            const userId = user ? user.id : null;
+
+            // Sync account if password provided
+            if (hash && userId) {
+                await dbRun(
+                    `INSERT INTO account (id, userId, providerId, accountId, password) 
+                     VALUES (?, ?, 'credential', ?, ?)
+                     ON DUPLICATE KEY UPDATE password = VALUES(password)`,
+                    [`acc_${userId}`, userId, 'credential', email, hash]
+                );
+            }
+        }
+
         res.json({ success: true });
     } catch(err) { res.status(500).json({ error: err.message }); }
 });
@@ -452,36 +498,51 @@ router.get('/partners/:id', async (req, res) => {
 
 /** POST /api/admin/partners - Register a new screen partner with validation and conflict check. */
 router.post('/partners', async (req, res) => {
-    const { name, company, email, phone, address } = req.body;
+    const { name, company, email, phone, address, city, password } = req.body;
     
     if (!name || !email) {
         return res.status(400).json({ error: 'Partner name and email are required' });
     }
 
-    // Basic email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
         return res.status(400).json({ error: 'Invalid email format' });
     }
 
     try {
-        // Conflict check
         const existing = await dbGet('SELECT id FROM partners WHERE email = ?', [email]);
         if (existing) return res.status(409).json({ error: 'Email already exists' });
 
         const result = await dbRun(
-            `INSERT INTO partners (name, company, email, phone, address, status, revenue_share_percentage) 
-             VALUES (?, ?, ?, ?, ?, 'Pending', 50)`,
-            [name, company, email, phone, address]
+            `INSERT INTO partners (name, company, email, phone, address, city, status, revenue_share_percentage) 
+             VALUES (?, ?, ?, ?, ?, ?, 'Active', 50)`,
+            [name, company, email, phone, address, city]
         );
 
-        // Preserve user account creation (from legacy logic)
-        const bcrypt = require('bcryptjs');
-        const hash = bcrypt.hashSync('Partner@123', 10);
+        const { hashPassword } = await import('@better-auth/utils/password');
+        const hash = await hashPassword(password || 'Partner@123');
+        
+        // 1. Create or update user
         await dbRun(
-            `INSERT INTO users (username, password_hash, role, partner_id) VALUES (?, ?, 'Partner', ?)`,
-            [email, hash, result.id]
-        ).catch(e => console.error('Failed to create user for partner:', e.message));
+            `INSERT INTO users (username, email, password_hash, role, partner_id, force_password_reset) 
+             VALUES (?, ?, ?, 'Partner', ?, 1)
+             ON DUPLICATE KEY UPDATE partner_id = VALUES(partner_id), role = VALUES(role), password_hash = VALUES(password_hash)`,
+            [email, email, hash, result.id]
+        );
+
+        // 2. Get the actual userId
+        const user = await dbGet('SELECT id FROM users WHERE email = ?', [email]);
+        const userId = user ? user.id : null;
+
+        // 3. Ensure Better Auth account exists and is synced
+        if (userId) {
+            await dbRun(
+                `INSERT INTO account (id, userId, providerId, accountId, password) 
+                 VALUES (?, ?, 'credential', ?, ?)
+                 ON DUPLICATE KEY UPDATE password = VALUES(password)`,
+                [`acc_${userId}`, userId, email, hash]
+            );
+        }
 
         res.status(201).json({ success: true, partner_id: result.id });
     } catch(err) { res.status(500).json({ error: err.message }); }
@@ -530,12 +591,43 @@ router.post('/partners/payouts/:id/approve', async (req, res) => {
 
 /** PUT /api/admin/partners/:id - Update partner profile. */
 router.put('/partners/:id', async (req, res) => {
-    const { name, company, email, phone, address, status, revenue_share_percentage } = req.body;
+    const { name, company, email, phone, address, city, status, revenue_share_percentage, password } = req.body;
     try {
         await dbRun(
-            `UPDATE partners SET name=?, company=?, email=?, phone=?, address=?, status=?, revenue_share_percentage=? WHERE id=?`,
-            [name, company, email, phone, address, status, revenue_share_percentage, req.params.id]
+            `UPDATE partners SET name=?, company=?, email=?, phone=?, address=?, city=?, status=?, revenue_share_percentage=? WHERE id=?`,
+            [name, company, email, phone, address, city, status, revenue_share_percentage, req.params.id]
         );
+
+        if (email) {
+            const { hashPassword } = await import('@better-auth/utils/password');
+            const hash = password ? await hashPassword(password) : null;
+            
+            // Sync user record
+            const userUpdateSql = hash 
+                ? `INSERT INTO users (username, email, password_hash, role, partner_id, force_password_reset) 
+                   VALUES (?, ?, ?, 'Partner', ?, 1)
+                   ON DUPLICATE KEY UPDATE partner_id = VALUES(partner_id), role = VALUES(role), password_hash = VALUES(password_hash)`
+                : `INSERT INTO users (username, email, password_hash, role, partner_id, force_password_reset) 
+                   VALUES (?, ?, '---', 'Partner', ?, 0)
+                   ON DUPLICATE KEY UPDATE partner_id = VALUES(partner_id), role = VALUES(role)`;
+            
+            const params = hash ? [email, email, hash, req.params.id] : [email, email, req.params.id];
+            await dbRun(userUpdateSql, params);
+
+            const user = await dbGet('SELECT id FROM users WHERE email = ?', [email]);
+            const userId = user ? user.id : null;
+
+            // Sync account if password provided
+            if (hash && userId) {
+                await dbRun(
+                    `INSERT INTO account (id, userId, providerId, accountId, password) 
+                     VALUES (?, ?, 'credential', ?, ?)
+                     ON DUPLICATE KEY UPDATE password = VALUES(password)`,
+                    [`acc_${userId}`, userId, 'credential', email, hash]
+                );
+            }
+        }
+
         res.json({ success: true });
     } catch(err) { res.status(500).json({ error: err.message }); }
 });

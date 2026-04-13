@@ -772,7 +772,30 @@ function showToast(message, type = 'info') {
 
 // ═══ INIT ════════════════════════════════════════════════════════════════════
 window.navigate = navigate;
-navigate('dashboard');
+
+async function init() {
+    // Proactive Session Check
+    try {
+        const res = await fetch('/auth/me');
+        const data = await res.json();
+        if (!res.ok || data.user.role !== 'Partner') {
+            window.location.href = '/admin/login.html';
+            return;
+        }
+        
+        // Success - Populate Header
+        const user = data.user;
+        document.getElementById('partner-name-display').textContent = user.username || 'Partner';
+        document.getElementById('partner-email-display').textContent = user.email || '';
+        document.getElementById('partner-avatar').textContent = (user.username || 'P')[0].toUpperCase();
+
+        await navigate('dashboard');
+    } catch (e) {
+        window.location.href = '/admin/login.html';
+    }
+}
+
+init();
 
 // Auto-refresh timer: every 5 minutes (reduced to prevent API overload)
 setInterval(() => {

@@ -57,28 +57,46 @@ app.get('/health', (req, res) => res.json({ status: 'OK', uptime: process.uptime
 
 const cookieParser = require('cookie-parser');
 app.use(cookieParser());
+
+const { getAuth } = require('./src/auth.js');
+let authHandler = null;
+getAuth().then(({ handler }) => { authHandler = handler; }).catch(console.error);
+
+app.all('/api/auth/*', (req, res, next) => {
+    if (authHandler) {
+        return authHandler(req, res);
+    }
+    next(new Error("Auth handler not ready"));
+});
+
 const authRoutes = require('./src/routes/auth.routes');
+// Legacy auth routes are temporarily kept for any fallback, but most frontends should use /api/auth
 app.use('/auth', authRoutes);
 
 /**
  * authenticateToken
- * Specific middleware for API Bearer token validation.
- * Keeps /health and /status public.
+ * Specific middleware for API Bearer token validation or session validation.
+ * Keeps /health, /status, and /api/auth public.
  */
-const authenticateToken = (req, res, next) => {
-    const publicPaths = ['/health', '/status'];
-    if (publicPaths.includes(req.path)) return next();
+const authenticateToken = async (req, res, next) => {
+    const publicPaths = ['/health', '/status', '/api/auth'];
+    if (publicPaths.some(p => req.path.startsWith(p))) return next();
 
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
+    try {
+        const { auth } = await getAuth();
+        const { fromNodeHeaders } = await import('better-auth/node');
+        
+        const session = await auth.api.getSession({
+            headers: fromNodeHeaders(req.headers)
+        });
+        
+        if (!session) return res.status(401).json({ error: 'Unauthorized' });
 
-    if (!token) return res.status(401).json({ error: 'Unauthorized' });
-
-    jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
-        if (err) return res.status(401).json({ error: 'Unauthorized' });
-        req.user = user;
+        req.user = session.user;
         next();
-    });
+    } catch (err) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
 };
 
 const apiRoutes = require('./src/routes/api.routes');

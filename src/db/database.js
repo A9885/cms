@@ -72,6 +72,7 @@ async function initSchema() {
             CREATE TABLE IF NOT EXISTS users (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 username VARCHAR(255) UNIQUE NOT NULL,
+                email VARCHAR(255) UNIQUE,
                 password_hash VARCHAR(255) NOT NULL,
                 role VARCHAR(255) DEFAULT 'Admin',
                 brand_id INT,
@@ -84,16 +85,31 @@ async function initSchema() {
         `);
         
         try {
+            await p.query("ALTER TABLE users ADD COLUMN email VARCHAR(255) UNIQUE AFTER username");
+        } catch(e) {}
+
+        try {
             await p.query("ALTER TABLE users ADD COLUMN force_password_reset BOOLEAN DEFAULT FALSE");
-        } catch(e) {
-            // Ignored if column already exists
-        }
+        } catch(e) {}
 
         const [users] = await p.query("SELECT COUNT(*) as c FROM users");
         if (users[0].c === 0) {
-            const hash = bcrypt.hashSync('admin123', 10);
-            await p.query("INSERT INTO users (username, password_hash, role) VALUES ('admin', ?, 'SuperAdmin')", [hash]);
-            console.log('[DB] Created default user: admin / admin123');
+            // Need to use Better Auth compatible hashing
+            const { hashPassword } = await import('@better-auth/utils/password');
+            const hash = await hashPassword('admin123');
+            const [userResult] = await p.query(
+                "INSERT INTO users (username, email, password_hash, role) VALUES ('admin', 'admin@signtral.com', ?, 'SuperAdmin')", 
+                [hash]
+            );
+            
+            // Better Auth requires an entry in the 'account' table for credential login
+            if (userResult.insertId) {
+                await p.query(
+                    "INSERT INTO account (id, userId, providerId, accountId, password) VALUES (?, ?, 'credential', ?, ?)",
+                    [Math.random().toString(36).substring(2), userResult.insertId, 'admin@signtral.com', hash]
+                );
+            }
+            console.log('[DB] Created default user: admin / admin123 (and Better Auth account)');
         }
 
         await p.query(`

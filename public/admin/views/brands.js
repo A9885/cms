@@ -43,29 +43,44 @@ App.registerView('brands', {
                     </div>
                     <div class="modal-body">
                         <form id="brand-form">
-                            <div class="form-group">
-                                <label>Brand Name</label>
-                                <input type="text" class="form-control" id="brand-name" required>
+                            <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                                <div class="form-group">
+                                    <label>Brand Name</label>
+                                    <input type="text" class="form-control" id="brand-name" required>
+                                </div>
+                                <div class="form-group">
+                                    <label>Industry</label>
+                                    <input type="text" class="form-control" id="brand-industry" required>
+                                </div>
                             </div>
-                            <div class="form-group">
-                                <label>Industry</label>
-                                <input type="text" class="form-control" id="brand-industry" required>
-                            </div>
-                            <div class="form-group">
-                                <label>Contact Person</label>
-                                <input type="text" class="form-control" id="brand-contact">
+                            <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                                <div class="form-group">
+                                    <label>Contact Person</label>
+                                    <input type="text" class="form-control" id="brand-contact">
+                                </div>
+                                <div class="form-group">
+                                    <label>Phone Number</label>
+                                    <input type="text" class="form-control" id="brand-phone">
+                                </div>
                             </div>
                             <div class="form-group">
                                 <label>Email Address</label>
-                                <input type="email" class="form-control" id="brand-email">
+                                <input type="email" class="form-control" id="brand-email" required>
                             </div>
-                            <div class="form-group">
-                                <label>Status</label>
-                                <select class="form-control" id="brand-status">
-                                    <option value="Active">Active</option>
-                                    <option value="Pending">Pending</option>
-                                    <option value="Archived">Archived</option>
-                                </select>
+                            <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                                <div class="form-group">
+                                    <label>Login Password</label>
+                                    <input type="password" class="form-control" id="brand-password" placeholder="Leave empty for default (Brand@123)">
+                                    <small style="color:var(--text-muted); font-size:0.7rem;">Defaults to Brand@123 if creating new.</small>
+                                </div>
+                                <div class="form-group">
+                                    <label>Status</label>
+                                    <select class="form-control" id="brand-status">
+                                        <option value="Active">Active</option>
+                                        <option value="Pending">Pending</option>
+                                        <option value="Archived">Archived</option>
+                                    </select>
+                                </div>
                             </div>
                         </form>
                     </div>
@@ -770,7 +785,9 @@ App.registerView('brands', {
                 document.getElementById('brand-industry').value = b.industry || '';
                 document.getElementById('brand-contact').value = b.contact_person || '';
                 document.getElementById('brand-email').value = b.email || '';
+                document.getElementById('brand-phone').value = b.phone || '';
                 document.getElementById('brand-status').value = b.status || 'Pending';
+                document.getElementById('brand-password').value = '';
             }
         } else {
             title.innerText = 'Add New Brand';
@@ -790,9 +807,11 @@ App.registerView('brands', {
             industry: document.getElementById('brand-industry').value,
             contact_person: document.getElementById('brand-contact').value,
             email: document.getElementById('brand-email').value,
-            status: document.getElementById('brand-status').value
+            phone: document.getElementById('brand-phone').value,
+            status: document.getElementById('brand-status').value,
+            password: document.getElementById('brand-password').value
         };
-        if (!payload.name) return App.showToast('Brand Name is required', 'error');
+        if (!payload.name || !payload.email) return App.showToast('Brand Name and Email are required', 'error');
 
         let res;
         if (this.editingId) {

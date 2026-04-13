@@ -17,7 +17,18 @@ const App = {
                 return;
             }
             const authData = await authRes.json();
-            document.querySelector('.user-info .name').innerText = authData.user.username;
+            const user = authData.user;
+            
+            // Populate Profile UI
+            document.getElementById('admin-user-name').innerText = user.username || 'Admin';
+            document.getElementById('admin-user-email').innerText = user.email || '';
+            document.getElementById('user-avatar').src = `https://ui-avatars.com/api/?name=${encodeURIComponent(user.username)}&background=random`;
+
+            if (user.role !== 'Admin' && user.role !== 'SuperAdmin') {
+                 // Protect Admin portal from other roles
+                 window.location.href = '/admin/login.html';
+                 return;
+            }
         } catch (e) {
             window.location.href = '/admin/login.html';
             return;
@@ -190,6 +201,13 @@ const App = {
             overlay.appendChild(modal);
             document.body.appendChild(overlay);
         });
+    },
+    
+    async logout() {
+        try {
+            await fetch('/auth/logout', { method: 'POST' });
+        } catch(e) {}
+        window.location.href = '/admin/login.html';
     }
 };
 
