@@ -75,11 +75,62 @@ async function safeFetch(url, options = {}) {
     try {
         const res = await fetch(url, options);
         if (res.status === 401 || res.status === 403) window.location.href = '/admin/login.html';
-        return await res.json();
+        const data = await res.json();
+        
+        if (data.syncing) {
+            showSyncingBanner();
+            return data.data || (Array.isArray(data.data) ? [] : {});
+        }
+        
+        return data;
     } catch (e) {
         console.error('Fetch error:', e);
         return null;
     }
+}
+
+function showSyncingBanner() {
+    if (document.getElementById('xibo-sync-banner')) return;
+
+    const banner = document.createElement('div');
+    banner.id = 'xibo-sync-banner';
+    banner.innerHTML = '⚠️ Xibo Connection Syncing... Some data may be outdated.';
+    
+    banner.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        background: #FFF3CD;
+        border-bottom: 1px solid #FFC107;
+        color: #856404;
+        padding: 12px;
+        text-align: center;
+        font-weight: 600;
+        z-index: 9999;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        animation: bannerFadeIn 0.3s ease-out;
+        transition: opacity 1s ease-out;
+    `;
+
+    if (!document.getElementById('banner-anims')) {
+        const style = document.createElement('style');
+        style.id = 'banner-anims';
+        style.innerHTML = `
+            @keyframes bannerFadeIn {
+                from { transform: translateY(-100%); }
+                to { transform: translateY(0); }
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    document.body.prepend(banner);
+
+    setTimeout(() => {
+        banner.style.opacity = '0';
+        setTimeout(() => banner.remove(), 1000);
+    }, 10000);
 }
 
 function showToast(message, type = 'info') {
@@ -957,13 +1008,13 @@ async function loadCreatives() {
     if (!tbody) return;
 
     if (!data) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:3rem; color:var(--danger);">Error loading library. Please refresh.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:3rem; color:var(--danger);">Error loading library. Please refresh.</td></tr>';
         return;
     }
 
     tbody.innerHTML = '';
     if (data.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:3rem; color:var(--text-muted);">No creatives found. Upload your first media!</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:3rem; color:var(--text-muted);">No creatives found. Upload your first media!</td></tr>';
         return;
     }
 
@@ -972,12 +1023,20 @@ async function loadCreatives() {
         
         const tdPrev = document.createElement('td');
         const iconWrap = document.createElement('div');
-        iconWrap.style.cssText = 'width:42px; height:35px; background:rgba(59,130,246,0.1); border-radius:6px; display:flex; align-items:center; justify-content:center;';
-        const i = document.createElement('i');
-        const mediaType = m.mediaType || m.type || 'image';
-        i.setAttribute('data-lucide', mediaType === 'video' ? 'film' : 'image');
-        i.style.color = '#3b82f6';
-        iconWrap.appendChild(i);
+        iconWrap.style.cssText = 'width:60px; height:45px; background:#f8fafc; border-radius:6px; display:flex; align-items:center; justify-content:center; overflow:hidden; border:1px solid #e2e8f0;';
+        
+        if (m.thumbnailUrl) {
+            const img = document.createElement('img');
+            img.src = m.thumbnailUrl;
+            img.style.cssText = 'width:100%; height:100%; object-fit:cover;';
+            iconWrap.appendChild(img);
+        } else {
+            const i = document.createElement('i');
+            const mediaType = m.mediaType || m.type || 'image';
+            i.setAttribute('data-lucide', mediaType === 'video' ? 'film' : 'image');
+            i.style.color = '#3b82f6';
+            iconWrap.appendChild(i);
+        }
         tdPrev.appendChild(iconWrap);
         tr.appendChild(tdPrev);
 
@@ -988,7 +1047,7 @@ async function loadCreatives() {
 
         const tdType = document.createElement('td');
         tdType.style.textTransform = 'capitalize';
-        tdType.textContent = mediaType;
+        tdType.textContent = m.mediaType || m.type || 'image';
         tr.appendChild(tdType);
 
         const tdStatus = document.createElement('td');
@@ -1036,9 +1095,9 @@ async function loadCreatives() {
                 badge.className = 'badge-lastseen';
                 badge.style.display = 'inline-block';
                 badge.style.margin = '2px';
-                badge.style.background = 'rgba(139, 92, 246, 0.1)';
-                badge.style.color = '#7c3aed';
-                badge.style.borderColor = 'rgba(139, 92, 246, 0.2)';
+                badge.style.background = 'rgba(59, 130, 246, 0.08)';
+                badge.style.color = '#3b82f6';
+                badge.style.borderColor = 'rgba(59, 130, 246, 0.2)';
                 badge.textContent = slotInfo;
                 tdAssigned.appendChild(badge);
             });
@@ -1051,12 +1110,43 @@ async function loadCreatives() {
         btn.style.padding = '5px 12px';
         btn.style.fontSize = '0.75rem';
         btn.textContent = 'Preview';
+        btn.onclick = () => openCreativePreview(m);
         tdAction.appendChild(btn);
         tr.appendChild(tdAction);
 
         tbody.appendChild(tr);
     });
     lucide.createIcons();
+}
+
+function openCreativePreview(media) {
+    const modal = document.getElementById('creative-preview-modal');
+    const content = document.getElementById('preview-modal-content');
+    document.getElementById('preview-modal-title').textContent = media.name;
+    
+    content.innerHTML = '';
+    const mediaType = media.mediaType || media.type || 'image';
+    
+    if (media.previewUrl) {
+        if (mediaType === 'video') {
+            const video = document.createElement('video');
+            video.src = media.previewUrl;
+            video.controls = true;
+            video.autoplay = true;
+            video.style.cssText = 'max-width:100%; max-height:400px;';
+            content.appendChild(video);
+        } else {
+            const img = document.createElement('img');
+            img.src = media.previewUrl;
+            img.style.cssText = 'max-width:100%; max-height:400px; object-fit:contain;';
+            content.appendChild(img);
+        }
+    } else {
+        content.innerHTML = '<i data-lucide="image" size="48" style="color:#cbd5e1;"></i>';
+        lucide.createIcons();
+    }
+    
+    modal.classList.add('active');
 }
 
 async function uploadCreative(input) {

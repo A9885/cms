@@ -192,8 +192,12 @@ router.get('/dashboard', async (req, res) => {
 
         // 4. Online Screen check (from Xibo)
         let onlineNow = 0;
+        let isSyncing = false;
         try {
-            const displays = await xiboService.getDisplays();
+            const res = await xiboService.getDisplays();
+            isSyncing = res.syncing || false;
+            const displays = isSyncing ? [] : res;
+            
             const myDisplayIds = new Set(displayIds.map(id => String(id)));
             onlineNow = displays.filter(d => 
                 myDisplayIds.has(String(d.displayId)) && (d.loggedIn === 1 || d.loggedIn === true)
@@ -227,7 +231,7 @@ router.get('/dashboard', async (req, res) => {
         const dailyStats = labels.map(date => ({ date, count: dailyMap[date] }));
 
         // 6. Recent Proof of Play from local cache (top 10)
-        const [recentPoPRecords, library, displaysList] = await Promise.all([
+        const [recentPoPRecords, libraryRes, displaysRes] = await Promise.all([
             dbAll(`
                 SELECT s.mediaId, s.displayId, s.date, s.count, m.brand_id
                 FROM daily_media_stats s
@@ -240,8 +244,13 @@ router.get('/dashboard', async (req, res) => {
             xiboService.getDisplays()
         ]);
 
-        const libraryMap = new Map(library.map(m => [String(m.mediaId), m.name]));
-        const displayMap = new Map(displaysList.map(d => [String(d.displayId), d.display]));
+        if (libraryRes.syncing || displaysRes.syncing) isSyncing = true;
+        
+        const library = libraryRes.syncing ? [] : libraryRes;
+        const displaysList = displaysRes.syncing ? [] : displaysRes;
+
+        const libraryMap = new Map((library || []).map(m => [String(m.mediaId), m.name]));
+        const displayMap = new Map((displaysList || []).map(d => [String(d.displayId), d.display]));
 
         const recentPoP = recentPoPRecords.map(r => ({
             adName: beautifyMediaName(libraryMap.get(String(r.mediaId)) || `Media #${r.mediaId}`),
@@ -261,7 +270,8 @@ router.get('/dashboard', async (req, res) => {
             estimatedImpressions: totalPlays * 45, 
             recentPoP,
             dailyStats,
-            brandScreens // Added coordinates for mapping
+            brandScreens,
+            syncing: isSyncing
         });
     } catch (err) {
         console.error('[Brand API] Dashboard Error:', err);
@@ -426,6 +436,14 @@ router.post('/slots/purchase', async (req, res) => {
                 );
             }
         }));
+
+        logActivity({
+            action: ACTION.CREATE,
+            module: MODULE.SLOT,
+            description: `Brand self-reserved slots ${slot_numbers.join(', ')} on Display ${displayId}`,
+            req
+        });
+
         res.json({ success: true, message: 'Slots reserved successfully.' });
     } catch (err) {
         res.status(500).json({ error: err.message });

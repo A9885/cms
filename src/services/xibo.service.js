@@ -19,6 +19,49 @@ class XiboService {
     this._lastConfigSig = null;       // tracks credential changes for cache busting
     this._apiPrefix = '/api';         // Default, may be updated to /api/index.php if needed
     this._isHealed = false;           // True if we switched to index.php fallback
+    
+    // Circuit Breaker State
+    this.failureCount = 0;
+    this.circuitOpen = false;
+    this.threshold = 3;
+    this.resetTimeout = 60000; // 60 seconds
+  }
+
+  /**
+   * Internal wrapper for axios requests with circuit breaker logic.
+   */
+  async xiboRequest(fn) {
+    if (this.circuitOpen) {
+      console.log('[Xibo] Circuit OPEN — returning cached state');
+      return { success: false, syncing: true, data: [] };
+    }
+
+    try {
+      const result = await fn();
+      
+      if (this.failureCount >= this.threshold) {
+          console.log('[Xibo] Circuit CLOSED — Xibo connection restored');
+      }
+      
+      this.failureCount = 0;
+      this.circuitOpen = false;
+      return result; // RETURN RAW DATA ON SUCCESS
+    } catch (err) {
+      this.failureCount++;
+      console.error(`[Xibo] Request failed (${this.failureCount}/${this.threshold}):`, err.message);
+      
+      if (this.failureCount >= this.threshold) {
+        this.circuitOpen = true;
+        console.log('[Xibo] Circuit OPEN — returning cached state');
+        
+        setTimeout(() => {
+          this.circuitOpen = false;
+          console.log('[Xibo] Circuit HALF-OPEN — retrying Xibo connection');
+        }, this.resetTimeout);
+      }
+      
+      return { syncing: true, data: [] }; // RETURN SYNCING OBJECT ON FAILURE
+    }
   }
 
   // ─── Lazy credential accessors ─────────────────────────────────────────────
@@ -90,7 +133,7 @@ class XiboService {
       const url = `${this.baseUrl}${prefix}/authorize/access_token`;
       return await axios.post(url, params, { 
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        timeout: 10000 
+        timeout: 8000 
       });
     };
 
@@ -162,16 +205,21 @@ class XiboService {
    * @returns {Promise<Array>} List of displays.
    */
   async getDisplays(params = {}) {
-    const headers = await this.getHeaders();
-    // --- PIPELINE FIX: Ensure recording permissions are always visible ---
-    const finalParams = { ...params };
-    const currentEmbed = (finalParams.embed || '').split(',').filter(Boolean);
-    if (!currentEmbed.includes('statsEnabled')) currentEmbed.push('statsEnabled');
-    if (!currentEmbed.includes('auditUntil')) currentEmbed.push('auditUntil');
-    finalParams.embed = currentEmbed.join(',');
+    return await this.xiboRequest(async () => {
+        const headers = await this.getHeaders();
+        const finalParams = { ...params };
+        const currentEmbed = (finalParams.embed || '').split(',').filter(Boolean);
+        if (!currentEmbed.includes('statsEnabled')) currentEmbed.push('statsEnabled');
+        if (!currentEmbed.includes('auditUntil')) currentEmbed.push('auditUntil');
+        finalParams.embed = currentEmbed.join(',');
 
-    const resp = await axios.get(`${this.baseUrl}${this._apiPrefix}/display`, { headers, params: finalParams });
-    return resp.data;
+        const resp = await axios.get(`${this.baseUrl}${this._apiPrefix}/display`, { 
+            headers, 
+            params: finalParams, 
+            timeout: 8000 
+        });
+        return resp.data;
+    });
   }
 
   /**
@@ -285,9 +333,15 @@ class XiboService {
    * @returns {Promise<Array>}
    */
   async getLibrary(params = { start: 0, length: 150 }) {
-    const headers = await this.getHeaders();
-    const resp = await axios.get(`${this.baseUrl}${this._apiPrefix}/library`, { headers, params });
-    return resp.data;
+    return await this.xiboRequest(async () => {
+        const headers = await this.getHeaders();
+        const resp = await axios.get(`${this.baseUrl}${this._apiPrefix}/library`, { 
+            headers, 
+            params, 
+            timeout: 8000 
+        });
+        return resp.data;
+    });
   }
 
   /**
@@ -311,9 +365,15 @@ class XiboService {
    * @returns {Promise<Array>}
    */
   async getPlaylists(params = {}) {
-    const headers = await this.getHeaders();
-    const resp = await axios.get(`${this.baseUrl}${this._apiPrefix}/playlist`, { headers, params });
-    return resp.data;
+    return await this.xiboRequest(async () => {
+        const headers = await this.getHeaders();
+        const resp = await axios.get(`${this.baseUrl}${this._apiPrefix}/playlist`, { 
+            headers, 
+            params, 
+            timeout: 8000 
+        });
+        return resp.data;
+    });
   }
 
   /**
@@ -378,9 +438,15 @@ class XiboService {
    * @returns {Promise<Array>}
    */
   async getCampaigns(params = {}) {
-    const headers = await this.getHeaders();
-    const resp = await axios.get(`${this.baseUrl}${this._apiPrefix}/campaign`, { headers, params });
-    return resp.data;
+    return await this.xiboRequest(async () => {
+        const headers = await this.getHeaders();
+        const resp = await axios.get(`${this.baseUrl}${this._apiPrefix}/campaign`, { 
+            headers, 
+            params, 
+            timeout: 8000 
+        });
+        return resp.data;
+    });
   }
 
   /**
@@ -389,9 +455,15 @@ class XiboService {
    * @returns {Promise<Array>}
    */
   async getLayouts(params = {}) {
-    const headers = await this.getHeaders();
-    const resp = await axios.get(`${this.baseUrl}${this._apiPrefix}/layout`, { headers, params });
-    return resp.data;
+    return await this.xiboRequest(async () => {
+        const headers = await this.getHeaders();
+        const resp = await axios.get(`${this.baseUrl}${this._apiPrefix}/layout`, { 
+            headers, 
+            params, 
+            timeout: 8000 
+        });
+        return resp.data;
+    });
   }
 
   /**
@@ -400,9 +472,15 @@ class XiboService {
    * @returns {Promise<Array>}
    */
   async getSchedules(params = {}) {
-    const headers = await this.getHeaders();
-    const resp = await axios.get(`${this.baseUrl}${this._apiPrefix}/schedule`, { headers, params });
-    return resp.data;
+    return await this.xiboRequest(async () => {
+        const headers = await this.getHeaders();
+        const resp = await axios.get(`${this.baseUrl}${this._apiPrefix}/schedule`, { 
+            headers, 
+            params, 
+            timeout: 8000 
+        });
+        return resp.data;
+    });
   }
 
   /**
@@ -745,6 +823,7 @@ class XiboService {
 // Singleton for central (ENV-based) Xibo instance
 const centralInstance = new XiboService();
 module.exports = centralInstance;
+module.exports.XiboService = XiboService; // Export class for testing
 
 /**
  * Multi-tenant factory: returns a XiboService instance configured

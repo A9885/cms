@@ -52,7 +52,7 @@ router.get('/dashboard', async (req, res) => {
         const screenIds = screens.map(s => s.screen_id).filter(Boolean);
         const displayIds = screens.map(s => s.xibo_display_id).filter(Boolean);
 
-        if (screenIds.length === 0) {
+        if (screens.length === 0) {
             return res.json({
                 partner: { name: partner?.name, company: partner?.company, email: partner?.email, revenue_share_percentage: partner?.revenue_share_percentage || 50 },
                 totalScreens: 0, onlineScreens: 0, offlineScreens: 0,
@@ -61,11 +61,11 @@ router.get('/dashboard', async (req, res) => {
             });
         }
 
-        const screenPh = screenIds.map(() => '?').join(',');
+        const screenPh = screenIds.length > 0 ? screenIds.map(() => '?').join(',') : '\"-1\"'; // dummy that won't match
 
         // 2. Aggregate queries based on campaigns
         const [activeCampaigns, revenueResult, statsResult, slotCounts, brandEarnings] = await Promise.all([
-            dbGet(`SELECT COUNT(*) as count FROM campaigns WHERE screen_id IN (${screenPh}) AND status = 'Active'`, screenIds),
+            dbGet(`SELECT COUNT(*) as count FROM campaigns WHERE screen_id IN (${screenPh}) AND status = 'Active'`, screenIds.length > 0 ? screenIds : ['-1']),
             dbGet(`
                 SELECT 
                     SUM(CASE WHEN i.status = 'Paid' THEN i.amount ELSE 0 END) as paid,
@@ -133,7 +133,8 @@ router.get('/dashboard', async (req, res) => {
             currentRevenue,
             pendingPayments,
             earningsByBrand: brandEarnings || [],
-            recentPoP
+            recentPoP,
+            syncing: statsResult.syncing || false
         });
     } catch (err) {
         console.error('[Partner API] Dashboard Error:', err);

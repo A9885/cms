@@ -25,6 +25,8 @@ const path = require('path');
 
 const xiboService = require('./src/services/xibo.service');
 const statsService = require('./src/services/stats.service');
+const { logActivity, ACTION, MODULE } = require('./src/services/activity-logger.service');
+const { hasPermission } = require('./src/middleware/access.middleware');
 
 const http = require('http');
 const { Server } = require('socket.io');
@@ -248,16 +250,14 @@ app.use('/xibo', authMiddleware);
 
 // Mount Protected Brand APIs
 const brandRoutes = require('./src/routes/brand.routes');
-app.use('/brandportal/api', authMiddleware, (req, res, next) => {
-    if (req.user.role !== 'Brand' && req.user.role !== 'SuperAdmin') return res.status(403).json({ error: 'Access denied' });
+app.use('/brandportal/api', authMiddleware, hasPermission('own_creative:manage'), (req, res, next) => {
     if (!req.user.brand_id && req.user.role === 'Brand') return res.status(400).json({ error: 'No brand assigned to this user' });
     next();
 }, brandRoutes);
 
 // Mount Protected Partner APIs
 const partnerRoutes = require('./src/routes/partner.routes');
-app.use('/partnerportal/api', authMiddleware, (req, res, next) => {
-    if (req.user.role !== 'Partner' && req.user.role !== 'Admin' && req.user.role !== 'SuperAdmin') return res.status(403).json({ error: 'Access denied' });
+app.use('/partnerportal/api', authMiddleware, hasPermission('own_screens:manage'), (req, res, next) => {
     if (!req.user.partner_id && req.user.role === 'Partner') return res.status(400).json({ error: 'No partner assigned to this user' });
     next();
 }, partnerRoutes);
@@ -328,6 +328,35 @@ app.get('/xibo/library', async (req, res) => {
   } catch (err) {
     console.error('[GET /xibo/library]', err.message);
     res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /xibo/library/download/:mediaId
+ * Proxy for downloading a media item or its thumbnail from Xibo.
+ */
+app.get('/xibo/library/download/:mediaId', async (req, res) => {
+  try {
+    const { mediaId } = req.params;
+    const { thumbnail } = req.query;
+    const headers = await xiboService.getHeaders();
+    
+    // Redirecting directly to Xibo download endpoint often fails due to auth, 
+    // so we stream it through the server.
+    const url = `${xiboService.baseUrl}${xiboService._apiPrefix}/library/download/${mediaId}${thumbnail ? '?thumbnail=1' : ''}`;
+    
+    const response = await axios({
+      method: 'get',
+      url,
+      headers,
+      responseType: 'stream'
+    });
+
+    res.set('Content-Type', response.headers['content-type']);
+    response.data.pipe(res);
+  } catch (err) {
+    console.error('[GET /xibo/library/download]', err.message);
+    res.status(err.response?.status || 500).send(err.message);
   }
 });
 
@@ -1476,6 +1505,13 @@ app.post('/xibo/slots/add', upload.single('file'), async (req, res) => {
   
       // Invalidate widget cache so next stats query picks up the new slot mapping
       statsService.invalidateWidgetCache();
+      
+      logActivity({
+          action: isReplace ? ACTION.UPDATE : ACTION.UPLOAD,
+          module: MODULE.SLOT,
+          description: `Media uploaded and ${isReplace ? 'replaced' : 'added'} to Slot ${slotId} on Display ${displayId} (mediaId: ${mediaId})`,
+          req
+      });
 
       res.json({ success: true, widgetId, mediaId, autoLinkedBrandId });
 
@@ -1571,6 +1607,16 @@ app.post('/xibo/slots/assign', async (req, res) => {
         await axios.put(`${xiboService.baseUrl}${xiboService._apiPrefix}/display/requestscreenshot/${displayId}`, null, { headers }).catch(() => {});
 
         statsService.invalidateWidgetCache();
+
+        logActivity({
+            action: brand_id ? ACTION.ASSIGN : ACTION.SYNC,
+            module: MODULE.SLOT,
+            description: brand_id 
+                ? `Existing media ID ${mediaId} assigned to Slot ${slotId} for Brand ${brand_id} on Display ${displayId}`
+                : `Media ID ${mediaId} assigned to Slot ${slotId} on Display ${displayId}`,
+            req
+        });
+
         res.json({ success: true, widgetId });
     } catch (err) {
         console.error('[POST /xibo/slots/assign]', err.message);
@@ -1621,6 +1667,13 @@ app.delete('/xibo/slots/media/:widgetId', async (req, res) => {
     }
 
     res.json({ success: true });
+
+    logActivity({
+        action: ACTION.DELETE,
+        module: MODULE.SLOT,
+        description: `Media (widget: ${widgetId}) removed from Slot ${slotId || 'Unknown'} on Display ${displayId || 'Unknown'}`,
+        req
+    });
   } catch (err) {
     console.error('[DELETE /xibo/slots/media]', err.message);
     res.status(500).json({ error: err.message });

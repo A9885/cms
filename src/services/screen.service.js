@@ -31,7 +31,13 @@ class ScreenService {
    */
   async syncDisplays() {
     try {
-      const displays = await xiboService.getDisplays();
+      const res = await xiboService.getDisplays();
+      if (res.syncing) {
+        console.log('[ScreenService] Sync deferred: Xibo is in syncing state.');
+        return;
+      }
+      const displays = res;
+
       for (const d of displays) {
         const existing = await dbGet('SELECT id FROM screens WHERE xibo_display_id = ?', [d.displayId]);
         let status = 'Offline';
@@ -62,8 +68,12 @@ class ScreenService {
         if (!existing) {
           console.log(`[ScreenService] NEW Display detected: ${d.display} (ID: ${d.displayId}). Provisioning slots...`);
           const byName = await dbGet('SELECT id FROM screens WHERE name = ? AND xibo_display_id IS NULL', [d.display]);
-          if (byName) await dbRun('UPDATE screens SET xibo_display_id = ?, status = ? WHERE id = ?', [d.displayId, status, byName.id]);
-          else await dbRun(`INSERT INTO screens (name, xibo_display_id, status) VALUES (?, ?, ?)`, [d.display || 'Unknown', d.displayId, status]);
+          if (byName) {
+            await dbRun('UPDATE screens SET xibo_display_id = ?, status = ?, screen_id = COALESCE(screen_id, ?) WHERE id = ?', [d.displayId, status, `SIG-${d.displayId}`, byName.id]);
+          } else {
+            const sid = `SIG-${d.displayId}`;
+            await dbRun(`INSERT INTO screens (name, xibo_display_id, status, screen_id) VALUES (?, ?, ?, ?)`, [d.display || 'Unknown', d.displayId, status, sid]);
+          }
         } else {
           await dbRun('UPDATE screens SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [status, existing.id]);
         }
@@ -123,7 +133,10 @@ class ScreenService {
    */
   async syncLocation(displayId) {
     try {
-      const displays = await xiboService.getDisplays({ displayId });
+      const res = await xiboService.getDisplays({ displayId });
+      if (res.syncing) return;
+      const displays = res;
+      
       const d = displays.find(disp => String(disp.displayId) === String(displayId));
       if (!d) return;
 
@@ -160,7 +173,10 @@ class ScreenService {
   async syncAllLocations() {
     console.log(`[${new Date().toISOString()}] [ScreenService] Starting location sync...`);
     try {
-      const displays = await xiboService.getDisplays();
+      const res = await xiboService.getDisplays();
+      if (res.syncing) return;
+      const displays = res;
+
       for (const d of displays) {
         await this.syncLocation(d.displayId);
         await new Promise(r => setTimeout(r, 1000)); // Throttle
@@ -174,10 +190,13 @@ class ScreenService {
    */
   async enrichWithXibo(screens) {
     let displays = [];
-    try { displays = await xiboService.getDisplays(); } catch (e) { console.warn('[ScreenService] enrichWithXibo: CMS unreachable'); }
+    try { 
+        const res = await xiboService.getDisplays(); 
+        displays = res.syncing ? [] : res;
+    } catch (e) { console.warn('[ScreenService] enrichWithXibo: CMS unreachable'); }
     return screens.map(s => {
-      const xibo = displays.find(d => String(d.displayId) === String(s.xibo_display_id));
-      const status = xibo ? (xibo.loggedIn ? 'Online' : 'Offline') : 'Not Linked';
+      const xibo = Array.isArray(displays) ? displays.find(d => String(d.displayId) === String(s.xibo_display_id)) : null;
+      const status = xibo ? (xibo.loggedIn ? 'Online' : 'Offline') : (displays.syncing ? 'Syncing...' : 'Not Linked');
       return { ...s, isLinked: !!s.xibo_display_id, liveStatus: status, lastAccessed: xibo?.lastAccessed || null };
     });
   }

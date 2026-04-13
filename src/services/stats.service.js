@@ -70,7 +70,13 @@ class StatsService {
       try {
         const headers = await xiboService.getHeaders();
         const baseUrl = xiboService.baseUrl;
-        const displays = await xiboService.getDisplays();
+        const res = await xiboService.getDisplays();
+        if (res.syncing) {
+            _widgetCache = new Map();
+            _widgetCacheTime = Date.now();
+            return _widgetCache;
+        }
+        const displays = res;
 
         await Promise.all(displays.map(async (display) => {
           try {
@@ -404,7 +410,10 @@ class StatsService {
         GROUP BY mediaId
       `);
 
-      const library = await xiboService.getLibrary({ length: 500 });
+      const res = await xiboService.getLibrary({ length: 500 });
+      if (res.syncing) return [];
+      const library = res;
+
       const summary = library
         .filter(m => !this._isNoise(m.name))
         .map(m => {

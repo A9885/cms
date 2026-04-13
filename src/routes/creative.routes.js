@@ -86,7 +86,7 @@ router.get('/list', async (req, res) => {
     }
 
     const [library, mappings, campaignsData] = await Promise.all([
-      xiboService.getLibrary({ length: 500 }),
+      xiboService.getLibrary({ length: 1000 }), // Increased to 1000 to ensure we find everything
       dbAll('SELECT mediaId, status FROM media_brands WHERE brand_id = ?', [brandId]),
       dbAll(`
         SELECT c.creative_id, c.slot_number, s.name as screen_name 
@@ -113,7 +113,9 @@ router.get('/list', async (req, res) => {
         size: media.fileSize,
         duration: media.duration,
         status: mappingMap.get(String(media.mediaId)) || 'Pending',
-        assignedSlots: campaignMap[String(media.mediaId)] || []
+        assignedSlots: campaignMap[String(media.mediaId)] || [],
+        thumbnailUrl: `/xibo/library/download/${media.mediaId}?thumbnail=1`,
+        previewUrl: `/xibo/library/download/${media.mediaId}`
       }));
 
     res.json(filtered);

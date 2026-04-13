@@ -10,7 +10,12 @@ const Api = {
                 const data = await res.json().catch(() => ({}));
                 throw new Error(data.error || `HTTP ${res.status}`);
             }
-            return await res.json();
+            const data = await res.json();
+            if (data.syncing) {
+                if (window.App) window.App.showSyncingBanner();
+                return data.data || [];
+            }
+            return data;
         } catch (err) {
             console.error(`API GET ${endpoint} error:`, err);
             return { error: err.message };
@@ -73,14 +78,24 @@ const Api = {
     async getXiboDisplays() {
         try {
             const res = await fetch(`/xibo/displays/locations`);
-            return await res.json();
+            const data = await res.json();
+            if (data.syncing) {
+                if (window.App) window.App.showSyncingBanner();
+                return data.data || {};
+            }
+            return data;
         } catch (err) { return {}; }
     },
 
     async getXiboLibrary() {
         try {
             const res = await fetch(`/xibo/library`);
-            return await res.json();
+            const data = await res.json();
+            if (data.syncing) {
+                if (window.App) window.App.showSyncingBanner();
+                return data.data || [];
+            }
+            return data;
         } catch (err) { return []; }
     },
 

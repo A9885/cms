@@ -470,7 +470,8 @@ document.getElementById('brand-select')?.addEventListener('change', async (e) =>
 
         creativeSelect.innerHTML = '<option value="">-- Choose an Option --</option>';
         brandCreatives.forEach(c => {
-            if (c.status === 'Approved' || c.status === 'Active' || !c.status) { // Allow items
+            // Strict moderation: Only show Approved or Active creatives in the manager
+            if (c.status === 'Approved' || c.status === 'Active') {
                 const opt = document.createElement('option');
                 opt.value = c.mediaId;
                 opt.textContent = c.name;
@@ -497,9 +498,11 @@ document.getElementById('creative-select')?.addEventListener('change', (e) => {
     }
 
     const creative = brandCreatives.find(c => String(c.mediaId) === String(mediaId));
-    if (creative && creative.thumbnail) {
-        // Fetch the image link
-        previewImg.src = creative.thumbnail;
+    // Use the new server-side proxy for previews to avoid auth issues if possible
+    const thumbUrl = creative ? `/xibo/library/download/${mediaId}?thumbnail=1` : null;
+    
+    if (thumbUrl) {
+        previewImg.src = thumbUrl;
         previewImg.style.display = 'inline';
         placeholder.style.display = 'none';
     } else {

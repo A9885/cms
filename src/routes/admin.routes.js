@@ -4,21 +4,20 @@ const { dbRun, dbAll, dbGet } = require('../db/database');
 const xiboService = require('../services/xibo.service');
 const statsService = require('../services/stats.service');
 const { logActivity, ACTION, MODULE } = require('../services/activity-logger.service');
+const { hasPermission } = require('../middleware/access.middleware');
 
 // ─── DASHBOARD OVERVIEW ───
 
 /**
  * GET /api/admin/dashboard
- * Returns global network KPIs including screen status, active campaigns, 
- * current impressions, and revenue trends. Parallelized for efficiency.
  */
-router.get('/dashboard', async (req, res) => {
+router.get('/dashboard', hasPermission('audit:view'), async (req, res) => {
     try {
         const [
             totalBrandsObj,
             totalPartnersObj,
             monthlyRevenueObj,
-            displays,
+            rawDisplays,
             campaignsRes,
             totalSlotsObj,
             assignedSlotsObj,
@@ -49,9 +48,12 @@ router.get('/dashboard', async (req, res) => {
             require('../services/stats.service').getAllMediaStats()
         ]);
         
+        const isSyncing = rawDisplays.syncing || false;
+        const displays = isSyncing ? [] : rawDisplays;
+        
         const totalScreens = displays.length;
         const onlineScreens = displays.filter(d => d.loggedIn === 1 || d.loggedIn === true).length;
-        const activeCampaigns = campaignsRes.length || 0;
+        const activeCampaigns = (campaignsRes.syncing || !campaignsRes) ? 0 : campaignsRes.length;
         const availableSlotsCount = (totalSlotsObj && totalSlotsObj.count > 0) ? (totalSlotsObj.count - assignedSlotsObj.count) : (totalScreens * 20);
 
         let totalImpressions = 0;
@@ -71,6 +73,7 @@ router.get('/dashboard', async (req, res) => {
             totalPartners: totalPartnersObj.count,
             monthlyRevenue: monthlyRevenueObj.total || 0,
             revenueTrend,
+            syncing: isSyncing,
             recentAlerts: displays
                 .filter(d => d.loggedIn === 0 || d.loggedIn === false)
                 .slice(0, 5)
@@ -86,9 +89,8 @@ router.get('/dashboard', async (req, res) => {
 
 /** 
  * GET /api/admin/brands - List all registered brands with metrics.
- * Supports filters: status, industry, search (name/email).
  */
-router.get('/brands', async (req, res) => {
+router.get('/brands', hasPermission('screen:manage'), async (req, res) => {
     try {
         const { status, industry, search } = req.query;
         let query = `
@@ -122,7 +124,7 @@ router.get('/brands', async (req, res) => {
 });
 
 /** GET /api/admin/brands/:id - Full brand profile with metrics. */
-router.get('/brands/:id', async (req, res) => {
+router.get('/brands/:id', hasPermission('screen:manage'), async (req, res) => {
     try {
         const brand = await dbGet(`
             SELECT b.*,
@@ -140,7 +142,7 @@ router.get('/brands/:id', async (req, res) => {
 });
 
 /** POST /api/admin/brands - Create a brand with email validation and conflict check. */
-router.post('/brands', async (req, res) => {
+router.post('/brands', hasPermission('*'), async (req, res) => {
     const { company_name, name, industry, contact_person, email, phone, password } = req.body;
     const finalName = company_name || name;
     
@@ -195,8 +197,61 @@ router.post('/brands', async (req, res) => {
     }
 });
 
-/** PATCH /api/admin/brands/:id/approve - Activate a brand. */
-router.patch('/brands/:id/approve', async (req, res) => {
+// ─── USERS MANAGEMENT ───
+
+/** GET /admin/api/users - List all users */
+router.get('/users', hasPermission('user:view'), async (req, res) => {
+    try {
+        const users = await dbAll('SELECT id, username, email, role, brand_id, partner_id, created_at FROM users');
+        res.json(users);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/** GET /admin/api/users/:id - Single user */
+router.get('/users/:id', hasPermission('user:view'), async (req, res) => {
+    try {
+        const user = await dbGet('SELECT id, username, email, role, brand_id, partner_id, created_at FROM users WHERE id = ?', [req.params.id]);
+        if (!user) return res.status(404).json({ error: 'User not found' });
+        res.json(user);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/** POST /admin/api/users - Create user (SuperAdmin only) */
+router.post('/users', hasPermission('*'), async (req, res) => {
+    try {
+        const { username, email, password, role, brand_id, partner_id } = req.body;
+        const { hashPassword } = await import('@better-auth/utils/password');
+        const hash = await hashPassword(password);
+        
+        const result = await dbRun(
+            'INSERT INTO users (username, email, password_hash, role, brand_id, partner_id) VALUES (?, ?, ?, ?, ?, ?)',
+            [username, email, hash, role, brand_id, partner_id]
+        );
+        res.status(201).json({ success: true, id: result.id });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/** PUT /admin/api/users/:id - Update user (SuperAdmin only) */
+router.put('/users/:id', hasPermission('*'), async (req, res) => {
+    try {
+        const { username, email, role, brand_id, partner_id } = req.body;
+        await dbRun(
+            'UPDATE users SET username = ?, email = ?, role = ?, brand_id = ?, partner_id = ? WHERE id = ?',
+            [username, email, role, brand_id, partner_id, req.params.id]
+        );
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/** DELETE /admin/api/users/:id - Delete user (SuperAdmin only) */
+router.delete('/users/:id', hasPermission('*'), async (req, res) => {
+    try {
+        await dbRun('DELETE FROM users WHERE id = ?', [req.params.id]);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.patch('/brands/:id/approve', hasPermission('*'), async (req, res) => {
     try {
         const result = await dbRun('UPDATE brands SET status = "Active" WHERE id = ?', [req.params.id]);
         if (result.changes === 0) return res.status(404).json({ error: 'Brand not found' });
@@ -311,6 +366,7 @@ router.post('/subscriptions', async (req, res) => {
             `INSERT INTO subscriptions (brand_id, plan_name, start_date, end_date, screens_included, slots_included, cities, payment_status, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [brand_id, plan_name, start_date, end_date, screens_included || 1, slots_included || 1, cities || null, payment_status || 'Pending', status || 'Draft', notes || null]
         );
+        logActivity({ action: ACTION.CREATE, module: MODULE.BILLING, description: `Subscription created for Brand ID ${brand_id} (Plan: ${plan_name})`, req });
         res.status(201).json({ success: true, id: result.id });
     } catch(err) { res.status(500).json({ error: err.message }); }
 });
@@ -324,6 +380,7 @@ router.put('/subscriptions/:id', async (req, res) => {
             [plan_name, start_date, end_date, screens_included, slots_included, cities, payment_status, status, notes, req.params.id]
         );
         if (result.changes === 0) return res.status(404).json({ error: 'Subscription not found' });
+        logActivity({ action: ACTION.UPDATE, module: MODULE.BILLING, description: `Subscription ID ${req.params.id} updated`, req });
         res.json({ success: true });
     } catch(err) { res.status(500).json({ error: err.message }); }
 });
@@ -333,6 +390,7 @@ router.delete('/subscriptions/:id', async (req, res) => {
     try {
         const result = await dbRun('DELETE FROM subscriptions WHERE id = ?', [req.params.id]);
         if (result.changes === 0) return res.status(404).json({ error: 'Subscription not found' });
+        logActivity({ action: ACTION.DELETE, module: MODULE.BILLING, description: `Subscription ID ${req.params.id} deleted`, req });
         res.json({ success: true });
     } catch(err) { res.status(500).json({ error: err.message }); }
 });
@@ -439,6 +497,13 @@ router.post('/media/link-brand', async (req, res) => {
                 [displayId, slotId, brandId, 'Assigned']
             );
         }
+        
+        logActivity({
+            action: ACTION.ASSIGN,
+            module: MODULE.CREATIVE,
+            description: `Media ID ${mediaId} linked to Brand ID ${brandId}${displayId ? ' on Display '+displayId : ''}`,
+            req
+        });
 
         res.json({ success: true });
     } catch (err) {
@@ -467,6 +532,12 @@ router.post('/media/assign', async (req, res) => {
         } else {
             await dbRun('REPLACE INTO media_brands (mediaId, brand_id, status) VALUES (?, ?, "Approved")', [mediaId, brand_id]);
         }
+        logActivity({
+            action: brand_id ? ACTION.ASSIGN : ACTION.UNASSIGN,
+            module: MODULE.CREATIVE,
+            description: brand_id ? `Media ID ${mediaId} manually assigned to Brand ID ${brand_id}` : `Media ID ${mediaId} unlinked from all brands`,
+            req
+        });
         res.json({ success: true });
     } catch (err) {
         console.error('[Admin API] Media Assign Error:', err.message);
@@ -690,6 +761,13 @@ router.post('/partners/:id/assign-screens', async (req, res) => {
             const ph = screenIds.map(() => '?').join(',');
             await dbRun(`UPDATE screens SET partner_id = ? WHERE id IN (${ph})`, [partnerId, ...screenIds]);
         }
+
+        logActivity({ 
+            action: ACTION.SYNC, 
+            module: MODULE.PARTNER, 
+            description: `Partner ID ${partnerId} screens updated (Count: ${screenIds.length})`, 
+            req 
+        });
 
         res.json({ success: true });
 
@@ -980,6 +1058,16 @@ router.post('/slots/assign', async (req, res) => {
             }
             io.emit('slot_assigned', { displayId, slot_number, brand_id: brand_id || null, brandName, timestamp: Date.now() });
         }
+
+        logActivity({
+            action: brand_id ? ACTION.ASSIGN : ACTION.UNASSIGN,
+            module: MODULE.SLOT,
+            description: brand_id 
+                ? `Slot ${slot_number} on Display ${displayId} assigned to Brand ID ${brand_id}` 
+                : `Slot ${slot_number} on Display ${displayId} unassigned`,
+            req
+        });
+
         res.json({ success: true });
     } catch(err) { res.status(500).json({ error: err.message }); }
 });
@@ -1187,7 +1275,7 @@ router.get('/network/health', async (req, res) => {
 });
 
 /** GET /api/admin/creatives/pending - List all media uploaded by brands awaiting review. */
-router.get('/creatives/pending', async (req, res) => {
+router.get('/creatives/pending', hasPermission('creative:moderate'), async (req, res) => {
     try {
         const query = `
             SELECT mb.mediaId, mb.brand_id, mb.status, b.name as brand_name, mb.moderated_at
@@ -1206,7 +1294,9 @@ router.get('/creatives/pending', async (req, res) => {
                 ...p,
                 name: x ? x.name : 'Unknown Media',
                 fileName: x ? x.fileName : '',
-                mediaType: x ? x.mediaType : 'video'
+                mediaType: x ? x.mediaType : 'video',
+                thumbnailUrl: x ? `/xibo/library/download/${p.mediaId}?thumbnail=1` : null,
+                previewUrl: x ? `/xibo/library/download/${p.mediaId}` : null
             };
         });
         
@@ -1439,10 +1529,8 @@ router.get('/xibo/config', (req, res) => {
 
 /**
  * GET /admin/api/activity-logs
- * Returns paginated activity logs with optional filters.
- * Query params: module, action, user_id, from, to, search, page, limit
  */
-router.get('/activity-logs', async (req, res) => {
+router.get('/activity-logs', hasPermission('audit:view'), async (req, res) => {
     try {
         const { module: mod, action, user_id, from, to, search, page = 1, limit = 50 } = req.query;
         const safePage  = Math.max(1, parseInt(page, 10)  || 1);

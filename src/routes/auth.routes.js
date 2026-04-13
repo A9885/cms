@@ -57,14 +57,15 @@ router.post('/login', async (req, res) => {
         }
 
         const user = result.user;
+        const userId = user && user.id ? parseInt(user.id, 10) : null;
 
         // Log successful login
         logActivity({
             action: ACTION.LOGIN,
             module: MODULE.AUTH,
-            description: `User "${user.username || user.email}" (role: ${user.role || 'unknown'}) logged in`,
+            description: `User "${user.username || user.email || 'unknown'}" (role: ${user.role || 'unknown'}) logged in`,
             req,
-            userId: user.id
+            userId: isNaN(userId) ? null : userId
         });
         
         // Determine redirect portal
@@ -92,13 +93,15 @@ router.post('/logout', async (req, res) => {
         const { auth } = await getAuth();
         const { fromNodeHeaders } = await import('better-auth/node');
         const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) }).catch(() => null);
-        if (session?.user) {
+        if (session && session.user) {
+            const user = session.user;
+            const userId = user && user.id ? parseInt(user.id, 10) : null;
             logActivity({
                 action: ACTION.LOGOUT,
                 module: MODULE.AUTH,
-                description: `User "${session.user.username || session.user.email}" logged out`,
+                description: `User "${user.username || user.email || 'unknown'}" logged out`,
                 req,
-                userId: session.user.id
+                userId: isNaN(userId) ? null : userId
             });
         }
         await auth.api.signOut({ headers: fromNodeHeaders(req.headers) });

@@ -568,6 +568,22 @@
         </div>
     </div>
 
+    <!-- Media Preview Modal -->
+    <div class="modal-overlay" id="creative-preview-modal">
+        <div class="modal" style="background:#fff; padding:2rem; border-radius:var(--radius-lg); max-width: 600px; width: 90%;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
+                <h2 class="panel-title" id="preview-modal-title" style="margin:0;">Creative Preview</h2>
+                <i data-lucide="x" class="modal-close" onclick="document.getElementById('creative-preview-modal').classList.remove('active')" style="cursor:pointer;"></i>
+            </div>
+            <div id="preview-modal-content" style="background:#f8fafc; border-radius:12px; min-height:300px; display:flex; align-items:center; justify-content:center; overflow:hidden; border: 1px solid #e2e8f0;">
+                <!-- Content injected by JS -->
+            </div>
+            <div style="margin-top: 1.5rem; display: flex; justify-content: flex-end; gap: 10px;">
+                <button class="btn btn-blue" onclick="document.getElementById('creative-preview-modal').classList.remove('active')">Close</button>
+            </div>
+        </div>
+    </div>
+
     <style>
         /* Specific Slot Styles for Purchase */
         .slot-item {
@@ -607,6 +623,7 @@
                 if (target === 'dashboard' && typeof loadDashboard === 'function') loadDashboard();
                 if (target === 'screens' && typeof loadScreens === 'function') loadScreens();
                 if (target === 'reports' && typeof loadPoP === 'function') loadPoP();
+                if (target === 'creatives' && typeof loadCreatives === 'function') loadCreatives();
                 if (target === 'market' && typeof loadMarket === 'function') loadMarket();
                 if (target === 'billing' && typeof loadBilling === 'function') loadBilling();
                 if (target === 'billing' && typeof loadSubscription === 'function') loadSubscription();

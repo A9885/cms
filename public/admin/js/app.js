@@ -166,6 +166,51 @@ const App = {
         }, 4000);
     },
 
+    showSyncingBanner() {
+        if (document.getElementById('xibo-sync-banner')) return;
+
+        const banner = document.createElement('div');
+        banner.id = 'xibo-sync-banner';
+        banner.innerHTML = '⚠️ Xibo Connection Syncing... Some data may be outdated.';
+        
+        banner.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            background: #FFF3CD;
+            border-bottom: 1px solid #FFC107;
+            color: #856404;
+            padding: 12px;
+            text-align: center;
+            font-weight: 600;
+            z-index: 9999;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            animation: bannerFadeIn 0.3s ease-out;
+            transition: opacity 1s ease-out;
+        `;
+
+        // Add animation if not present
+        if (!document.getElementById('banner-anims')) {
+            const style = document.createElement('style');
+            style.id = 'banner-anims';
+            style.innerHTML = `
+                @keyframes bannerFadeIn {
+                    from { transform: translateY(-100%); }
+                    to { transform: translateY(0); }
+                }
+            `;
+            document.head.appendChild(style);
+        }
+
+        document.body.prepend(banner);
+
+        setTimeout(() => {
+            banner.style.opacity = '0';
+            setTimeout(() => banner.remove(), 1000);
+        }, 10000);
+    },
+
     showConfirm(message) {
         return new Promise((resolve) => {
             const overlay = document.createElement('div');

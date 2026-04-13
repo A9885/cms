@@ -233,11 +233,19 @@ App.registerView('moderation', {
                     const wrap = document.createElement('div');
                     wrap.style.cssText = 'display:flex;align-items:center;gap:12px;';
                     const iconBox = document.createElement('div');
-                    iconBox.style.cssText = 'width:50px;height:35px;background:rgba(59,130,246,0.1);border-radius:6px;display:flex;align-items:center;justify-content:center;';
-                    const i = document.createElement('i');
-                    i.setAttribute('data-lucide', item.mediaType === 'video' ? 'film' : 'image');
-                    i.style.cssText = 'color:#3b82f6;width:18px;';
-                    iconBox.appendChild(i); wrap.appendChild(iconBox);
+                    iconBox.style.cssText = 'width:60px;height:45px;background:#f8fafc;border-radius:6px;display:flex;align-items:center;justify-content:center;overflow:hidden;border:1px solid var(--border);';
+                    if (item.thumbnailUrl) {
+                        const img = document.createElement('img');
+                        img.src = item.thumbnailUrl;
+                        img.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+                        iconBox.appendChild(img);
+                    } else {
+                        const i = document.createElement('i');
+                        i.setAttribute('data-lucide', item.mediaType === 'video' ? 'film' : 'image');
+                        i.style.cssText = 'color:#3b82f6;width:18px;';
+                        iconBox.appendChild(i);
+                    }
+                    wrap.appendChild(iconBox);
                     const nameText = document.createElement('div');
                     nameText.style.fontWeight = '600';
                     nameText.textContent = item.name || 'Untitled Content';
@@ -273,10 +281,27 @@ App.registerView('moderation', {
         document.getElementById('mod-modal-media-id').innerText = media.mediaId;
         document.getElementById('mod-modal-type').innerText = media.mediaType.toUpperCase();
         preview.innerHTML = '';
-        const i = document.createElement('i');
-        i.setAttribute('data-lucide', media.mediaType === 'video' ? 'film' : 'image');
-        i.style.cssText = 'width:64px;height:64px;color:#3b82f6;';
-        preview.appendChild(i); lucide.createIcons();
+        if (media.previewUrl) {
+            if (media.mediaType === 'video') {
+                const video = document.createElement('video');
+                video.src = media.previewUrl;
+                video.controls = true;
+                video.autoplay = true;
+                video.style.cssText = 'width:100%;max-height:400px;border-radius:4px;';
+                preview.appendChild(video);
+            } else {
+                const img = document.createElement('img');
+                img.src = media.previewUrl;
+                img.style.cssText = 'max-width:100%;max-height:400px;border-radius:4px;object-fit:contain;';
+                preview.appendChild(img);
+            }
+        } else {
+            const i = document.createElement('i');
+            i.setAttribute('data-lucide', media.mediaType === 'video' ? 'film' : 'image');
+            i.style.cssText = 'width:64px;height:64px;color:#3b82f6;';
+            preview.appendChild(i);
+        }
+        lucide.createIcons();
         document.getElementById('mod-btn-approve').onclick = () => this.moderate(media.mediaId, 'approve');
         document.getElementById('mod-btn-reject').onclick  = () => this.moderate(media.mediaId, 'reject');
         modal.classList.add('active');
