@@ -5,6 +5,7 @@ const bcrypt = require('bcryptjs');
 const { dbGet, dbRun } = require('../db/database');
 const { JWT_SECRET, authMiddleware } = require('../middleware/auth.middleware');
 const { getAuth } = require('../auth.js');
+const { logActivity, ACTION, MODULE } = require('../services/activity-logger.service');
 
 router.post('/login', async (req, res) => {
     const { username, password } = req.body;
@@ -45,10 +46,26 @@ router.post('/login', async (req, res) => {
         }
 
         if (!result || !result.user) {
+            logActivity({
+                action: 'LOGIN',
+                module: MODULE.AUTH,
+                description: `Failed login attempt for "${username}"`,
+                req,
+                userId: null
+            });
             return res.status(401).json({ error: 'Invalid credentials' });
         }
 
         const user = result.user;
+
+        // Log successful login
+        logActivity({
+            action: ACTION.LOGIN,
+            module: MODULE.AUTH,
+            description: `User "${user.username || user.email}" (role: ${user.role || 'unknown'}) logged in`,
+            req,
+            userId: user.id
+        });
         
         // Determine redirect portal
         let portalUrl = '/admin/';
@@ -74,9 +91,17 @@ router.post('/logout', async (req, res) => {
     try {
         const { auth } = await getAuth();
         const { fromNodeHeaders } = await import('better-auth/node');
-        await auth.api.signOut({
-            headers: fromNodeHeaders(req.headers)
-        });
+        const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) }).catch(() => null);
+        if (session?.user) {
+            logActivity({
+                action: ACTION.LOGOUT,
+                module: MODULE.AUTH,
+                description: `User "${session.user.username || session.user.email}" logged out`,
+                req,
+                userId: session.user.id
+            });
+        }
+        await auth.api.signOut({ headers: fromNodeHeaders(req.headers) });
     } catch (e) {}
     res.json({ success: true });
 });
@@ -137,6 +162,13 @@ router.post('/change-password', authMiddleware, async (req, res) => {
         });
         
         await dbRun('UPDATE users SET force_password_reset = 0 WHERE id = ?', [req.user.id]);
+        logActivity({
+            action: ACTION.UPDATE,
+            module: MODULE.AUTH,
+            description: `User "${req.user.username || req.user.email}" changed their password`,
+            req,
+            userId: req.user.id
+        });
         res.json({ success: true, message: 'Password updated successfully.' });
     } catch (err) {
         console.error('Change password error:', err);

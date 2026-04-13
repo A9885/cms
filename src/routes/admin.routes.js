@@ -1223,8 +1223,12 @@ router.patch('/creatives/:id/approve', async (req, res) => {
             [id]
         );
         if (result.changes === 0) return res.status(404).json({ error: 'Creative record not found.' });
+        logActivity({ action: ACTION.APPROVE, module: MODULE.CREATIVE, description: `Creative (mediaId: ${id}) approved`, req });
         res.json({ success: true, message: 'Creative approved successfully.' });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) {
+        logActivity({ action: ACTION.ERROR, module: MODULE.CREATIVE, description: `Failed to approve creative mediaId ${req.params.id}: ${err.message}`, req });
+        res.status(500).json({ error: err.message });
+    }
 });
 
 /** PATCH /api/admin/creatives/:id/reject - Reject an uploaded creative. */
@@ -1236,8 +1240,12 @@ router.patch('/creatives/:id/reject', async (req, res) => {
             [id]
         );
         if (result.changes === 0) return res.status(404).json({ error: 'Creative record not found.' });
+        logActivity({ action: ACTION.REJECT, module: MODULE.CREATIVE, description: `Creative (mediaId: ${id}) rejected`, req });
         res.json({ success: true, message: 'Creative rejected.' });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) {
+        logActivity({ action: ACTION.ERROR, module: MODULE.CREATIVE, description: `Failed to reject creative mediaId ${req.params.id}: ${err.message}`, req });
+        res.status(500).json({ error: err.message });
+    }
 });
 
 

@@ -5,6 +5,7 @@ const path = require('multer'); // dummy name for logic
 const fs = require('fs');
 const xiboService = require('../services/xibo.service');
 const { dbRun, dbAll, dbGet } = require('../db/database');
+const { logActivity, ACTION, MODULE } = require('../services/activity-logger.service');
 
 // Configure Multer for temporary storage
 const upload = multer({ dest: '/tmp/uploads/' });
@@ -45,6 +46,14 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     // Cleanup local temp file
     if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
 
+    logActivity({
+      action: ACTION.UPLOAD,
+      module: MODULE.CREATIVE,
+      description: `Creative uploaded: "${file.originalname}" (mediaId: ${mediaId})`,
+      req,
+      userId: req.user?.id
+    });
+
     res.json({
       success: true,
       mediaId,
@@ -54,6 +63,13 @@ router.post('/upload', upload.single('file'), async (req, res) => {
   } catch (err) {
     if (file && fs.existsSync(file.path)) fs.unlinkSync(file.path);
     console.error('[Creative Upload Error]', err.message);
+    logActivity({
+      action: ACTION.ERROR,
+      module: MODULE.CREATIVE,
+      description: `Creative upload failed: ${err.message}`,
+      req,
+      userId: req.user?.id
+    });
     res.status(500).json({ error: err.message });
   }
 });

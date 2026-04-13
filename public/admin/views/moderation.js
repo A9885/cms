@@ -85,6 +85,7 @@ App.registerView('moderation', {
                                 <option>DISPLAY</option><option>CMS</option><option>CAMPAIGN</option>
                                 <option>CREATIVE</option><option>LAYOUT</option><option>MODERATION</option>
                                 <option>BILLING</option><option>USER</option><option>SYSTEM</option>
+                                <option>AUTH</option><option>SLOT</option>
                             </select>
                         </div>
                         <div style="flex:1;min-width:120px;">
@@ -94,6 +95,7 @@ App.registerView('moderation', {
                                 <option>CREATE</option><option>UPDATE</option><option>DELETE</option>
                                 <option>APPROVE</option><option>REJECT</option><option>ERROR</option>
                                 <option>UPLOAD</option><option>PROVISION</option><option>SYNC</option>
+                                <option>LOGIN</option><option>LOGOUT</option><option>ASSIGN</option><option>UNASSIGN</option>
                             </select>
                         </div>
                         <div style="flex:1;min-width:130px;">
@@ -363,12 +365,14 @@ App.registerView('moderation', {
                     APPROVE:   '#1d4ed8', REJECT:   '#7c3aed', ERROR:     '#dc2626',
                     UPLOAD:    '#0369a1', PROVISION:'#7e22ce', SYNC:      '#0f766e',
                     ASSIGN:    '#15803d', UNASSIGN: '#b45309',
+                    LOGIN:     '#065f46', LOGOUT:   '#581c87',
                 }[r.action] || '#64748b';
                 const actionBg = {
                     CREATE:    '#dcfce7', UPDATE:   '#fef3c7', DELETE:    '#fee2e2',
                     APPROVE:   '#dbeafe', REJECT:   '#ede9fe', ERROR:     '#fee2e2',
                     UPLOAD:    '#e0f2fe', PROVISION:'#f3e8ff', SYNC:      '#ccfbf1',
                     ASSIGN:    '#dcfce7', UNASSIGN: '#fef9c3',
+                    LOGIN:     '#d1fae5', LOGOUT:   '#f3e8ff',
                 }[r.action] || '#f1f5f9';
 
                 const moduleBg = {
