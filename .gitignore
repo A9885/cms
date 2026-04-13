@@ -1,6 +1,22 @@
+# Dependencies
 node_modules/
+
+# Environment secrets
 .env
+
+# Uploads / runtime files
 uploads/
+tmp/
+scratch/
+
+# Logs
 *.log
+sched_debug.log
+
+# Database / local storage
 *.sqlite
 *.db
+
+# Runtime outputs (not source code)
+pipeline-report.json
+upload_log.json

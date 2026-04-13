@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "db:migrate": "node scripts/migrate.js"
+    "db:migrate": "node scripts/migrate.js",
+    "test": "node tests/test_db.js",
+    "scripts:check": "node scripts/check_demo.js"
   },
   "dependencies": {
     "@better-auth/infra": "^0.1.14",
