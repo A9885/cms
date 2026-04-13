@@ -92,6 +92,12 @@ async function initSchema() {
             await p.query("ALTER TABLE users ADD COLUMN force_password_reset BOOLEAN DEFAULT FALSE");
         } catch(e) {}
 
+        // Soft patches to prevent strict mode insertion errors for fields automatically created by Better Auth that lack defaults
+        try { await p.query("ALTER TABLE users ALTER COLUMN emailVerified SET DEFAULT 0"); } catch(e) {}
+        try { await p.query("ALTER TABLE users ALTER COLUMN name SET DEFAULT ''"); } catch(e) {}
+        try { await p.query("ALTER TABLE users MODIFY COLUMN createdAt DATETIME DEFAULT CURRENT_TIMESTAMP"); } catch(e) {}
+        try { await p.query("ALTER TABLE users MODIFY COLUMN updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"); } catch(e) {}
+
         const [users] = await p.query("SELECT COUNT(*) as c FROM users");
         if (users[0].c === 0) {
             // Need to use Better Auth compatible hashing
@@ -195,6 +201,62 @@ async function initSchema() {
                 date DATE NOT NULL,
                 count INT DEFAULT 0,
                 PRIMARY KEY (mediaId, displayId, date)
+            )
+        `);
+
+        // ─── MULTI-TENANT XIBO SAAS TABLES ───────────────────────────────────────
+
+        await p.query(`
+            CREATE TABLE IF NOT EXISTS partner_xibo_credentials (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                partner_id INT NOT NULL UNIQUE,
+                xibo_base_url VARCHAR(512) NOT NULL,
+                client_id VARCHAR(255) NOT NULL,
+                client_secret VARCHAR(255) NOT NULL,
+                access_token TEXT,
+                token_expires_at DATETIME,
+                provision_status ENUM('pending','provisioning','active','error') DEFAULT 'pending',
+                provision_error TEXT,
+                provision_log JSON,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                FOREIGN KEY (partner_id) REFERENCES partners(id) ON DELETE CASCADE
+            )
+        `);
+
+        await p.query(`
+            CREATE TABLE IF NOT EXISTS partner_xibo_resources (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                partner_id INT NOT NULL,
+                resource_type ENUM('folder','display_group','layout','playlist','campaign','schedule') NOT NULL,
+                xibo_resource_id INT NOT NULL,
+                xibo_resource_name VARCHAR(512),
+                meta JSON,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY unique_partner_resource (partner_id, resource_type),
+                FOREIGN KEY (partner_id) REFERENCES partners(id) ON DELETE CASCADE
+            )
+        `);
+
+        // Safe migrations for partners table
+        try { await p.query("ALTER TABLE partners ADD COLUMN xibo_provision_status VARCHAR(50) DEFAULT 'not_started'"); } catch(e) {}
+        try { await p.query("ALTER TABLE partners ADD COLUMN xibo_folder_id INT"); } catch(e) {}
+        try { await p.query("ALTER TABLE partners ADD COLUMN xibo_display_group_id INT"); } catch(e) {}
+
+        // ─── ACTIVITY LOGGING ─────────────────────────────────────────────────────
+        await p.query(`
+            CREATE TABLE IF NOT EXISTS activity_logs (
+                id          INT AUTO_INCREMENT PRIMARY KEY,
+                user_id     INT DEFAULT NULL,
+                action      VARCHAR(50)  NOT NULL,
+                module      VARCHAR(50)  NOT NULL,
+                description TEXT         NOT NULL,
+                ip_address  VARCHAR(100) DEFAULT NULL,
+                created_at  DATETIME     DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_module     (module),
+                INDEX idx_action     (action),
+                INDEX idx_user_id    (user_id),
+                INDEX idx_created_at (created_at)
             )
         `);
 

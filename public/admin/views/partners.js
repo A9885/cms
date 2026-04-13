@@ -159,8 +159,108 @@ App.registerView('partners', {
                     </div>
                 </div>
             </div>
+
+            <!-- ═══ XIBO INTEGRATION MODAL ═══════════════════════════════════════ -->
+            <div class="modal-overlay" id="xibo-setup-modal">
+                <div class="modal" style="width: 640px; max-width: 95vw;">
+                    <div class="modal-header" style="background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%); border-radius: 12px 12px 0 0; padding: 20px 24px;">
+                        <div style="display:flex; align-items:center; gap:12px;">
+                            <div style="width:36px; height:36px; background: rgba(99,179,237,0.2); border-radius:8px; display:flex; align-items:center; justify-content:center;">
+                                <i data-lucide="zap" style="width:18px; height:18px; color:#63b3ed;"></i>
+                            </div>
+                            <div>
+                                <div class="modal-title" style="color:#fff; font-size:1rem;">Xibo CMS Integration</div>
+                                <div style="font-size:0.72rem; color:#94a3b8; margin-top:2px;">Auto-provision partner's Xibo account</div>
+                            </div>
+                        </div>
+                        <button class="modal-close" style="color:#94a3b8;" onclick="Views.partners.closeXiboModal()"><i data-lucide="x"></i></button>
+                    </div>
+
+                    <div class="modal-body" style="padding: 0;">
+
+                        <!-- Status Banner -->
+                        <div id="xibo-status-banner" style="display:none; padding: 10px 20px; font-size:0.8rem; font-weight:600; border-bottom: 1px solid #e2e8f0;"></div>
+
+                        <!-- Credential Form -->
+                        <div id="xibo-cred-section" style="padding: 20px 24px; border-bottom: 1px solid #f0f4f8;">
+                            <div style="font-size:0.8rem; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:14px;">
+                                Xibo API Credentials
+                            </div>
+                            <div class="form-group" style="margin-bottom:12px;">
+                                <label style="font-size:0.78rem; font-weight:600; color:#374151; display:block; margin-bottom:4px;">
+                                    Xibo CMS Base URL
+                                </label>
+                                <input type="url" class="form-control" id="xibo-base-url" 
+                                    placeholder="https://your-xibo-cms.com" 
+                                    style="font-size:0.85rem; font-family: monospace;">
+                                <small style="color:#94a3b8; font-size:0.7rem;">Include https://, no trailing slash needed</small>
+                            </div>
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                                <div class="form-group">
+                                    <label style="font-size:0.78rem; font-weight:600; color:#374151; display:block; margin-bottom:4px;">Client ID</label>
+                                    <input type="text" class="form-control" id="xibo-client-id" 
+                                        placeholder="OAuth2 Client ID" style="font-family:monospace; font-size:0.82rem;">
+                                </div>
+                                <div class="form-group">
+                                    <label style="font-size:0.78rem; font-weight:600; color:#374151; display:block; margin-bottom:4px;">Client Secret</label>
+                                    <input type="password" class="form-control" id="xibo-client-secret" 
+                                        placeholder="••••••••••••" style="font-family:monospace; font-size:0.82rem;">
+                                </div>
+                            </div>
+                            <button id="btn-xibo-connect" class="btn btn-primary" style="width:100%; margin-top:8px; font-weight:600;" 
+                                onclick="Views.partners.connectXibo()">
+                                <i data-lucide="zap" style="width:14px; height:14px; margin-right:6px; vertical-align:middle;"></i>
+                                Connect &amp; Auto-Provision Xibo
+                            </button>
+                        </div>
+
+                        <!-- Live Provisioning Progress -->
+                        <div id="xibo-progress-section" style="padding: 20px 24px; border-bottom: 1px solid #f0f4f8;">
+                            <div style="font-size:0.8rem; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:14px;">
+                                Provisioning Progress
+                            </div>
+                            <div id="xibo-steps-list" style="display:flex; flex-direction:column; gap:8px;">
+                                <!-- Steps rendered dynamically -->
+                                <div style="text-align:center; color:#94a3b8; font-size:0.8rem; padding:20px 0;">
+                                    Connect your Xibo account above to start provisioning.
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Resource Summary -->
+                        <div id="xibo-resources-section" style="padding: 20px 24px; display:none;">
+                            <div style="font-size:0.8rem; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:14px;">
+                                Provisioned Resources
+                            </div>
+                            <div id="xibo-resources-grid" style="display:grid; grid-template-columns: repeat(3, 1fr); gap:10px;">
+                                <!-- Resource cards rendered dynamically -->
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <div class="modal-footer" style="justify-content:space-between; flex-wrap:wrap; gap:8px;">
+                        <div style="display:flex; gap:8px;">
+                            <button class="btn btn-secondary btn-sm" id="btn-xibo-reprovision" style="display:none; font-size:0.75rem;" 
+                                onclick="Views.partners.reprovisionXibo(false)">
+                                <i data-lucide="refresh-cw" style="width:12px;"></i> Re-Provision
+                            </button>
+                            <button class="btn btn-sm" id="btn-xibo-reset" style="display:none; background:#fee2e2; color:#b91c1c; border:none; font-size:0.75rem;" 
+                                onclick="Views.partners.reprovisionXibo(true)">
+                                <i data-lucide="alert-triangle" style="width:12px;"></i> Full Reset
+                            </button>
+                            <button class="btn btn-sm" id="btn-xibo-disconnect" style="display:none; background:#fef2f2; color:#dc2626; border:1px solid #fecaca; font-size:0.75rem;" 
+                                onclick="Views.partners.disconnectXibo()">
+                                <i data-lucide="unlink" style="width:12px;"></i> Disconnect
+                            </button>
+                        </div>
+                        <button class="btn btn-secondary" onclick="Views.partners.closeXiboModal()">Close</button>
+                    </div>
+                </div>
+            </div>
         `;
     },
+
 
     async mount(container) {
         window.Views = window.Views || {};
@@ -248,15 +348,25 @@ App.registerView('partners', {
 
                 const editBtn = document.createElement('button');
                 editBtn.className = 'icon-btn';
-                editBtn.title = 'Edit';
+                editBtn.title = 'Edit Partner';
                 editBtn.onclick = () => this.showModal(p.id);
                 editBtn.innerHTML = '<i data-lucide="edit-2"></i>';
                 tdActions.appendChild(editBtn);
 
+                const xiboBtn = document.createElement('button');
+                xiboBtn.className = 'icon-btn';
+                xiboBtn.title = 'Xibo Integration';
+                const isProvisioned = p.xibo_provision_status === 'active';
+                const hasError = p.xibo_provision_status === 'error';
+                xiboBtn.style.color = isProvisioned ? '#10b981' : (hasError ? '#ef4444' : '#6366f1');
+                xiboBtn.onclick = () => this.showXiboModal(p.id);
+                xiboBtn.innerHTML = '<i data-lucide="zap"></i>';
+                tdActions.appendChild(xiboBtn);
+
                 const deleteBtn = document.createElement('button');
                 deleteBtn.className = 'icon-btn';
                 deleteBtn.style.color = '#ef4444';
-                deleteBtn.title = 'Delete';
+                deleteBtn.title = 'Delete Partner';
                 deleteBtn.onclick = () => this.deletePartner(p.id);
                 deleteBtn.innerHTML = '<i data-lucide="trash-2"></i>';
                 tdActions.appendChild(deleteBtn);
@@ -479,7 +589,7 @@ App.registerView('partners', {
             const res = await Api.post(`/partners/${this.assigningId}/assign-screens`, { screenIds });
             if (res.error) throw new Error(res.error);
             
-            App.showToast('Screens assigned successfully', 'success');
+            App.showToast('Screens assigned successfully. Xibo display groups syncing in background...', 'success');
             this.closeAssignModal();
             await this.loadPartners();
         } catch (err) {
@@ -488,5 +598,333 @@ App.registerView('partners', {
             btn.disabled = false;
             btn.textContent = 'Confirm Assignment';
         }
+    },
+
+    // ─── XIBO INTEGRATION PANEL ──────────────────────────────────────────────
+
+    _xiboPollingInterval: null,
+    _xiboPartnerId: null,
+
+    /**
+     * Open the Xibo Integration modal for a specific partner.
+     */
+    async showXiboModal(partnerId) {
+        this._xiboPartnerId = partnerId;
+        const modal = document.getElementById('xibo-setup-modal');
+        modal.classList.add('active');
+        lucide.createIcons();
+
+        // Pre-fill existing credentials and status
+        await this._loadXiboStatus();
+    },
+
+    closeXiboModal() {
+        document.getElementById('xibo-setup-modal').classList.remove('active');
+        this._stopPolling();
+        this._xiboPartnerId = null;
+    },
+
+    /**
+     * Load current Xibo status and render the panel accordingly.
+     */
+    async _loadXiboStatus() {
+        if (!this._xiboPartnerId) return;
+        try {
+            // Load status
+            const status = await fetch(`/admin/api/partners/${this._xiboPartnerId}/xibo/status`, {
+                credentials: 'include'
+            }).then(r => r.json());
+
+            this._renderXiboStatus(status);
+
+            // Load resources if active
+            if (status.status === 'active') {
+                const resources = await fetch(`/admin/api/partners/${this._xiboPartnerId}/xibo/resources`, {
+                    credentials: 'include'
+                }).then(r => r.json());
+                this._renderResources(resources);
+            }
+
+            // Auto-poll if provisioning is in progress
+            if (status.status === 'provisioning') {
+                this._startPolling();
+            }
+        } catch (err) {
+            console.error('[Xibo Panel] Status load error:', err);
+        }
+    },
+
+    /**
+     * Render the modal UI based on current provisioning status.
+     */
+    _renderXiboStatus(status) {
+        const banner = document.getElementById('xibo-status-banner');
+        const btnsReprovision = document.getElementById('btn-xibo-reprovision');
+        const btnsReset = document.getElementById('btn-xibo-reset');
+        const btnsDisconnect = document.getElementById('btn-xibo-disconnect');
+        const credSection = document.getElementById('xibo-cred-section');
+        const resourceSection = document.getElementById('xibo-resources-section');
+
+        // Pre-fill URL if available
+        if (status.xibo_base_url) {
+            const urlInput = document.getElementById('xibo-base-url');
+            if (urlInput && !urlInput.value) urlInput.value = status.xibo_base_url;
+        }
+
+        // Status banner
+        if (status.status === 'active') {
+            banner.style.display = 'block';
+            banner.style.background = '#dcfce7';
+            banner.style.color = '#15803d';
+            banner.innerHTML = `✅ Xibo provisioned &amp; active — <span style="font-weight:400;">${status.xibo_base_url}</span>`;
+            [btnsReprovision, btnsReset, btnsDisconnect].forEach(b => b && (b.style.display = 'inline-flex'));
+            resourceSection.style.display = 'block';
+        } else if (status.status === 'provisioning') {
+            banner.style.display = 'block';
+            banner.style.background = '#fef9c3';
+            banner.style.color = '#854d0e';
+            banner.innerHTML = `⏳ Provisioning in progress... <span style="font-size:0.7rem; font-weight:400;">Auto-refreshing every 3s</span>`;
+            [btnsReprovision, btnsReset, btnsDisconnect].forEach(b => b && (b.style.display = 'none'));
+            resourceSection.style.display = 'none';
+        } else if (status.status === 'error') {
+            banner.style.display = 'block';
+            banner.style.background = '#fee2e2';
+            banner.style.color = '#991b1b';
+            banner.innerHTML = `❌ Provisioning failed: ${status.error || 'Unknown error'}`;
+            [btnsReprovision, btnsReset, btnsDisconnect].forEach(b => b && (b.style.display = 'inline-flex'));
+        } else {
+            banner.style.display = 'none';
+            [btnsReprovision, btnsReset, btnsDisconnect].forEach(b => b && (b.style.display = 'none'));
+        }
+
+        // Render steps
+        if (status.steps && status.steps.length > 0) {
+            this._renderSteps(status.steps);
+        }
+
+        lucide.createIcons();
+    },
+
+    _STEP_LABELS: {
+        authenticate: 'OAuth2 Authentication',
+        folder: 'Create Partner Folder',
+        display_group: 'Create Display Group',
+        layout: 'Create Default Layout (1920×1080)',
+        playlist: 'Create Content Playlist',
+        campaign: 'Create Campaign',
+        schedule: 'Schedule Campaign'
+    },
+
+    _STEP_ICONS: {
+        authenticate: 'key',
+        folder: 'folder-plus',
+        display_group: 'monitor',
+        layout: 'layout',
+        playlist: 'list',
+        campaign: 'megaphone',
+        schedule: 'calendar',
+        error: 'x-circle'
+    },
+
+    /**
+     * Render provisioning step list with ✅/⏳/❌ icons.
+     */
+    _renderSteps(steps) {
+        const container = document.getElementById('xibo-steps-list');
+        if (!container) return;
+
+        // Deduplicate: keep last entry per step name
+        const stepMap = new Map();
+        for (const s of steps) stepMap.set(s.step, s);
+        const deduped = [...stepMap.values()];
+
+        container.innerHTML = deduped.map(s => {
+            const isOk = s.status === 'ok';
+            const isErr = s.status === 'error';
+            const isRunning = s.status === 'running';
+            const icon = this._STEP_ICONS[s.step] || 'circle';
+            const label = this._STEP_LABELS[s.step] || s.step;
+            const bg = isOk ? '#f0fdf4' : (isErr ? '#fef2f2' : (isRunning ? '#fffbeb' : '#f8fafc'));
+            const iconColor = isOk ? '#16a34a' : (isErr ? '#dc2626' : (isRunning ? '#d97706' : '#94a3b8'));
+            const emoji = isOk ? '✅' : (isErr ? '❌' : (isRunning ? '⏳' : '○'));
+            return `
+                <div style="display:flex; align-items:center; gap:12px; padding:10px 14px; background:${bg}; border-radius:8px; border:1px solid ${isOk ? '#bbf7d0' : (isErr ? '#fecaca' : '#f1f5f9')};">
+                    <span style="font-size:1rem; flex-shrink:0;">${emoji}</span>
+                    <div style="flex:1;">
+                        <div style="font-size:0.8rem; font-weight:600; color:#1e293b;">${label}</div>
+                        <div style="font-size:0.7rem; color:#64748b; margin-top:1px;">${s.detail || ''}</div>
+                    </div>
+                    ${isRunning ? '<div class="spinner" style="width:14px;height:14px;border-width:2px;flex-shrink:0;"></div>' : ''}
+                </div>
+            `;
+        }).join('');
+    },
+
+    /**
+     * Render resource cards (Folder, Display Group, Layout, etc.)
+     */
+    _renderResources(data) {
+        const section = document.getElementById('xibo-resources-section');
+        const grid = document.getElementById('xibo-resources-grid');
+        if (!grid) return;
+
+        const resources = data.resources || [];
+        if (resources.length === 0) {
+            section.style.display = 'none';
+            return;
+        }
+
+        const typeIcons = {
+            folder: 'folder', 
+            display_group: 'monitor',
+            layout: 'layout', 
+            playlist: 'list',
+            campaign: 'megaphone', 
+            schedule: 'calendar'
+        };
+        const typeColors = {
+            folder: '#6366f1', display_group: '#0ea5e9',
+            layout: '#8b5cf6', playlist:'#f59e0b',
+            campaign: '#10b981', schedule: '#06b6d4'
+        };
+
+        grid.innerHTML = resources.map(r => {
+            const icon = typeIcons[r.type] || 'box';
+            const color = typeColors[r.type] || '#94a3b8';
+            const label = (r.type || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+            return `
+                <div style="padding:12px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; border-left:3px solid ${color};">
+                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+                        <i data-lucide="${icon}" style="width:14px; height:14px; color:${color};"></i>
+                        <span style="font-size:0.72rem; font-weight:700; color:#374151; text-transform:uppercase; letter-spacing:0.04em;">${label}</span>
+                    </div>
+                    <div style="font-size:0.9rem; font-weight:700; color:#0f172a;">ID: ${r.xibo_id}</div>
+                    <div style="font-size:0.68rem; color:#94a3b8; margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${r.name || ''}">${r.name || '-'}</div>
+                </div>
+            `;
+        }).join('');
+
+        section.style.display = 'block';
+        lucide.createIcons();
+    },
+
+    /**
+     * Submit credentials and start provisioning.
+     */
+    async connectXibo() {
+        const url = document.getElementById('xibo-base-url')?.value?.trim();
+        const id = document.getElementById('xibo-client-id')?.value?.trim();
+        const secret = document.getElementById('xibo-client-secret')?.value?.trim();
+
+        if (!url || !id || !secret) {
+            App.showToast('All three fields (URL, Client ID, Secret) are required.', 'error');
+            return;
+        }
+
+        const btn = document.getElementById('btn-xibo-connect');
+        btn.disabled = true;
+        btn.innerHTML = '<span style="font-size:0.75rem;">⏳ Connecting...</span>';
+
+        try {
+            const res = await fetch(`/admin/api/partners/${this._xiboPartnerId}/xibo/connect`, {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    xibo_base_url: url,
+                    client_id: id,
+                    client_secret: secret
+                })
+            }).then(r => r.json());
+
+            if (res.error) throw new Error(res.error);
+
+            App.showToast('Provisioning started! Monitoring progress...', 'success');
+            this._startPolling();
+            // Immediately refresh status display
+            await this._loadXiboStatus();
+        } catch (err) {
+            App.showToast('Connection failed: ' + err.message, 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i data-lucide="zap" style="width:14px; height:14px; margin-right:6px; vertical-align:middle;"></i> Connect & Auto-Provision Xibo';
+            lucide.createIcons();
+        }
+    },
+
+    /**
+     * Start polling the provisioning status every 3 seconds.
+     */
+    _startPolling() {
+        this._stopPolling();
+        this._xiboPollingInterval = setInterval(async () => {
+            try {
+                const status = await fetch(`/admin/api/partners/${this._xiboPartnerId}/xibo/status`, {
+                    credentials: 'include'
+                }).then(r => r.json());
+                this._renderXiboStatus(status);
+
+                if (status.status === 'active' || status.status === 'error') {
+                    this._stopPolling();
+                    if (status.status === 'active') {
+                        App.showToast('🎉 Xibo successfully provisioned!', 'success');
+                        const resources = await fetch(`/admin/api/partners/${this._xiboPartnerId}/xibo/resources`, {
+                            credentials: 'include'
+                        }).then(r => r.json());
+                        this._renderResources(resources);
+                        await this.loadPartners(); // Refresh the table (update ⚡ icon color)
+                    }
+                }
+            } catch (e) {
+                this._stopPolling();
+            }
+        }, 3000);
+    },
+
+    _stopPolling() {
+        if (this._xiboPollingInterval) {
+            clearInterval(this._xiboPollingInterval);
+            this._xiboPollingInterval = null;
+        }
+    },
+
+    async reprovisionXibo(reset = false) {
+        const msg = reset
+            ? 'Full reset will DELETE all stored Xibo resource IDs and re-create everything from scratch. Continue?'
+            : 'Re-provision will check for missing resources and create only what\'s needed. Continue?';
+        if (!await App.showConfirm(msg)) return;
+
+        try {
+            await fetch(`/admin/api/partners/${this._xiboPartnerId}/xibo/reprovision`, {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ reset })
+            }).then(r => r.json());
+
+            App.showToast(reset ? 'Full reset provisioning started' : 'Re-provision started', 'success');
+            document.getElementById('xibo-resources-section').style.display = 'none';
+            this._startPolling();
+            await this._loadXiboStatus();
+        } catch (err) {
+            App.showToast('Error: ' + err.message, 'error');
+        }
+    },
+
+    async disconnectXibo() {
+        if (!await App.showConfirm('Disconnect Xibo? This removes all stored credentials and resource IDs from this app (does NOT delete resources from Xibo itself).')) return;
+        try {
+            await fetch(`/admin/api/partners/${this._xiboPartnerId}/xibo/disconnect`, {
+                method: 'DELETE',
+                credentials: 'include'
+            }).then(r => r.json());
+
+            App.showToast('Xibo disconnected.', 'success');
+            this.closeXiboModal();
+            await this.loadPartners();
+        } catch (err) {
+            App.showToast('Disconnect failed: ' + err.message, 'error');
+        }
     }
 });
+

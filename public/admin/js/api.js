@@ -6,11 +6,14 @@ const Api = {
     async get(endpoint) {
         try {
             const res = await fetch(`/admin/api${endpoint}`);
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.error || `HTTP ${res.status}`);
+            }
             return await res.json();
         } catch (err) {
             console.error(`API GET ${endpoint} error:`, err);
-            return null;
+            return { error: err.message };
         }
     },
     
@@ -21,7 +24,10 @@ const Api = {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body)
             });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.error || `HTTP ${res.status}`);
+            }
             return await res.json();
         } catch (err) {
             console.error(`API POST ${endpoint} error:`, err);
@@ -36,7 +42,10 @@ const Api = {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body)
             });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.error || `HTTP ${res.status}`);
+            }
             return await res.json();
         } catch (err) {
             console.error(`API PUT ${endpoint} error:`, err);
@@ -49,7 +58,10 @@ const Api = {
             const res = await fetch(`/admin/api${endpoint}`, {
                 method: 'DELETE'
             });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.error || `HTTP ${res.status}`);
+            }
             return await res.json();
         } catch (err) {
             console.error(`API DELETE ${endpoint} error:`, err);
@@ -103,8 +115,12 @@ const Api = {
     async getXiboAvailableDisplays() {
         try {
             const res = await fetch(`/xibo/displays/available`);
-            return await res.json();
-        } catch (err) { return []; }
+            const data = await res.json();
+            if (!res.ok) return { error: data.error || `HTTP ${res.status}`, code: data.code };
+            return data;
+        } catch (err) { 
+            return { error: err.message }; 
+        }
     }
 };
 

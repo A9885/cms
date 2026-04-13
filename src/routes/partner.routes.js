@@ -307,6 +307,7 @@ router.get('/profile', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+
 /** PUT /api/partner/profile - Update partner contact profile. */
 router.put('/profile', async (req, res) => {
     try {
@@ -318,4 +319,108 @@ router.put('/profile', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+
+// ─── XIBO SELF-SERVICE (PARTNER PORTAL) ──────────────────────────────────────
+
+const provisioningService = require('../services/xibo-provisioning.service');
+
+/**
+ * POST /partnerportal/api/xibo/connect
+ * Partner submits their own Xibo CMS credentials to auto-provision.
+ * Body: { xibo_base_url, client_id, client_secret }
+ */
+router.post('/xibo/connect', async (req, res) => {
+    const partnerId = req.user.partner_id;
+    if (!partnerId) return res.status(400).json({ error: 'No partner profile found.' });
+
+    const { xibo_base_url, client_id, client_secret } = req.body;
+    if (!xibo_base_url || !client_id || !client_secret) {
+        return res.status(400).json({ error: 'xibo_base_url, client_id, and client_secret are required.' });
+    }
+
+    try {
+        await dbRun(`
+            INSERT INTO partner_xibo_credentials
+                (partner_id, xibo_base_url, client_id, client_secret, provision_status)
+            VALUES (?, ?, ?, ?, 'pending')
+            ON DUPLICATE KEY UPDATE
+                xibo_base_url = VALUES(xibo_base_url),
+                client_id = VALUES(client_id),
+                client_secret = VALUES(client_secret),
+                provision_status = 'pending',
+                provision_error = NULL,
+                provision_log = NULL,
+                updated_at = CURRENT_TIMESTAMP
+        `, [partnerId, xibo_base_url.trim().replace(/\/$/, ''), client_id.trim(), client_secret.trim()]);
+
+        res.json({ success: true, message: 'Credentials saved. Provisioning started.', status: 'provisioning' });
+
+        // Background provisioning
+        provisioningService.provisionPartner(partnerId).catch(err => {
+            console.error(`[Partner Portal] Provisioning failed for partner ${partnerId}:`, err.message);
+        });
+    } catch (err) {
+        console.error('[Partner Portal] Xibo connect error:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * GET /partnerportal/api/xibo/status
+ * Poll provisioning progress. Used by the partner portal setup wizard.
+ */
+router.get('/xibo/status', async (req, res) => {
+    const partnerId = req.user.partner_id;
+    try {
+        const cred = await dbGet(
+            'SELECT provision_status, provision_error, provision_log, xibo_base_url, updated_at FROM partner_xibo_credentials WHERE partner_id = ?',
+            [partnerId]
+        );
+
+        if (!cred) return res.json({ connected: false, status: 'not_configured' });
+
+        let steps = [];
+        try { steps = JSON.parse(cred.provision_log || '{}')?.steps || []; } catch(e) {}
+
+        // Only expose sanitised step info (no secrets)
+        const sanitisedSteps = steps.map(s => ({
+            step: s.step,
+            status: s.status,
+            detail: s.detail,
+            ts: s.ts
+        }));
+
+        res.json({
+            connected: true,
+            status: cred.provision_status,
+            error: cred.provision_error || null,
+            xibo_base_url: cred.xibo_base_url,
+            steps: sanitisedSteps,
+            updatedAt: cred.updated_at
+        });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/**
+ * GET /partnerportal/api/xibo/resources
+ * Returns all provisioned Xibo resource IDs for the logged-in partner.
+ */
+router.get('/xibo/resources', async (req, res) => {
+    const partnerId = req.user.partner_id;
+    try {
+        const resources = await dbAll(
+            'SELECT resource_type, xibo_resource_id, xibo_resource_name, created_at FROM partner_xibo_resources WHERE partner_id = ? ORDER BY id ASC',
+            [partnerId]
+        );
+        res.json(resources.map(r => ({
+            type: r.resource_type,
+            xibo_id: r.xibo_resource_id,
+            name: r.xibo_resource_name,
+            createdAt: r.created_at
+        })));
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+
 module.exports = router;
+

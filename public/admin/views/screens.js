@@ -8,7 +8,7 @@ App.registerView('screens', {
                     </div>
                     <div class="table-header-actions">
                         <button class="btn btn-secondary" id="btn-view-map">Map View</button>
-                        <button class="btn btn-success" style="background: #10b981; color: white;" onclick="window.open('https://signt.signcdn.com/display/view', 'XiboReg', 'width=1100,height=800,left=150,top=100,popup=1')"><i data-lucide="monitor" style="width:14px; margin-right:4px;"></i>Register Xibo Display</button>
+                        <button class="btn btn-success" style="background: #10b981; color: white;" onclick="window.open('https://cms.signtral.info/display/view', 'XiboReg', 'width=1100,height=800,left=150,top=100,popup=1')"><i data-lucide="monitor" style="width:14px; margin-right:4px;"></i>Register Xibo Display</button>
                         <button class="btn btn-primary" id="btn-open-create-screen">+ Add Screen</button>
                     </div>
                 </div>
@@ -320,8 +320,21 @@ App.registerView('screens', {
 
         this.localScreens = screens || [];
         this.partnersData = partners || [];
-        this.xiboDisplays = (xiboDisplays || []).filter(d => !this.localScreens.some(s => s.xibo_display_id === d.displayId));
-        this.allXiboDisplays = xiboDisplays || [];
+        
+        // Handle Xibo Connectivity Errors or Success
+        if (xiboDisplays && xiboDisplays.error) {
+            console.warn('[Screens] Xibo Connection Issue:', xiboDisplays.error);
+            this.xiboDisplays = [];
+            this.allXiboDisplays = [];
+            this.showXiboDiagnosticAlert(xiboDisplays);
+        } else {
+            this.allXiboDisplays = xiboDisplays || [];
+            this.xiboDisplays = this.allXiboDisplays.filter(d => !this.localScreens.some(s => s.xibo_display_id === d.displayId));
+            // Hide alert if it was previously shown
+            const alert = document.getElementById('xibo-diag-alert');
+            if (alert) alert.remove();
+        }
+
         this.detMap = null;
 
         // Populate Partners Filter & Selects
@@ -540,11 +553,11 @@ App.registerView('screens', {
         // Location source badge
         const srcBadge = document.getElementById('det-location-source-badge');
         const srcColors = {
-            GPS:           ['#dcfce7', '#166534'],
-            Manual:        ['#dbeafe', '#1e40af'],
-            IP:            ['#ffedd5', '#9a3412'],
-            'Awaiting GPS':['#fef9c3', '#854d0e'],
-            Unknown:       ['#e2e8f0', '#64748b']
+            GPS: ['#dcfce7', '#166534'],
+            Manual: ['#dbeafe', '#1e40af'],
+            IP: ['#ffedd5', '#9a3412'],
+            'Awaiting GPS': ['#fef9c3', '#854d0e'],
+            Unknown: ['#e2e8f0', '#64748b']
         };
         const src = screen.location_source || 'Unknown';
         const [bg, color] = srcColors[src] || ['#e2e8f0', '#64748b'];
@@ -658,12 +671,12 @@ App.registerView('screens', {
             try {
                 // 1. Sync Content/Scheduling
                 await window.Api.post(`/screens/${id}/sync`);
-                
+
                 // 2. Sync Location (GPS/IP)
                 await window.Api.post(`/screens/${id}/sync-location`);
-                
+
                 App.showToast('Sync & Location refresh complete', 'success');
-                
+
                 // Refresh local data to show new coordinates
                 const refreshed = await window.Api.get('/screens');
                 if (refreshed) {
@@ -890,5 +903,32 @@ App.registerView('screens', {
                 this.mount(document.getElementById('app'));
             } catch (err) { App.showToast('Delete failed', 'error'); }
         };
+    },
+
+    /**
+     * Shows a diagnostic alert when Xibo API is unreachable.
+     */
+    showXiboDiagnosticAlert(err) {
+        let alert = document.getElementById('xibo-diag-alert');
+        if (!alert) {
+            alert = document.createElement('div');
+            alert.id = 'xibo-diag-alert';
+            alert.className = 'alert alert-warning m-3 d-flex align-items-center justify-content-between';
+            const container = document.getElementById('screens-view');
+            if (container) container.prepend(alert);
+        }
+
+        const is404 = err.error?.includes('404') || err.message?.includes('404');
+        const diagnosticMsg = is404 
+            ? `<strong>Xibo API Unreachable (404)</strong>. This usually means Nginx rewrite rules are missing. <br><small>Try adding <code>/api/index.php</code> to your URL or check your server config.</small>`
+            : `<strong>Xibo Connection Error</strong>: ${err.error || 'Check credentials'}`;
+
+        alert.innerHTML = `
+            <span>
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                ${diagnosticMsg}
+            </span>
+            <button class="btn btn-sm btn-outline-dark" onclick="window.location.reload()">Retry</button>
+        `;
     }
 });

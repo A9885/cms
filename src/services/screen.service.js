@@ -39,17 +39,22 @@ class ScreenService {
         else if (d.loggedIn) status = 'Online';
         
         // --- PoP SELF-HEALING: Verify recording permissions for ALL displays (Core Fix) ---
+        // Only attempt a fix if the audit window expires within 7 days (not every single cycle).
         const now = new Date();
         const auditDate = d.auditingUntil ? new Date(d.auditingUntil + ' UTC') : null;
-        const needsAuditFix = !auditDate || auditDate < new Date(now.getTime() + 86400000); // If expired or expiring in < 24h
+        const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+        const needsAuditFix = !auditDate || auditDate < sevenDaysFromNow;
         const needsStatsFix = d.statsEnabled === 0 || d.statsEnabled === '0' || d.statsEnabled === false;
 
         if (needsAuditFix || needsStatsFix) {
             console.log(`[ScreenService] Self-Healing Display ${d.display} (Needs Fix: Audit=${needsAuditFix}, Stats=${needsStatsFix})`);
             try {
-                // Extend to 2027 to be safe
+                // Extend audit window to 2027; updateDisplayAuditing() will auto-assign
+                // a defaultLayoutId if one is missing, preventing the Xibo 422 error.
                 await xiboService.updateDisplayAuditing(d.displayId, '2027-12-31 00:00:00');
+                console.log(`[ScreenService] ✅ Self-Healing complete for Display ${d.display}`);
             } catch (e) {
+                // Non-fatal: log but don't break the sync loop for other displays
                 console.warn(`[ScreenService] Self-Healing failed for ${d.displayId}:`, e.message);
             }
         }
@@ -176,6 +181,46 @@ class ScreenService {
       return { ...s, isLinked: !!s.xibo_display_id, liveStatus: status, lastAccessed: xibo?.lastAccessed || null };
     });
   }
+
+  // ─── PARTNER GROUP SYNC (SaaS Hook) ─────────────────────────────
+
+  /**
+   * When a screen is assigned to a partner, auto-add it to their Xibo display group.
+   * No-op if the partner hasn't provisioned Xibo yet.
+   * @param {number} xibo_display_id
+   * @param {number} partnerId
+   */
+  async onScreenAssignedToPartner(xibo_display_id, partnerId) {
+    if (!xibo_display_id || !partnerId) return;
+    try {
+      const provisioningService = require('./xibo-provisioning.service');
+      const result = await provisioningService.assignDisplayToPartnerGroup(xibo_display_id, partnerId);
+      if (result) {
+        console.log(`[ScreenService] ✅ Screen ${xibo_display_id} auto-joined partner ${partnerId}'s Xibo group`);
+      }
+    } catch (err) {
+      console.warn(`[ScreenService] onScreenAssignedToPartner non-fatal:`, err.message);
+    }
+  }
+
+  /**
+   * When a screen is removed from a partner, auto-remove it from their Xibo display group.
+   * @param {number} xibo_display_id
+   * @param {number} oldPartnerId
+   */
+  async onScreenRemovedFromPartner(xibo_display_id, oldPartnerId) {
+    if (!xibo_display_id || !oldPartnerId) return;
+    try {
+      const provisioningService = require('./xibo-provisioning.service');
+      const result = await provisioningService.removeDisplayFromPartnerGroup(xibo_display_id, oldPartnerId);
+      if (result) {
+        console.log(`[ScreenService] ✅ Screen ${xibo_display_id} auto-removed from partner ${oldPartnerId}'s Xibo group`);
+      }
+    } catch (err) {
+      console.warn(`[ScreenService] onScreenRemovedFromPartner non-fatal:`, err.message);
+    }
+  }
 }
 
 module.exports = new ScreenService();
+

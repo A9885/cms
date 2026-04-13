@@ -1,5 +1,22 @@
 require('dotenv').config();
+
+// ─── STARTUP ENV VALIDATION ───────────────────────────────────────────────────
+// Fail fast with a clear message rather than mysterious DB errors at query time.
+(function validateEnv() {
+    const required = ['DB_HOST', 'DB_USER', 'DB_PASSWORD', 'DB_NAME'];
+    const missing = required.filter(k => !process.env[k]);
+    if (missing.length > 0) {
+        console.error(
+            `\n❌ [STARTUP] Missing required environment variables: ${missing.join(', ')}\n` +
+            `   → Check your .env file. Server cannot start without DB configuration.\n`
+        );
+        process.exit(1);
+    }
+})();
+
 const express = require('express');
+const helmet  = require('helmet');
+const { rateLimit } = require('express-rate-limit');
 const axios = require('axios');
 const multer = require('multer');
 const FormData = require('form-data');
@@ -20,12 +37,120 @@ app.set('io', io);
 
 const PORT = process.env.PORT || 3000;
 
-const XIBO_BASE_URL   = (process.env.XIBO_BASE_URL || '').replace(/\/$/, '');
-const XIBO_CLIENT_ID  = process.env.XIBO_CLIENT_ID;
-const XIBO_CLIENT_SECRET = process.env.XIBO_CLIENT_SECRET;
+// ─── LAZY ENV ACCESSORS ───────────────────────────────────────────────────────
+// These always reflect the CURRENT process.env, which gets reloaded by the
+// .env watcher below. Use these getters instead of cached constants so that
+// changing XIBO_BASE_URL (or swapping Xibo applications) takes effect instantly.
+const getXiboBaseUrl    = () => xiboService.baseUrl;
+const getXiboClientId   = () => xiboService.clientId;
+const getXiboSecret     = () => xiboService.clientSecret;
+
+// Legacy global aliases (now backed by XiboService)
+Object.defineProperty(global, 'XIBO_BASE_URL',    { get: getXiboBaseUrl,  configurable: true });
+Object.defineProperty(global, 'XIBO_CLIENT_ID',   { get: getXiboClientId, configurable: true });
+Object.defineProperty(global, 'XIBO_CLIENT_SECRET',{ get: getXiboSecret,  configurable: true });
+
+// ─── .ENV AUTO-RELOAD WATCHER ─────────────────────────────────────────────────
+// When you save a new XIBO_BASE_URL, CLIENT_ID, or CLIENT_SECRET in .env, the
+// watcher re-runs dotenv, flushes the old OAuth token, and the *next* API call
+// automatically re-authenticates with the new credentials — zero restarts needed.
+(function watchEnvFile() {
+    const envPath = path.resolve(__dirname, '.env');
+    let debounceTimer = null;
+
+    const reload = () => {
+        try {
+            // Re-read .env into process.env (override = true replaces stale values)
+            require('dotenv').config({ path: envPath, override: true });
+
+            // Flush the cached OAuth token so XiboService re-authenticates
+            xiboService.invalidateToken();
+
+            // Re-run a health check to confirm the new credentials work,
+            // then auto-discover all IDs (placeholder media, screen playlists)
+            // so SCREEN_X_PLAYLIST_ID / PLACEHOLDER_MEDIA_ID are never stale.
+            xiboService.getAccessToken()
+                .then(async () => {
+                    console.log(`[ENV Watcher] ✅ .env reloaded — Xibo re-authenticated with ${getXiboBaseUrl()}`);
+                    // Auto-discover: gets placeholder media ID + all screen playlist IDs
+                    const discovered = await xiboService.autoDiscoverConfig();
+                    if (discovered.placeholder_media_id) {
+                        process.env.PLACEHOLDER_MEDIA_ID = String(discovered.placeholder_media_id);
+                        console.log(`[ENV Watcher] 🔍 Auto-set PLACEHOLDER_MEDIA_ID=${discovered.placeholder_media_id} ("${discovered.placeholder_media_name}")`);
+                    }
+                    for (const sp of (discovered.screen_playlists || [])) {
+                        process.env[sp.envKey] = String(sp.playlistId);
+                        console.log(`[ENV Watcher] 🔍 Auto-set ${sp.envKey}=${sp.playlistId}`);
+                    }
+                    if (discovered.warnings?.length) {
+                        discovered.warnings.forEach(w => console.warn(`[ENV Watcher] ⚠️  ${w}`));
+                    }
+                })
+                .catch(err => console.error(`[ENV Watcher] ❌ .env reloaded but Xibo auth FAILED: ${err.message}`));
+
+        } catch (err) {
+            console.error('[ENV Watcher] Failed to reload .env:', err.message);
+        }
+    };
+
+    try {
+        fs.watch(envPath, (eventType) => {
+            if (eventType !== 'change') return;
+            // Debounce: editors can fire multiple events on a single save
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+                console.log('[ENV Watcher] 🔍 .env file changed — reloading environment...');
+                reload();
+            }, 300);
+        });
+        console.log(`[ENV Watcher] 👁  Watching ${envPath} for credential changes.`);
+    } catch (err) {
+        console.warn('[ENV Watcher] Could not watch .env file:', err.message);
+    }
+})();
+
+// ─── STARTUP XIBO HEALTH CHECK ────────────────────────────────────────────────
+// Validates that the current Xibo credentials work on every server start.
+// Non-blocking — server continues to boot even if Xibo is unreachable.
+(async function startupXiboCheck() {
+    if (!getXiboBaseUrl() || !getXiboClientId()) {
+        console.warn('[Xibo] ⚠️  XIBO_BASE_URL or XIBO_CLIENT_ID not set in .env — Xibo features disabled.');
+        return;
+    }
+    try {
+        await xiboService.getAccessToken();
+        console.log(`[Xibo] ✅ Connected to Xibo CMS at ${getXiboBaseUrl()}`);
+    } catch (err) {
+        console.error(`[Xibo] ❌ Could not connect to Xibo: ${err.message}`);
+        console.error(`[Xibo]    → Check XIBO_BASE_URL, XIBO_CLIENT_ID, XIBO_CLIENT_SECRET in .env`);
+    }
+})();
+
+
+
+// ─── SECURITY MIDDLEWARE ──────────────────────────────────────────────────────
+// helmet sets 14 security-related HTTP headers in one call.
+app.use(helmet({
+    // Allow inline scripts/styles for the admin portal dashboards
+    contentSecurityPolicy: false
+}));
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
+
+// ─── RATE LIMITING ────────────────────────────────────────────────────────────
+// 100 requests per 15 minutes per IP on all /api/ routes.
+const apiLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100,
+    standardHeaders: 'draft-7', // Return RateLimit headers
+    legacyHeaders: false,
+    message: { error: 'Too many requests. Please try again later.' },
+    skip: (req) => {
+        // Skip rate limiting for the auth routes so login is never locked out
+        return req.path.startsWith('/api/auth');
+    }
+});
 
 // --- Portal Routes (Serve HTML with correct Content-Type) ---
 
@@ -62,7 +187,8 @@ const { getAuth } = require('./src/auth.js');
 let authHandler = null;
 getAuth().then(({ handler }) => { authHandler = handler; }).catch(console.error);
 
-app.all('/api/auth/*', (req, res, next) => {
+// Express 5: wildcard routes require named params → /*splat
+app.all('/api/auth/*splat', (req, res, next) => {
     if (authHandler) {
         return authHandler(req, res);
     }
@@ -100,7 +226,8 @@ const authenticateToken = async (req, res, next) => {
 };
 
 const apiRoutes = require('./src/routes/api.routes');
-app.use('/api', authenticateToken, apiRoutes);
+// Apply rate limiter to all /api routes
+app.use('/api', apiLimiter, authenticateToken, apiRoutes);
 
 const screenRoutes = require('./src/routes/screen.routes');
 app.use('/api/screens', authenticateToken, screenRoutes);
@@ -150,10 +277,6 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 // Use xiboService for authentication
-async function getAccessToken() {
-  return await xiboService.getAccessToken();
-}
-
 async function authHeader() {
   return await xiboService.getHeaders();
 }
@@ -162,47 +285,19 @@ async function authHeader() {
  * Diagnostic Route for Permissions
  */
 app.get('/xibo/diag', async (req, res) => {
-  const results = {};
-  const endpoints = [
-    { name: 'About', path: '/api/about' },
-    { name: 'Displays', path: '/api/display' },
-    { name: 'Library', path: '/api/library' },
-    { name: 'User Me', path: '/api/user/me' },
-    { name: 'Stats', path: '/api/stats' }
-  ];
-
   try {
-    const headers = await authHeader();
-    for (const endpoint of endpoints) {
-      try {
-        const resp = await axios.get(`${XIBO_BASE_URL}${endpoint.path}`, { 
-          headers,
-          params: { length: 1 } // keep it small
-        });
-        results[endpoint.name] = { status: resp.status, data: 'OK' };
-      } catch (err) {
-        results[endpoint.name] = { 
-          status: err.response?.status || 'Error', 
-          message: err.message,
-          data: err.response?.data
-        };
-      }
-    }
-    res.json({
-        cms: XIBO_BASE_URL,
-        auth: 'Authenticated Successfully',
-        results
-    });
+    const health = await xiboService.getHealth();
+    res.json(health);
   } catch (err) {
-    res.status(500).json({ error: 'Auth Failed', detail: err.message });
+    res.status(500).json({ error: 'Diagnostic Failed', detail: err.message });
   }
 });
 
 app.get('/xibo/diag/module/:type', async (req, res) => {
     try {
         const headers = await authHeader();
-        const resp = await axios.get(`${XIBO_BASE_URL}/api/module`, { headers });
-        const module = resp.data.find(m => m.type === req.params.type);
+        const resp = await axios.get(`${xiboService.baseUrl}${xiboService._apiPrefix}/module`, { headers });
+        const module = (resp.data || []).find(m => m.type === req.params.type);
         res.json(module || { error: 'Module not found' });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -242,7 +337,13 @@ app.get('/xibo/library', async (req, res) => {
  */
 app.get('/xibo/displays/locations', async (req, res) => {
   try {
-    const displays = await xiboService.getDisplays();
+    let displays = [];
+    try {
+        displays = await xiboService.getDisplays();
+    } catch (e) {
+        console.warn('[Xibo] Displays locations unreachable:', e.message);
+        return res.json({}); 
+    }
     const { dbAll } = require('./src/db/database');
     const localScreens = await dbAll('SELECT xibo_display_id, latitude, longitude, address FROM screens WHERE xibo_display_id IS NOT NULL');
     
@@ -277,7 +378,7 @@ app.get('/xibo/displays/locations', async (req, res) => {
         lng: lng,
         timezone: d.timeZone || '',
         device: [d.brand, d.model].filter(Boolean).join(' ') || d.clientType || '',
-        location, // resolved readable string
+        location, 
         online: d.loggedIn === 1 || d.loggedIn === true,
         lastAccessed: d.lastAccessed || null,
         clientAddress: d.clientAddress || '',
@@ -314,11 +415,11 @@ app.get('/xibo/displays', async (req, res) => {
         const headers = await authHeader();
         
         // 1. Get all displays
-        const response = await axios.get(`${XIBO_BASE_URL}/api/display`, { headers });
+        const response = await axios.get(`${xiboService.baseUrl}${xiboService._apiPrefix}/display`, { headers });
         
         // 2. Batch fetch ALL playlists that follow our naming convention
         // This avoids N separate API calls for N displays.
-        const allPlaylistsResp = await axios.get(`${XIBO_BASE_URL}/api/playlist`, {
+        const allPlaylistsResp = await axios.get(`${xiboService.baseUrl}${xiboService._apiPrefix}/playlist`, {
             headers,
             params: { name: 'SCREEN_', length: 1000 }
         });
@@ -483,14 +584,14 @@ app.post('/xibo/displays/force-sync-all', async (req, res) => {
                 // 2. collectNow via displayGroup (correct v4 endpoint)
                 if (d.displayGroupId) {
                     await axios.post(
-                        `${XIBO_BASE_URL}/api/displaygroup/${d.displayGroupId}/action/collectNow`,
+                        `${xiboService.baseUrl}${xiboService._apiPrefix}/displaygroup/${d.displayGroupId}/action/collectNow`,
                         new URLSearchParams(),
                         { headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' } }
                     ).catch(e => console.warn(`[force-sync-all] displaygroup collectNow ${dId}:`, e.response?.status));
                 }
 
                 // 3. Wake display with screenshot request
-                await axios.put(`${XIBO_BASE_URL}/api/display/requestscreenshot/${dId}`, null, { headers }).catch(() => {});
+                await axios.put(`${xiboService.baseUrl}${xiboService._apiPrefix}/display/requestscreenshot/${dId}`, null, { headers }).catch(() => {});
 
                 results.push({ displayId: dId, name: d.display, status: 'ok' });
             } catch (e) {
@@ -552,22 +653,22 @@ app.get('/xibo/stats/test', async (req, res) => {
     
     // 1. Fetch Stats as before
     const [mediaRes, layoutRes, tasksRes, logsRes] = await Promise.all([
-      axios.get(`${XIBO_BASE_URL}/api/stats`, {
+      axios.get(`${xiboService.baseUrl}${xiboService._apiPrefix}/stats`, {
         headers,
         params: { type: 'media', fromDt: '2026-01-01 00:00:00', toDt: '2027-12-31 00:00:00', length: 10 }
       }).catch(e => ({ data: { data: [], error: e.message } })),
       
-      axios.get(`${XIBO_BASE_URL}/api/stats`, {
+      axios.get(`${xiboService.baseUrl}${xiboService._apiPrefix}/stats`, {
         headers,
         params: { type: 'layout', fromDt: '2026-01-01 00:00:00', toDt: '2027-12-31 00:00:00', length: 10 }
       }).catch(e => ({ data: { data: [], error: e.message } })),
       
-      axios.get(`${XIBO_BASE_URL}/api/task`, {
+      axios.get(`${xiboService.baseUrl}${xiboService._apiPrefix}/task`, {
         headers,
         params: { length: 150 }
       }).catch(e => ({ data: [], error: e.message })),
 
-      axios.get(`${XIBO_BASE_URL}/api/log`, {
+      axios.get(`${xiboService.baseUrl}${xiboService._apiPrefix}/log`, {
         headers,
         params: { category: 'XTR', length: 20 }
       }).catch(e => ({ data: [], error: e.message }))
@@ -643,7 +744,7 @@ app.post('/xibo/upload', upload.single('file'), async (req, res) => {
       });
       form.append('name', uniqueFileName);
 
-      const uploadResp = await axios.post(`${XIBO_BASE_URL}/api/library`, form, {
+      const uploadResp = await axios.post(`${xiboService.baseUrl}${xiboService._apiPrefix}/library`, form, {
         headers: { ...headers, ...form.getHeaders() },
         maxBodyLength: Infinity,
         maxContentLength: Infinity,
@@ -680,7 +781,7 @@ app.post('/xibo/upload', upload.single('file'), async (req, res) => {
       layoutParams.append('backgroundColor', '#000000');
       // layoutParams.append('layoutDuration', '30'); // Optional
 
-      const layoutResp = await axios.post(`${XIBO_BASE_URL}/api/layout/fullscreen`, layoutParams, {
+      const layoutResp = await axios.post(`${xiboService.baseUrl}${xiboService._apiPrefix}/layout/fullscreen`, layoutParams, {
         headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' }
       });
       
@@ -728,7 +829,7 @@ app.post('/xibo/upload', upload.single('file'), async (req, res) => {
       schedParams.append('isPriority', '0');
       schedParams.append('displayOrder', '1');
 
-      const scheduleResp = await axios.post(`${XIBO_BASE_URL}/api/schedule`, schedParams, {
+      const scheduleResp = await axios.post(`${xiboService.baseUrl}${xiboService._apiPrefix}/schedule`, schedParams, {
         headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' }
       });
       schedId = scheduleResp.data.eventId || scheduleResp.data.scheduleId;
@@ -743,7 +844,7 @@ app.post('/xibo/upload', upload.single('file'), async (req, res) => {
     // Use the dynamic displayGroupId to find the specific displayId for waking it up
     let dynamicDisplayId = process.env.DISPLAY_ID || 3; // Use ENV fallback
     try {
-        const dRes = await axios.get(`${XIBO_BASE_URL}/api/display?displayGroupId=${displayGroupId}`, { headers });
+        const dRes = await axios.get(`${xiboService.baseUrl}${xiboService._apiPrefix}/display?displayGroupId=${displayGroupId}`, { headers });
         if(dRes.data && dRes.data.length > 0) {
             dynamicDisplayId = dRes.data[0].displayId;
         } else {
@@ -759,14 +860,14 @@ app.post('/xibo/upload', upload.single('file'), async (req, res) => {
 
     // Step 1: Screenshot request to wake display
     try {
-      const ssResp = await axios.put(`${XIBO_BASE_URL}/api/display/requestscreenshot/${dynamicDisplayId}`, null, { headers });
+      const ssResp = await axios.put(`${xiboService.baseUrl}${xiboService._apiPrefix}/display/requestscreenshot/${dynamicDisplayId}`, null, { headers });
       console.log(`Step 1 complete - requestscreenshot: ${ssResp.status}`, ssResp.data);
     } catch (err) {
       console.error('Step 1 FAILED (requestscreenshot)', err.response?.status, err.response?.data || err.message);
     }
     // Step 2: Force collect via display group action (using the dynamic displayGroupId passed from the frontend)
     try {
-      const cnResp = await axios.post(`${XIBO_BASE_URL}/api/displaygroup/${displayGroupId}/action/collectNow`, new URLSearchParams(), { 
+      const cnResp = await axios.post(`${xiboService.baseUrl}${xiboService._apiPrefix}/displaygroup/${displayGroupId}/action/collectNow`, new URLSearchParams(), { 
         headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' } 
       });
       console.log(`Step 2 complete - collectNow: ${cnResp.status}`, cnResp.data);
@@ -797,7 +898,7 @@ app.post('/xibo/upload', upload.single('file'), async (req, res) => {
       // Get display name (displayGroupId translates to same name usually)
       let screenName = "Unknown";
       try {
-        const displaysRes = await axios.get(`${XIBO_BASE_URL}/api/display?displayGroupId=${displayGroupId}`, { headers });
+        const displaysRes = await axios.get(`${xiboService.baseUrl}${xiboService._apiPrefix}/display?displayGroupId=${displayGroupId}`, { headers });
         if (displaysRes.data && displaysRes.data.length > 0) {
            screenName = displaysRes.data[0].display;
         }
@@ -826,10 +927,10 @@ app.post('/xibo/upload', upload.single('file'), async (req, res) => {
     cleanup();
     if (mediaId && !schedId) {
         console.warn(`[POST /xibo/upload] Rolling back orphaned mediaId: ${mediaId}`);
-        axios.delete(`${XIBO_BASE_URL}/api/library/${mediaId}`, { headers: await authHeader() }).catch(e => console.error("Media rollback failed:", e.message));
+        axios.delete(`${xiboService.baseUrl}${xiboService._apiPrefix}/library/${mediaId}`, { headers: await authHeader() }).catch(e => console.error("Media rollback failed:", e.message));
         if (layoutId) {
            console.warn(`[POST /xibo/upload] Rolling back orphaned layoutId: ${layoutId}`);
-           axios.delete(`${XIBO_BASE_URL}/api/layout/${layoutId}`, { headers: await authHeader() }).catch(e => console.error("Layout rollback failed:", e.message));
+           axios.delete(`${xiboService.baseUrl}${xiboService._apiPrefix}/layout/${layoutId}`, { headers: await authHeader() }).catch(e => console.error("Layout rollback failed:", e.message));
         }
     }
     const detail = err.response?.data?.message || err.response?.data?.error || err.message;
@@ -849,7 +950,7 @@ async function getSlotPlaylistForDisplay(displayId, slotId) {
     const playlistName = `SCREEN_${displayId}_SLOT_${slotId}_PLAYLIST`;
     
     try {
-        const pResp = await axios.get(`${XIBO_BASE_URL}/api/playlist`, {
+        const pResp = await axios.get(`${xiboService.baseUrl}${xiboService._apiPrefix}/playlist`, {
             headers,
             params: { name: playlistName } // Xibo v4 uses 'name' for filtering
         });
@@ -863,7 +964,7 @@ async function getSlotPlaylistForDisplay(displayId, slotId) {
 
         // Auto-create if not found
         console.log(`Playlist ${playlistName} not found. Creating it...`);
-        const createResp = await axios.post(`${XIBO_BASE_URL}/api/playlist`, 
+        const createResp = await axios.post(`${xiboService.baseUrl}${xiboService._apiPrefix}/playlist`, 
             `name=${encodeURIComponent(playlistName)}&isDynamic=0`,
             { headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' } }
         );
@@ -879,7 +980,7 @@ async function getSlotPlaylistForDisplay(displayId, slotId) {
         // Handle 409 Conflict: If it exists, try to find it again
         if (err.response?.status === 409 || (errorData && errorData.error === 409)) {
             console.log(`Playlist ${playlistName} already exists (409). Searching again...`);
-            const retryResp = await axios.get(`${XIBO_BASE_URL}/api/playlist`, {
+            const retryResp = await axios.get(`${xiboService.baseUrl}${xiboService._apiPrefix}/playlist`, {
                 headers: await authHeader(),
                 params: { name: playlistName }
             });
@@ -901,9 +1002,8 @@ async function getSlotPlaylistForDisplay(displayId, slotId) {
  */
 app.get('/xibo/displays/available', async (req, res) => {
     try {
-        const headers = await authHeader();
-        const response = await axios.get(`${XIBO_BASE_URL}/api/display`, { headers });
-        const displays = (response.data || []).map(d => ({
+        const response = await xiboService.getDisplays();
+        const displays = (response || []).map(d => ({
             displayId: d.displayId,
             name: d.display,
             licensed: d.licensed,
@@ -917,7 +1017,11 @@ app.get('/xibo/displays/available', async (req, res) => {
         res.json(displays);
     } catch (err) {
         console.error('[GET /xibo/displays/available]', err.message);
-        res.status(500).json({ error: err.message });
+        const isConnErr = err.message.includes('Xibo Authentication Failed') || err.message.includes('404');
+        res.status(isConnErr ? 503 : 500).json({ 
+            error: err.message,
+            code: isConnErr ? 'XIBO_CONNECT_ERROR' : 'INTERNAL_ERROR'
+        });
     }
 });
 
@@ -976,12 +1080,11 @@ async function getSlotsForDisplay(displayId) {
     const headers = await authHeader();
     const slots = [];
 
-    const allPlaylistsResp = await axios.get(`${XIBO_BASE_URL}/api/playlist`, {
-        headers,
-        params: { name: `SCREEN_${displayId}_SLOT_`, embed: 'widgets', length: 100 }
+    const rawData = await xiboService.getPlaylists({
+        name: `SCREEN_${displayId}_SLOT_`, 
+        embed: 'widgets', 
+        length: 100 
     });
-
-    const rawData = allPlaylistsResp.data || [];
     const allPlaylists = rawData.filter(p => {
         const pName = p.playlist || p.name;
         return p && pName && typeof pName === 'string' && pName.startsWith(`SCREEN_${displayId}_SLOT_`);
@@ -1050,7 +1153,7 @@ app.get('/xibo/proxy/thumbnail/:mediaId', async (req, res) => {
     try {
         const { mediaId } = req.params;
         const headers = await authHeader();
-        const response = await axios.get(`${XIBO_BASE_URL}/api/library/thumbnail/${mediaId}?w=200&h=150`, {
+        const response = await axios.get(`${xiboService.baseUrl}${xiboService._apiPrefix}/library/thumbnail/${mediaId}?w=200&h=150`, {
             headers,
             responseType: 'arraybuffer'
         });
@@ -1075,7 +1178,7 @@ async function synchronizeMainLoop(displayId, displayGroupId) {
     // 1. Get or Create Main Loop Playlist
     // Use a custom name for Main Loop instead of the default Slot template
     let mainLoopId = null;
-    const pSearch = await axios.get(`${XIBO_BASE_URL}/api/playlist`, {
+    const pSearch = await axios.get(`${xiboService.baseUrl}${xiboService._apiPrefix}/playlist`, {
         headers,
         params: { name: mainLoopName }
     });
@@ -1085,7 +1188,7 @@ async function synchronizeMainLoop(displayId, displayGroupId) {
         mainLoopId = foundMain.playlistId;
     } else {
         console.log(`Creating Main Loop: ${mainLoopName}`);
-        const createResp = await axios.post(`${XIBO_BASE_URL}/api/playlist`, 
+        const createResp = await axios.post(`${xiboService.baseUrl}${xiboService._apiPrefix}/playlist`, 
             `name=${encodeURIComponent(mainLoopName)}&isDynamic=0`,
             { headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' } }
         );
@@ -1095,7 +1198,7 @@ async function synchronizeMainLoop(displayId, displayGroupId) {
     if (!mainLoopId) throw new Error("Could not find or create Main Loop playlist.");
 
     // 2. Refresh Main Loop with widgets
-    const mlResp = await axios.get(`${XIBO_BASE_URL}/api/playlist`, {
+    const mlResp = await axios.get(`${xiboService.baseUrl}${xiboService._apiPrefix}/playlist`, {
         headers,
         params: { name: mainLoopName, embed: 'widgets' }
     });
@@ -1123,7 +1226,7 @@ async function synchronizeMainLoop(displayId, displayGroupId) {
         
         if (!alreadyLinked) {
             try {
-                const createResp = await axios.post(`${XIBO_BASE_URL}/api/playlist/widget/subplaylist/${mainLoopId}`, 
+                const createResp = await axios.post(`${xiboService.baseUrl}${xiboService._apiPrefix}/playlist/widget/subplaylist/${mainLoopId}`, 
                     "", 
                     { headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' } }
                 );
@@ -1134,7 +1237,7 @@ async function synchronizeMainLoop(displayId, displayGroupId) {
                     putParams.set('name', `${widgetName}: Link`);
                     putParams.set('subPlaylists', JSON.stringify([{ playlistId: slotPlaylistId, spots: 1 }]));
                     
-                    await axios.put(`${XIBO_BASE_URL}/api/playlist/widget/${wId}`, 
+                    await axios.put(`${xiboService.baseUrl}${xiboService._apiPrefix}/playlist/widget/${wId}`, 
                         putParams.toString(),
                         { headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' } }
                     );
@@ -1149,14 +1252,14 @@ async function synchronizeMainLoop(displayId, displayGroupId) {
     // This is the approach that actually works on this Xibo version to cycle all slot content.
 
     // Remove any orphan sub-playlist widgets (not named "Slot X: Link")
-    const mlRefreshResp = await axios.get(`${XIBO_BASE_URL}/api/playlist`, {
+    const mlRefreshResp = await axios.get(`${xiboService.baseUrl}${xiboService._apiPrefix}/playlist`, {
         headers, params: { name: mainLoopName, embed: 'widgets' }
     });
     const mlRefreshed = mlRefreshResp.data?.find(p => (p.playlist === mainLoopName || p.name === mainLoopName));
     const allWidgets = mlRefreshed?.widgets || [];
     const orphanWidgets = allWidgets.filter(w => w.name && !w.name.match(/^Slot \d+: Link$/));
     for (const ow of orphanWidgets) {
-        await axios.delete(`${XIBO_BASE_URL}/api/playlist/widget/${ow.widgetId}`, { headers }).catch(() => {});
+        await axios.delete(`${xiboService.baseUrl}${xiboService._apiPrefix}/playlist/widget/${ow.widgetId}`, { headers }).catch(() => {});
     }
     if (orphanWidgets.length > 0) {
         console.log(`Cleaned ${orphanWidgets.length} orphan widgets from ${mainLoopName}`);
@@ -1166,7 +1269,7 @@ async function synchronizeMainLoop(displayId, displayGroupId) {
     let syncId = displayGroupId;
     if (!syncId || syncId === 'undefined' || syncId === 'null') {
         try {
-            const dRes = await axios.get(`${XIBO_BASE_URL}/api/display?displayId=${displayId}`, { headers });
+            const dRes = await axios.get(`${xiboService.baseUrl}${xiboService._apiPrefix}/display?displayId=${displayId}`, { headers });
             if (dRes.data && dRes.data.length > 0 && dRes.data[0].displayGroupId) {
                 syncId = dRes.data[0].displayGroupId;
             } else {
@@ -1176,7 +1279,7 @@ async function synchronizeMainLoop(displayId, displayGroupId) {
     }
 
     // Check if a Playlist-type schedule already exists for this display group
-    const schedResp = await axios.get(`${XIBO_BASE_URL}/api/schedule`, { headers, params: { displayGroupId: syncId } });
+    const schedResp = await axios.get(`${xiboService.baseUrl}${xiboService._apiPrefix}/schedule`, { headers, params: { displayGroupId: syncId } });
     const existingPlaylistSchedule = (schedResp.data || []).find(s =>
         Number(s.eventTypeId) === 8 &&
         (s.campaign?.includes(mainLoopName) || s.campaign?.includes(`_${mainLoopId}`))
@@ -1186,7 +1289,7 @@ async function synchronizeMainLoop(displayId, displayGroupId) {
         // Delete any stale single-image layout schedules before creating the correct one
         const staleLayoutSchedules = (schedResp.data || []).filter(s => Number(s.eventTypeId) === 1);
         for (const stale of staleLayoutSchedules) {
-            await axios.delete(`${XIBO_BASE_URL}/api/schedule/${stale.eventId}`, { headers }).catch(() => {});
+            await axios.delete(`${xiboService.baseUrl}${xiboService._apiPrefix}/schedule/${stale.eventId}`, { headers }).catch(() => {});
             console.log(`Removed stale layout schedule EventID: ${stale.eventId}`);
         }
 
@@ -1203,7 +1306,7 @@ async function synchronizeMainLoop(displayId, displayGroupId) {
         schedParams.append('isPriority', 1);
         schedParams.append('displayOrder', 1);
 
-        await axios.post(`${XIBO_BASE_URL}/api/schedule`, schedParams.toString(), {
+        await axios.post(`${xiboService.baseUrl}${xiboService._apiPrefix}/schedule`, schedParams.toString(), {
             headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' }
         }).then(r => {
             const msg = `Schedule created: EventID ${r.data.eventId} (playlist_${mainLoopName})\n`;
@@ -1222,7 +1325,7 @@ async function synchronizeMainLoop(displayId, displayGroupId) {
     }
 
     // Always trigger display sync to push updated slot content immediately
-    await axios.post(`${XIBO_BASE_URL}/api/displaygroup/${syncId}/action/collectNow`, '', {
+    await axios.post(`${xiboService.baseUrl}${xiboService._apiPrefix}/displaygroup/${syncId}/action/collectNow`, '', {
         headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' }
     }).catch(() => {});
 }
@@ -1270,12 +1373,12 @@ app.post('/xibo/slots/add', upload.single('file'), async (req, res) => {
       if (isReplace) {
           console.log(`Replace mode: Deleting existing widgets in slot ${slotId} (Playlist: ${playlistId})`);
           // Get current widgets
-          const pResp = await axios.get(`${XIBO_BASE_URL}/api/playlist`, {
+          const pResp = await axios.get(`${xiboService.baseUrl}${xiboService._apiPrefix}/playlist`, {
               headers, params: { playlistId, embed: 'widgets' }
           });
           const widgets = pResp.data?.[0]?.widgets || [];
           await Promise.all(widgets.map(w => 
-              axios.delete(`${XIBO_BASE_URL}/api/playlist/widget/${w.widgetId}`, { headers })
+              axios.delete(`${xiboService.baseUrl}${xiboService._apiPrefix}/playlist/widget/${w.widgetId}`, { headers })
                   .catch(e => console.warn(`Failed to delete widget ${w.widgetId} during replace:`, e.message))
           ));
       } else {
@@ -1301,7 +1404,7 @@ app.post('/xibo/slots/add', upload.single('file'), async (req, res) => {
       form.append('files', fs.createReadStream(file.path), { filename: uniqueFileName });
       form.append('name', uniqueFileName);
   
-      const libResp = await axios.post(`${XIBO_BASE_URL}/api/library`, form, {
+      const libResp = await axios.post(`${xiboService.baseUrl}${xiboService._apiPrefix}/library`, form, {
         headers: { ...headers, ...form.getHeaders() },
         maxBodyLength: Infinity,
         maxContentLength: Infinity,
@@ -1342,7 +1445,7 @@ app.post('/xibo/slots/add', upload.single('file'), async (req, res) => {
 
   
       // 2. Add as Widget (Corrected format: media[0])
-      const widgetResp = await axios.post(`${XIBO_BASE_URL}/api/playlist/library/assign/${playlistId}`, `media[0]=${mediaId}&duration=${requestedDuration}&useDuration=1`, {
+      const widgetResp = await axios.post(`${xiboService.baseUrl}${xiboService._apiPrefix}/playlist/library/assign/${playlistId}`, `media[0]=${mediaId}&duration=${requestedDuration}&useDuration=1`, {
         headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' }
       });
   
@@ -1350,7 +1453,7 @@ app.post('/xibo/slots/add', upload.single('file'), async (req, res) => {
       
       // 3. Rename to 'Slot X'
       if (widgetId) {
-        await axios.put(`${XIBO_BASE_URL}/api/playlist/widget/${widgetId}`, `name=Slot ${slotId}: ${file.originalname}`, {
+        await axios.put(`${xiboService.baseUrl}${xiboService._apiPrefix}/playlist/widget/${widgetId}`, `name=Slot ${slotId}: ${file.originalname}`, {
           headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' }
         });
       }
@@ -1359,7 +1462,7 @@ app.post('/xibo/slots/add', upload.single('file'), async (req, res) => {
       let syncId = displayGroupId;
       if (!syncId || syncId === 'undefined' || syncId === 'null') {
           try {
-              const dRes = await axios.get(`${XIBO_BASE_URL}/api/display?displayId=${displayId}`, { headers });
+              const dRes = await axios.get(`${xiboService.baseUrl}${xiboService._apiPrefix}/display?displayId=${displayId}`, { headers });
               if (dRes.data && dRes.data.length > 0 && dRes.data[0].displayGroupId) {
                   syncId = dRes.data[0].displayGroupId;
               } else {
@@ -1368,8 +1471,8 @@ app.post('/xibo/slots/add', upload.single('file'), async (req, res) => {
           } catch(e) { syncId = displayId; }
       }
       await synchronizeMainLoop(displayId, syncId);
-      await axios.post(`${XIBO_BASE_URL}/api/displaygroup/${syncId}/action/collectNow`, null, { headers }).catch(() => {});
-      await axios.put(`${XIBO_BASE_URL}/api/display/requestscreenshot/${displayId}`, null, { headers }).catch(() => {});
+      await axios.post(`${xiboService.baseUrl}${xiboService._apiPrefix}/displaygroup/${syncId}/action/collectNow`, null, { headers }).catch(() => {});
+      await axios.put(`${xiboService.baseUrl}${xiboService._apiPrefix}/display/requestscreenshot/${displayId}`, null, { headers }).catch(() => {});
   
       // Invalidate widget cache so next stats query picks up the new slot mapping
       statsService.invalidateWidgetCache();
@@ -1379,7 +1482,7 @@ app.post('/xibo/slots/add', upload.single('file'), async (req, res) => {
     } catch (err) {
       if (uploadedMediaId) {
           console.warn(`[POST /xibo/slots/add] Rolling back orphaned mediaId: ${uploadedMediaId}`);
-          axios.delete(`${XIBO_BASE_URL}/api/library/${uploadedMediaId}`, { headers: await authHeader() }).catch(e => console.error("Media rollback failed:", e.message));
+          axios.delete(`${xiboService.baseUrl}${xiboService._apiPrefix}/library/${uploadedMediaId}`, { headers: await authHeader() }).catch(e => console.error("Media rollback failed:", e.message));
       }
       console.error('[POST /xibo/slots/add]', err.message);
       res.status(500).json({ error: err.message });
@@ -1406,12 +1509,12 @@ app.post('/xibo/slots/assign', async (req, res) => {
 
         // 1. Handle Replace
         if (isReplace) {
-            const pResp = await axios.get(`${XIBO_BASE_URL}/api/playlist`, {
+            const pResp = await axios.get(`${xiboService.baseUrl}${xiboService._apiPrefix}/playlist`, {
                 headers, params: { playlistId, embed: 'widgets' }
             });
             const widgets = pResp.data?.[0]?.widgets || [];
             await Promise.all(widgets.map(w => 
-                axios.delete(`${XIBO_BASE_URL}/api/playlist/widget/${w.widgetId}`, { headers })
+                axios.delete(`${xiboService.baseUrl}${xiboService._apiPrefix}/playlist/widget/${w.widgetId}`, { headers })
                     .catch(e => console.warn(`Failed to delete widget ${w.widgetId} during replace:`, e.message))
             ));
         } else {
@@ -1439,14 +1542,14 @@ app.post('/xibo/slots/assign', async (req, res) => {
         }
 
         // 3. Add as Widget
-        const widgetResp = await axios.post(`${XIBO_BASE_URL}/api/playlist/library/assign/${playlistId}`, `media[0]=${mediaId}&duration=${requestedDuration}&useDuration=1`, {
+        const widgetResp = await axios.post(`${xiboService.baseUrl}${xiboService._apiPrefix}/playlist/library/assign/${playlistId}`, `media[0]=${mediaId}&duration=${requestedDuration}&useDuration=1`, {
             headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' }
         });
         const widgetId = widgetResp.data?.[0]?.widgetId;
 
         // 4. Rename Widget
         if (widgetId) {
-            await axios.put(`${XIBO_BASE_URL}/api/playlist/widget/${widgetId}`, `name=Slot ${slotId}: Brand Creative`, {
+            await axios.put(`${xiboService.baseUrl}${xiboService._apiPrefix}/playlist/widget/${widgetId}`, `name=Slot ${slotId}: Brand Creative`, {
                 headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' }
             });
         }
@@ -1455,7 +1558,7 @@ app.post('/xibo/slots/assign', async (req, res) => {
         let syncId = displayGroupId;
         if (!syncId || syncId === 'undefined' || syncId === 'null') {
             try {
-                const dRes = await axios.get(`${XIBO_BASE_URL}/api/display?displayId=${displayId}`, { headers });
+                const dRes = await axios.get(`${xiboService.baseUrl}${xiboService._apiPrefix}/display?displayId=${displayId}`, { headers });
                 if (dRes.data && dRes.data.length > 0 && dRes.data[0].displayGroupId) {
                     syncId = dRes.data[0].displayGroupId;
                 } else {
@@ -1464,8 +1567,8 @@ app.post('/xibo/slots/assign', async (req, res) => {
             } catch(e) { syncId = displayId; }
         }
         await synchronizeMainLoop(displayId, syncId);
-        await axios.post(`${XIBO_BASE_URL}/api/displaygroup/${syncId}/action/collectNow`, null, { headers }).catch(() => {});
-        await axios.put(`${XIBO_BASE_URL}/api/display/requestscreenshot/${displayId}`, null, { headers }).catch(() => {});
+        await axios.post(`${xiboService.baseUrl}${xiboService._apiPrefix}/displaygroup/${syncId}/action/collectNow`, null, { headers }).catch(() => {});
+        await axios.put(`${xiboService.baseUrl}${xiboService._apiPrefix}/display/requestscreenshot/${displayId}`, null, { headers }).catch(() => {});
 
         statsService.invalidateWidgetCache();
         res.json({ success: true, widgetId });
@@ -1487,7 +1590,7 @@ app.delete('/xibo/slots/media/:widgetId', async (req, res) => {
     const headers = await authHeader();
     
     // 1. Delete the widget from Xibo CMS
-    await axios.delete(`${XIBO_BASE_URL}/api/playlist/widget/${widgetId}`, { headers });
+    await axios.delete(`${xiboService.baseUrl}${xiboService._apiPrefix}/playlist/widget/${widgetId}`, { headers });
     
     // 2. Clear local database state for this slot
     // This prevents background sync scripts from re-assigning media to this slot.
@@ -1505,7 +1608,7 @@ app.delete('/xibo/slots/media/:widgetId', async (req, res) => {
         let syncId = displayGroupId;
         if (!syncId || syncId === 'undefined' || syncId === 'null') {
             try {
-                const dRes = await axios.get(`${XIBO_BASE_URL}/api/display?displayId=${displayId}`, { headers });
+                const dRes = await axios.get(`${xiboService.baseUrl}${xiboService._apiPrefix}/display?displayId=${displayId}`, { headers });
                 if (dRes.data && dRes.data.length > 0 && dRes.data[0].displayGroupId) {
                     syncId = dRes.data[0].displayGroupId;
                 } else {
@@ -1514,7 +1617,7 @@ app.delete('/xibo/slots/media/:widgetId', async (req, res) => {
             } catch(e) { syncId = displayId; }
         }
         await synchronizeMainLoop(displayId, syncId);
-        await axios.put(`${XIBO_BASE_URL}/api/display/requestscreenshot/${displayId}`, null, { headers }).catch(() => {});
+        await axios.put(`${xiboService.baseUrl}${xiboService._apiPrefix}/display/requestscreenshot/${displayId}`, null, { headers }).catch(() => {});
     }
 
     res.json({ success: true });
@@ -1602,11 +1705,30 @@ app.set('statsService', require('./src/services/stats.service'));
 app.set('xiboService', xiboService);
 
 server.listen(PORT, () => {
-    console.log(`🚀 Xibo CMS Server starting on http://localhost:${PORT}`);
+    console.log(`🚀 Xibo CMS Server running on http://localhost:${PORT}`);
+    console.log(`   Environment : ${process.env.NODE_ENV || 'development'}`);
     if (XIBO_BASE_URL) {
-        console.log(`   Connected to Xibo API: ${XIBO_BASE_URL}`);
+        console.log(`   Xibo API    : ${XIBO_BASE_URL}`);
     } else {
-        console.warn(`   ⚠️ XIBO_BASE_URL not set in .env!`);
+        console.warn(`   ⚠️  XIBO_BASE_URL not set in .env — Xibo features disabled.`);
     }
 });
 
+// ─── GLOBAL ERROR HANDLER ─────────────────────────────────────────────────────
+// Must be defined AFTER all routes. Express 5 catches async errors automatically.
+// In production, stack traces are hidden from clients.
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+    const statusCode = err.status || err.statusCode || 500;
+    const isProduction = process.env.NODE_ENV === 'production';
+
+    // Always log the full error server-side
+    console.error(`[ERROR] ${req.method} ${req.path} → ${statusCode}:`, err.message);
+    if (!isProduction) console.error(err.stack);
+
+    res.status(statusCode).json({
+        error: err.message || 'Internal Server Error',
+        // Only expose stack trace in non-production environments
+        ...(isProduction ? {} : { stack: err.stack })
+    });
+});

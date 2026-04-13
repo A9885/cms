@@ -9,9 +9,9 @@
 require('dotenv').config();
 const https = require('https');
 
-const BASE    = (process.env.XIBO_BASE_URL || 'https://signt.signcdn.com').replace(/\/$/, '');
-const ID      = process.env.XIBO_CLIENT_ID;
-const SECRET  = process.env.XIBO_CLIENT_SECRET;
+const BASE = (process.env.XIBO_BASE_URL || 'https://cms.signtral.info').replace(/\/$/, '');
+const ID = process.env.XIBO_CLIENT_ID;
+const SECRET = process.env.XIBO_CLIENT_SECRET;
 
 function post(path, body) {
   return new Promise((res, rej) => {

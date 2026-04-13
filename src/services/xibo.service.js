@@ -8,40 +8,142 @@ const fs = require('fs');
  */
 class XiboService {
   constructor() {
-    this.baseUrl = (process.env.XIBO_BASE_URL || '').replace(/\/$/, '');
-    this.clientId = process.env.XIBO_CLIENT_ID;
-    this.clientSecret = process.env.XIBO_CLIENT_SECRET;
+    // ─── Lazy config: always read from process.env at call time ─────────────
+    // This means changing XIBO_BASE_URL / XIBO_CLIENT_ID / XIBO_CLIENT_SECRET
+    // in .env (and reloading dotenv) is picked up automatically — no restart needed.
+    this._overrideBaseUrl = null;     // set only for per-partner instances
+    this._overrideClientId = null;
+    this._overrideClientSecret = null;
     this.cachedToken = null;
     this.tokenExpiry = null;
+    this._lastConfigSig = null;       // tracks credential changes for cache busting
+    this._apiPrefix = '/api';         // Default, may be updated to /api/index.php if needed
+    this._isHealed = false;           // True if we switched to index.php fallback
+  }
+
+  // ─── Lazy credential accessors ─────────────────────────────────────────────
+
+  get baseUrl() {
+    return (this._overrideBaseUrl ?? process.env.XIBO_BASE_URL ?? '').replace(/\/$/, '');
+  }
+  set baseUrl(v) { this._overrideBaseUrl = v; }
+
+  get clientId() {
+    return this._overrideClientId ?? process.env.XIBO_CLIENT_ID;
+  }
+  set clientId(v) { this._overrideClientId = v; }
+
+  get clientSecret() {
+    return this._overrideClientSecret ?? process.env.XIBO_CLIENT_SECRET;
+  }
+  set clientSecret(v) { this._overrideClientSecret = v; }
+
+  /**
+   * Returns a string that uniquely identifies the current credentials.
+   * Used to detect when .env has changed so the cached token is invalidated.
+   */
+  _configSignature() {
+    return `${this.baseUrl}|${this.clientId}|${this.clientSecret}`;
+  }
+
+  /**
+   * Flush the cached token. Called when the .env file changes.
+   */
+  invalidateToken() {
+    this.cachedToken = null;
+    this.tokenExpiry = null;
+    this._lastConfigSig = null;
+    console.log('[XiboService] 🔄 Token cache flushed — will re-authenticate on next request.');
   }
 
   /**
    * Obtain an OAuth2 access token using client credentials.
-   * Caches the token until it expires.
+   * Caches the token until it expires OR until credentials change.
    * @returns {Promise<string>} The access token.
    * @throws {Error} If token retrieval fails.
    */
   async getAccessToken() {
+    const sig = this._configSignature();
+
+    // Bust cache if credentials have changed since last token was issued
+    if (this._lastConfigSig && this._lastConfigSig !== sig) {
+      console.log('[XiboService] ⚡ Credentials changed — invalidating cached token.');
+      this.invalidateToken();
+    }
+
     if (this.cachedToken && this.tokenExpiry && Date.now() < this.tokenExpiry) {
       return this.cachedToken;
     }
+
+    if (!this.baseUrl || !this.clientId || !this.clientSecret) {
+      throw new Error('Xibo credentials not configured. Set XIBO_BASE_URL, XIBO_CLIENT_ID, XIBO_CLIENT_SECRET in .env');
+    }
+
     const params = new URLSearchParams();
     params.append('grant_type', 'client_credentials');
     params.append('client_id', this.clientId);
     params.append('client_secret', this.clientSecret);
 
+    const prefixes = ['/api', '/api/index.php', '/web/api', '/index.php/api'];
+    
+    const tryAuth = async (prefix) => {
+      const url = `${this.baseUrl}${prefix}/authorize/access_token`;
+      return await axios.post(url, params, { 
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        timeout: 10000 
+      });
+    };
+
     try {
-      const response = await axios.post(
-        `${this.baseUrl}/api/authorize/access_token`,
-        params,
-        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
-      );
+      let response;
+      let lastErr;
+
+      try {
+        response = await tryAuth(this._apiPrefix);
+      } catch (err) {
+        lastErr = err;
+        
+        // Detect if the 404 is an HTML page (API routing completely broken) vs JSON (API reached but endpoint missing)
+        const isHtml404 = err.response?.status === 404 && 
+                          (typeof err.response.data === 'string' && err.response.data.includes('<!DOCTYPE html>'));
+
+        // If we haven't successfully "healed" yet AND it's an HTML 404, iterate through prefixes
+        if (!this._isHealed && isHtml404) {
+          console.warn(`[XiboService] 🔍 Path ${this._apiPrefix} failed with HTML. Starting deep path discovery...`);
+
+          
+          for (const p of prefixes) {
+            if (p === this._apiPrefix) continue; // Skip what we already tried
+            try {
+              console.log(`[XiboService] 🧪 Testing prefix: ${p}`);
+              response = await tryAuth(p);
+              this._apiPrefix = p; 
+              this._isHealed = true;
+              console.log(`[XiboService] ✅ Found working API path: ${p}`);
+              break; 
+            } catch (innerErr) {
+              lastErr = innerErr;
+              continue;
+            }
+          }
+        }
+      }
+
+      if (!response) {
+        throw lastErr || new Error('All API paths exhausted.');
+      }
+
       this.cachedToken = response.data.access_token;
       this.tokenExpiry = Date.now() + (response.data.expires_in - 60) * 1000;
+      this._lastConfigSig = sig;
+      console.log(`[XiboService] ✅ Authenticated with ${this.baseUrl} (Prefix: ${this._apiPrefix})`);
       return this.cachedToken;
     } catch (err) {
-      const msg = err.response?.data || err.message;
-      throw new Error(`Failed to obtain Xibo access token: ${JSON.stringify(msg)}`);
+        const detail = err.response?.data || err.message;
+        const is404 = err.response?.status === 404;
+        let msg = `Xibo Authentication Failed: ${JSON.stringify(detail)}`;
+        if (is404) msg += ` - This usually means the API router is missing. Check Nginx rewrite rules or try adding /api/index.php manually to your URL.`;
+        throw new Error(msg);
     }
   }
 
@@ -68,7 +170,7 @@ class XiboService {
     if (!currentEmbed.includes('auditUntil')) currentEmbed.push('auditUntil');
     finalParams.embed = currentEmbed.join(',');
 
-    const resp = await axios.get(`${this.baseUrl}/api/display`, { headers, params: finalParams });
+    const resp = await axios.get(`${this.baseUrl}${this._apiPrefix}/display`, { headers, params: finalParams });
     return resp.data;
   }
 
@@ -87,22 +189,51 @@ class XiboService {
       if (!display) throw new Error(`Display ${displayId} not found`);
 
       const params = new URLSearchParams();
+
+      // Fields that are read-only or server-managed — never send these back to Xibo.
+      // NOTE: statsEnabled and auditUntil are intentionally NOT skipped so that
+      // updateDisplayAuditing() can write them by passing them explicitly in `updates`.
       const skipFields = new Set([
-        'displayId', 'lastAccessed', 'status', 'isLoggedIn', 
-        'orientation', 'resolution', 'clientAddress', 'lastReported', 
+        'displayId', 'lastAccessed', 'status', 'isLoggedIn',
+        'orientation', 'resolution', 'clientAddress', 'lastReported',
         'version', 'isHardwareKeyValidated', 'screenShotModifiedDt',
         'overrideConfig', 'bandwidthLimit', 'bandwidthLimitFormatted',
         'createdDt', 'modifiedDt', 'folderId', 'permissionsFolderId',
-        'auditingUntil', 'statsEnabled'
+        'auditingUntil',  // legacy key returned by Xibo (different from the PUT key auditUntil)
+        // DO NOT skip 'statsEnabled' or 'auditUntil' — they are write-only fields
+        // used by updateDisplayAuditing() and must reach the API.
       ]);
-      
-      // --- PIPELINE FIX: Ensure new fields like statsEnabled are always included ---
+
+      // ── defaultLayoutId guard ────────────────────────────────────────────────
+      // Xibo v4 returns 422 if defaultLayoutId is null/undefined in a PUT request.
+      // If the display has no default layout, auto-assign the first published layout.
+      if (!display.defaultLayoutId && !updates.defaultLayoutId) {
+        try {
+          const layoutsResp = await axios.get(`${this.baseUrl}${this._apiPrefix}/layout`, {
+            headers,
+            params: { retired: 0, publishedStatusId: 1, length: 10 }
+          });
+          const layouts = layoutsResp.data || [];
+          if (layouts.length > 0) {
+            updates.defaultLayoutId = layouts[0].layoutId;
+            console.log(`[XiboService] ⚙️  Auto-assigning defaultLayoutId=${updates.defaultLayoutId} ("${layouts[0].layout}") to display ${displayId}`);
+          } else {
+            // No published layouts found — skip the update gracefully rather than 422-ing
+            console.warn(`[XiboService] ⚠️  No published layouts available to assign as default for display ${displayId}. Skipping update.`);
+            return display; // Return current display state without throwing
+          }
+        } catch (layoutErr) {
+          console.warn(`[XiboService] ⚠️  Could not fetch layouts for defaultLayoutId fallback: ${layoutErr.message}`);
+        }
+      }
+
+      // Build the PUT body from merged display + updates
       const allKeys = new Set([...Object.keys(display), ...Object.keys(updates)]);
-      
+
       for (const key of allKeys) {
         if (skipFields.has(key)) continue;
         const val = updates.hasOwnProperty(key) ? updates[key] : display[key];
-        
+
         if (key === 'display' || key === 'name') {
            if (!params.has('display')) {
              params.append('display', updates.display || updates.name || display.display || display.name);
@@ -114,7 +245,7 @@ class XiboService {
         }
       }
 
-      const resp = await axios.put(`${this.baseUrl}/api/display/${displayId}`, params, {
+      const resp = await axios.put(`${this.baseUrl}${this._apiPrefix}/display/${displayId}`, params, {
         headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' }
       });
       return resp.data;
@@ -124,28 +255,7 @@ class XiboService {
     }
   }
 
-  /**
-   * Enable or update the auditing period for a display.
-   * @param {number|string} displayId
-   * @param {string} auditingUntil - ISO timestamp or formatted string.
-   * @returns {Promise<Object|null>}
-   */
-  async updateDisplayAuditing(displayId, auditingUntil) {
-    try {
-      const displays = await this.getDisplays();
-      const display = displays.find(d => d.displayId === parseInt(displayId, 10));
-      if (display?.auditingUntil && new Date(display.auditingUntil) >= new Date(auditingUntil.replace(' ', 'T'))) {
-        return { message: 'Auditing already enabled' };
-      }
 
-      const res = await this.updateDisplay(displayId, { auditingUntil });
-      console.log(`[XiboService] Auditing ENABLED for display ${displayId}`);
-      return res;
-    } catch (err) {
-      console.error(`[XiboService] Auditing update FAILED for ${displayId}:`, err.message);
-      return null;
-    }
-  }
 
   /**
    * Update display coordinate/address metadata.
@@ -176,7 +286,7 @@ class XiboService {
    */
   async getLibrary(params = { start: 0, length: 150 }) {
     const headers = await this.getHeaders();
-    const resp = await axios.get(`${this.baseUrl}/api/library`, { headers, params });
+    const resp = await axios.get(`${this.baseUrl}${this._apiPrefix}/library`, { headers, params });
     return resp.data;
   }
 
@@ -188,7 +298,7 @@ class XiboService {
    */
   async getStats(type, additionalParams = {}) {
     const headers = await this.getHeaders();
-    const resp = await axios.get(`${this.baseUrl}/api/stats`, {
+    const resp = await axios.get(`${this.baseUrl}${this._apiPrefix}/stats`, {
       headers,
       params: { type, ...additionalParams }
     });
@@ -202,7 +312,7 @@ class XiboService {
    */
   async getPlaylists(params = {}) {
     const headers = await this.getHeaders();
-    const resp = await axios.get(`${this.baseUrl}/api/playlist`, { headers, params });
+    const resp = await axios.get(`${this.baseUrl}${this._apiPrefix}/playlist`, { headers, params });
     return resp.data;
   }
 
@@ -269,7 +379,7 @@ class XiboService {
    */
   async getCampaigns(params = {}) {
     const headers = await this.getHeaders();
-    const resp = await axios.get(`${this.baseUrl}/api/campaign`, { headers, params });
+    const resp = await axios.get(`${this.baseUrl}${this._apiPrefix}/campaign`, { headers, params });
     return resp.data;
   }
 
@@ -280,7 +390,7 @@ class XiboService {
    */
   async getLayouts(params = {}) {
     const headers = await this.getHeaders();
-    const resp = await axios.get(`${this.baseUrl}/api/layout`, { headers, params });
+    const resp = await axios.get(`${this.baseUrl}${this._apiPrefix}/layout`, { headers, params });
     return resp.data;
   }
 
@@ -291,7 +401,7 @@ class XiboService {
    */
   async getSchedules(params = {}) {
     const headers = await this.getHeaders();
-    const resp = await axios.get(`${this.baseUrl}/api/schedule`, { headers, params });
+    const resp = await axios.get(`${this.baseUrl}${this._apiPrefix}/schedule`, { headers, params });
     return resp.data;
   }
 
@@ -304,8 +414,8 @@ class XiboService {
   async setStatCollection(type, id, enabled = true) {
     const headers = await this.getHeaders();
     const endpoint = type === 'layout' 
-      ? `${this.baseUrl}/api/layout/setenablestat/${id}`
-      : `${this.baseUrl}/api/library/setenablestat/${id}`;
+      ? `${this.baseUrl}${this._apiPrefix}/layout/setenablestat/${id}`
+      : `${this.baseUrl}${this._apiPrefix}/library/setenablestat/${id}`;
     
     let value = enabled ? (type === 'layout' ? 1 : 'On') : (type === 'layout' ? 0 : 'Off');
     
@@ -331,7 +441,7 @@ class XiboService {
   async forceCollectDisplayStats(displayId) {
     try {
       const headers = await this.getHeaders();
-      await axios.post(`${this.baseUrl}/api/display/${displayId}/command/collect_stats`, {}, { headers });
+      await axios.post(`${this.baseUrl}${this._apiPrefix}/display/${displayId}/command/collect_stats`, {}, { headers });
       console.log(`[XiboService] Sent Collect Stats command to display ${displayId}`);
       return true;
     } catch (err) {
@@ -347,7 +457,7 @@ class XiboService {
   async verifyGlobalStatsTask() {
     try {
       const headers = await this.getHeaders();
-      const tasksRes = await axios.get(`${this.baseUrl}/api/task?length=200`, { headers });
+      const tasksRes = await axios.get(`${this.baseUrl}${this._apiPrefix}/task?length=200`, { headers });
       const tasks = tasksRes.data || [];
       const aggregationTask = tasks.find(t => t.name?.includes('Aggregation') || t.class?.includes('Aggregation'));
       
@@ -361,7 +471,7 @@ class XiboService {
         const params = new URLSearchParams();
         params.append('isActive', '1');
         params.append('schedule', '*/5 * * * *'); // Every 5 minutes for real-time aggregation
-        await axios.put(`${this.baseUrl}/api/task/${aggregationTask.taskId}`, params, {
+        await axios.put(`${this.baseUrl}${this._apiPrefix}/task/${aggregationTask.taskId}`, params, {
           headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' }
         });
       }
@@ -373,8 +483,20 @@ class XiboService {
   /**
    * Helper: Directly update display auditing window.
    */
+  /**
+   * Enable auditing / stats recording for a display and extend the audit window.
+   * Gracefully handles the Xibo 422 "Please set a Default Layout" error by
+   * auto-resolving the defaultLayoutId before attempting the PUT.
+   * @param {number|string} displayId
+   * @param {string} auditingUntil  ISO-ish date string e.g. '2027-12-31 00:00:00'
+   */
   async updateDisplayAuditing(displayId, auditingUntil) {
-    return await this.updateDisplay(displayId, { statsEnabled: 1, auditUntil: auditingUntil });
+    // updateDisplay() will auto-fetch and inject defaultLayoutId if it's missing,
+    // so we only need to supply the auditing fields explicitly here.
+    return await this.updateDisplay(displayId, {
+      statsEnabled: 1,
+      auditUntil: auditingUntil,
+    });
   }
   /**
    * Resolve a slot-specific playlist for a display.
@@ -389,7 +511,7 @@ class XiboService {
     
     try {
       // 1. Search for existing playlist
-      const pResp = await axios.get(`${this.baseUrl}/api/playlist`, {
+      const pResp = await axios.get(`${this.baseUrl}${this._apiPrefix}/playlist`, {
         headers,
         params: { name: playlistName }
       });
@@ -399,7 +521,7 @@ class XiboService {
 
       // 2. Create if not found
       console.log(`[XiboService] Creating playlist: ${playlistName}`);
-      const createResp = await axios.post(`${this.baseUrl}/api/playlist`, 
+      const createResp = await axios.post(`${this.baseUrl}${this._apiPrefix}/playlist`, 
         `name=${encodeURIComponent(playlistName)}&isDynamic=0`,
         { headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' } }
       );
@@ -407,7 +529,7 @@ class XiboService {
     } catch (err) {
       if (err.response?.status === 409) {
           // Retry find once if conflict occurs
-          const retry = await axios.get(`${this.baseUrl}/api/playlist`, { headers, params: { name: playlistName } });
+          const retry = await axios.get(`${this.baseUrl}${this._apiPrefix}/playlist`, { headers, params: { name: playlistName } });
           const found = retry.data?.find(p => (p.playlist === playlistName || p.name === playlistName));
           if (found) return found.playlistId;
       }
@@ -426,7 +548,7 @@ class XiboService {
     const headers = await this.getHeaders();
     try {
       const params = `media[0]=${mediaId}&duration=${duration}&useDuration=1`;
-      const resp = await axios.post(`${this.baseUrl}/api/playlist/library/assign/${playlistId}`, params, {
+      const resp = await axios.post(`${this.baseUrl}${this._apiPrefix}/playlist/library/assign/${playlistId}`, params, {
         headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' }
       });
       return resp.data?.[0] || resp.data;
@@ -443,7 +565,7 @@ class XiboService {
   async removeWidgetFromPlaylist(widgetId) {
     const headers = await this.getHeaders();
     try {
-      await axios.delete(`${this.baseUrl}/api/playlist/widget/${widgetId}`, { headers });
+      await axios.delete(`${this.baseUrl}${this._apiPrefix}/playlist/widget/${widgetId}`, { headers });
       return true;
     } catch (err) {
       console.error(`[XiboService] Failed to remove widget ${widgetId}:`, err.message);
@@ -463,7 +585,7 @@ class XiboService {
     form.append('name', fileName);
 
     try {
-      const resp = await axios.post(`${this.baseUrl}/api/library`, form, {
+      const resp = await axios.post(`${this.baseUrl}${this._apiPrefix}/library`, form, {
         headers: { ...headers, ...form.getHeaders() },
         maxBodyLength: Infinity,
         maxContentLength: Infinity,
@@ -515,9 +637,147 @@ class XiboService {
       syncStatus: d.mediaInventoryStatus === 1 ? 'Synced' : 'Downloading'
     };
   }
+
+  // ─── AUTO-DISCOVER CONFIG ──────────────────────────────────────────────────
+
+  /**
+   * Auto-discovers all critical Xibo IDs from the connected account:
+   *   - PLACEHOLDER_MEDIA_ID  → first image/video in the library
+   *   - Per-screen playlist IDs → SCREEN_{displayId}_MAIN_LOOP or SCREEN_{displayId}_PLAYLIST
+   *
+   * Called automatically after a .env reload (new account) or on demand via
+   * GET /admin/api/xibo/discover.
+   *
+   * Returns a config snapshot so the admin can review / copy to .env if needed.
+   * @returns {Promise<Object>}
+   */
+  async autoDiscoverConfig() {
+    console.log('[XiboService] 🔍 Auto-discovering Xibo config from account...');
+    const result = {
+      xibo_base_url: this.baseUrl,
+      discovered_at: new Date().toISOString(),
+      placeholder_media_id: null,
+      placeholder_media_name: null,
+      screen_playlists: [],
+      displays: [],
+      warnings: []
+    };
+
+    try {
+      // ── 1. Placeholder Media: first image or video in the library ────────────
+      const library = await this.getLibrary({ start: 0, length: 50 });
+      const media = (library || []).filter(m => ['image', 'video'].includes(m.mediaType));
+
+      if (media.length === 0) {
+        result.warnings.push('Library is empty — upload at least one image/video to use as placeholder.');
+      } else {
+        // Prefer an item named "placeholder" if one exists, else take the first
+        const preferred = media.find(m => /placeholder/i.test(m.name)) || media[0];
+        result.placeholder_media_id = preferred.mediaId;
+        result.placeholder_media_name = preferred.name;
+        console.log(`[XiboService] ✅ Placeholder media: ID=${preferred.mediaId} (${preferred.name})`);
+      }
+
+      // ── 2. Screen Playlists: discover MAIN_LOOP / PLAYLIST per display ───────
+      const [displays, allPlaylists] = await Promise.all([
+        this.getDisplays(),
+        this.getPlaylists({ length: 500 }).catch(() => [])
+      ]);
+
+      result.displays = displays.map(d => ({ displayId: d.displayId, name: d.display }));
+
+      for (const d of displays) {
+        const mainLoopName = `SCREEN_${d.displayId}_MAIN_LOOP`;
+        const legacyName   = `SCREEN_${d.displayId}_PLAYLIST`;
+        const playlist = allPlaylists.find(p =>
+          p.playlist === mainLoopName || p.name === mainLoopName ||
+          p.playlist === legacyName   || p.name === legacyName
+        );
+
+        if (playlist) {
+          result.screen_playlists.push({
+            displayId: d.displayId,
+            displayName: d.display,
+            playlistId: playlist.playlistId,
+            playlistName: playlist.playlist || playlist.name,
+            envKey: `SCREEN_${d.displayId}_PLAYLIST_ID`
+          });
+          console.log(`[XiboService] ✅ Screen ${d.display}: playlist ${playlist.playlistId}`);
+        } else {
+          result.warnings.push(`Display "${d.display}" (ID:${d.displayId}) has no provisioned playlist yet — run provisioning first.`);
+        }
+      }
+
+      console.log(`[XiboService] ✅ Auto-discover complete. Found ${result.screen_playlists.length} playlists, placeholder=${result.placeholder_media_id}`);
+
+    } catch (err) {
+      result.error = err.message;
+      console.error('[XiboService] Auto-discover failed:', err.message);
+    }
+
+    return result;
+  }
+
+  /**
+   * Diagnostic method to check Xibo connectivity health.
+   * Returns details about reachability and if fallback was needed.
+   */
+  async getHealth() {
+    const health = {
+        baseUrl: this.baseUrl,
+        prefix: this._apiPrefix,
+        isHealed: this._isHealed,
+        status: 'unknown',
+        error: null
+    };
+
+    try {
+        await this.getAccessToken();
+        health.status = 'connected';
+    } catch (err) {
+        health.status = 'failed';
+        health.error = err.message;
+    }
+    return health;
+  }
 }
 
-module.exports = new XiboService();
+// Singleton for central (ENV-based) Xibo instance
+const centralInstance = new XiboService();
+module.exports = centralInstance;
+
+/**
+ * Multi-tenant factory: returns a XiboService instance configured
+ * for a specific partner's credentials from the database.
+ *
+ * Usage:
+ *   const client = await XiboService.forPartner(partnerId);
+ *   const displays = await client.getDisplays();
+ *
+ * @param {number} partnerId
+ * @returns {Promise<XiboService>}
+ */
+module.exports.forPartner = async function(partnerId) {
+    const { dbGet } = require('../db/database');
+    const cred = await dbGet(
+        'SELECT * FROM partner_xibo_credentials WHERE partner_id = ?',
+        [partnerId]
+    );
+    if (!cred) throw new Error(`No Xibo credentials found for partner ${partnerId}`);
+
+    const instance = new XiboService();
+    instance.baseUrl = cred.xibo_base_url.replace(/\/$/, '');
+    instance.clientId = cred.client_id;
+    instance.clientSecret = cred.client_secret;
+
+    // Seed cached token if still valid
+    if (cred.access_token && cred.token_expires_at && new Date(cred.token_expires_at) > new Date(Date.now() + 60000)) {
+        instance.cachedToken = cred.access_token;
+        instance.tokenExpiry = new Date(cred.token_expires_at).getTime();
+    }
+
+    return instance;
+};
 
 
 

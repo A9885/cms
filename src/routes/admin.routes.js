@@ -3,6 +3,7 @@ const router = express.Router();
 const { dbRun, dbAll, dbGet } = require('../db/database');
 const xiboService = require('../services/xibo.service');
 const statsService = require('../services/stats.service');
+const { logActivity, ACTION, MODULE } = require('../services/activity-logger.service');
 
 // ─── DASHBOARD OVERVIEW ───
 
@@ -27,9 +28,12 @@ router.get('/dashboard', async (req, res) => {
             dbGet('SELECT COUNT(*) as count FROM brands'),
             dbGet('SELECT COUNT(*) as count FROM partners'),
             dbGet("SELECT SUM(amount) as total FROM invoices WHERE status = 'Paid'"),
-            xiboService.getDisplays(),
+            xiboService.getDisplays().catch(e => {
+                console.warn('[Admin API] Xibo Displays unreachable:', e.message);
+                return [];
+            }),
             xiboService.getCampaigns().catch(e => {
-                console.error('Failed to fetch Campaigns:', e.message);
+                console.warn('[Admin API] Xibo Campaigns unreachable:', e.message);
                 return [];
             }),
             dbGet('SELECT COUNT(*) as count FROM slots'),
@@ -183,8 +187,12 @@ router.post('/brands', async (req, res) => {
             );
         }
 
+        logActivity({ action: ACTION.CREATE, module: MODULE.BRAND, description: `Brand "${finalName}" created (ID: ${result.id})`, req });
         res.status(201).json({ success: true, brand_id: result.id });
-    } catch(err) { res.status(500).json({ error: err.message }); }
+    } catch(err) {
+        logActivity({ action: ACTION.ERROR, module: MODULE.BRAND, description: `Failed to create brand "${finalName}": ${err.message}`, req });
+        res.status(500).json({ error: err.message });
+    }
 });
 
 /** PATCH /api/admin/brands/:id/approve - Activate a brand. */
@@ -192,6 +200,7 @@ router.patch('/brands/:id/approve', async (req, res) => {
     try {
         const result = await dbRun('UPDATE brands SET status = "Active" WHERE id = ?', [req.params.id]);
         if (result.changes === 0) return res.status(404).json({ error: 'Brand not found' });
+        logActivity({ action: ACTION.APPROVE, module: MODULE.BRAND, description: `Brand ID ${req.params.id} approved/activated`, req });
         res.json({ success: true, brand_id: req.params.id, status: 'Active' });
     } catch(err) { res.status(500).json({ error: err.message }); }
 });
@@ -201,6 +210,7 @@ router.patch('/brands/:id/disable', async (req, res) => {
     try {
         const result = await dbRun('UPDATE brands SET status = "Disabled" WHERE id = ?', [req.params.id]);
         if (result.changes === 0) return res.status(404).json({ error: 'Brand not found' });
+        logActivity({ action: ACTION.UPDATE, module: MODULE.BRAND, description: `Brand ID ${req.params.id} disabled`, req });
         res.json({ success: true, brand_id: req.params.id, status: 'Disabled' });
     } catch(err) { res.status(500).json({ error: err.message }); }
 });
@@ -240,11 +250,12 @@ router.put('/brands/:id', async (req, res) => {
                     `INSERT INTO account (id, userId, providerId, accountId, password) 
                      VALUES (?, ?, 'credential', ?, ?)
                      ON DUPLICATE KEY UPDATE password = VALUES(password)`,
-                    [`acc_${userId}`, userId, 'credential', email, hash]
+                    [`acc_${userId}`, userId, email, hash]
                 );
             }
         }
 
+        logActivity({ action: ACTION.UPDATE, module: MODULE.BRAND, description: `Brand ID ${req.params.id} updated`, req });
         res.json({ success: true });
     } catch(err) { res.status(500).json({ error: err.message }); }
 });
@@ -544,8 +555,12 @@ router.post('/partners', async (req, res) => {
             );
         }
 
+        logActivity({ action: ACTION.CREATE, module: MODULE.PARTNER, description: `Partner "${name}" created (ID: ${result.id})`, req });
         res.status(201).json({ success: true, partner_id: result.id });
-    } catch(err) { res.status(500).json({ error: err.message }); }
+    } catch(err) {
+        logActivity({ action: ACTION.ERROR, module: MODULE.PARTNER, description: `Failed to create partner "${name}": ${err.message}`, req });
+        res.status(500).json({ error: err.message });
+    }
 });
 
 /** PATCH /api/admin/partners/:id/approve - Activate a partner. */
@@ -553,6 +568,7 @@ router.patch('/partners/:id/approve', async (req, res) => {
     try {
         const result = await dbRun('UPDATE partners SET status = "Active" WHERE id = ?', [req.params.id]);
         if (result.changes === 0) return res.status(404).json({ error: 'Partner not found' });
+        logActivity({ action: ACTION.APPROVE, module: MODULE.PARTNER, description: `Partner ID ${req.params.id} approved/activated`, req });
         res.json({ success: true, partner_id: req.params.id, status: 'Active' });
     } catch(err) { res.status(500).json({ error: err.message }); }
 });
@@ -562,6 +578,7 @@ router.patch('/partners/:id/disable', async (req, res) => {
     try {
         const result = await dbRun('UPDATE partners SET status = "Disabled" WHERE id = ?', [req.params.id]);
         if (result.changes === 0) return res.status(404).json({ error: 'Partner not found' });
+        logActivity({ action: ACTION.UPDATE, module: MODULE.PARTNER, description: `Partner ID ${req.params.id} disabled`, req });
         res.json({ success: true, partner_id: req.params.id, status: 'Disabled' });
     } catch(err) { res.status(500).json({ error: err.message }); }
 });
@@ -623,11 +640,12 @@ router.put('/partners/:id', async (req, res) => {
                     `INSERT INTO account (id, userId, providerId, accountId, password) 
                      VALUES (?, ?, 'credential', ?, ?)
                      ON DUPLICATE KEY UPDATE password = VALUES(password)`,
-                    [`acc_${userId}`, userId, 'credential', email, hash]
+                    [`acc_${userId}`, userId, email, hash]
                 );
             }
         }
 
+        logActivity({ action: ACTION.UPDATE, module: MODULE.PARTNER, description: `Partner ID ${req.params.id} updated`, req });
         res.json({ success: true });
     } catch(err) { res.status(500).json({ error: err.message }); }
 });
@@ -636,11 +654,16 @@ router.put('/partners/:id', async (req, res) => {
 router.delete('/partners/:id', async (req, res) => {
     const partnerId = req.params.id;
     try {
+        const partner = await dbGet('SELECT name FROM partners WHERE id = ?', [partnerId]);
         await dbRun('UPDATE screens SET partner_id = NULL WHERE partner_id = ?', [partnerId]);
         await dbRun('UPDATE users SET partner_id = NULL WHERE partner_id = ?', [partnerId]);
         await dbRun(`DELETE FROM partners WHERE id = ?`, [partnerId]);
+        logActivity({ action: ACTION.DELETE, module: MODULE.PARTNER, description: `Partner "${partner?.name || partnerId}" (ID: ${partnerId}) deleted`, req });
         res.json({ success: true });
-    } catch(err) { res.status(500).json({ error: err.message }); }
+    } catch(err) {
+        logActivity({ action: ACTION.ERROR, module: MODULE.PARTNER, description: `Failed to delete partner ID ${partnerId}: ${err.message}`, req });
+        res.status(500).json({ error: err.message });
+    }
 });
 
 
@@ -651,15 +674,51 @@ router.post('/partners/:id/assign-screens', async (req, res) => {
     if (!Array.isArray(screenIds)) return res.status(400).json({ error: 'screenIds must be an array' });
     
     try {
-        // First, unassign all screens currently belonging to this partner
+        const screenService = require('../services/screen.service');
+
+        // Fetch screens that are currently assigned to this partner (to detect removals)
+        const previousScreens = await dbAll(
+            'SELECT id, xibo_display_id FROM screens WHERE partner_id = ?', 
+            [partnerId]
+        );
+
+        // Unassign all screens currently belonging to this partner
         await dbRun('UPDATE screens SET partner_id = NULL WHERE partner_id = ?', [partnerId]);
-        
-        // Then, assign the new selection
+
+        // Assign the new selection
         if (screenIds.length > 0) {
             const ph = screenIds.map(() => '?').join(',');
             await dbRun(`UPDATE screens SET partner_id = ? WHERE id IN (${ph})`, [partnerId, ...screenIds]);
         }
+
         res.json({ success: true });
+
+        // ─── Xibo Display Group Sync (background, non-blocking) ─────────────────
+        setImmediate(async () => {
+            try {
+                // Screens removed from this partner
+                const newIdSet = new Set(screenIds.map(String));
+                const removed = previousScreens.filter(s => !newIdSet.has(String(s.id)) && s.xibo_display_id);
+                for (const s of removed) {
+                    await screenService.onScreenRemovedFromPartner(s.xibo_display_id, partnerId);
+                }
+
+                // Screens newly assigned to this partner
+                if (screenIds.length > 0) {
+                    const ph = screenIds.map(() => '?').join(',');
+                    const newScreens = await dbAll(
+                        `SELECT id, xibo_display_id FROM screens WHERE id IN (${ph}) AND xibo_display_id IS NOT NULL`,
+                        screenIds
+                    );
+                    for (const s of newScreens) {
+                        await screenService.onScreenAssignedToPartner(s.xibo_display_id, partnerId);
+                    }
+                }
+            } catch (syncErr) {
+                console.warn('[Admin API] Xibo group sync (background) error:', syncErr.message);
+            }
+        });
+
     } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -694,8 +753,12 @@ router.post('/screens', async (req, res) => {
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Offline')`,
             [name, city, address, latitude, longitude, timezone || 'Asia/Kolkata', partner_id || null, notes]
         );
+        logActivity({ action: ACTION.CREATE, module: MODULE.SCREEN, description: `Screen "${name}" added (ID: ${result.id})`, req });
         res.json({ success: true, id: result.id });
-    } catch(err) { res.status(500).json({ error: err.message }); }
+    } catch(err) {
+        logActivity({ action: ACTION.ERROR, module: MODULE.SCREEN, description: `Failed to add screen "${name}": ${err.message}`, req });
+        res.status(500).json({ error: err.message });
+    }
 });
 
 /** PUT /api/admin/screens/:id - Update screen details. */
@@ -721,6 +784,7 @@ router.put('/screens/:id', async (req, res) => {
             params = [name, city, address, latitude, longitude, timezone, partner_id, notes, xibo_display_id, status, req.params.id];
         }
         await dbRun(query, params);
+        logActivity({ action: ACTION.UPDATE, module: MODULE.SCREEN, description: `Screen ID ${req.params.id} updated`, req });
         res.json({ success: true });
     } catch(err) { res.status(500).json({ error: err.message }); }
 });
@@ -743,14 +807,18 @@ router.post('/screens/:id/sync-location', async (req, res) => {
 /** DELETE /api/admin/screens/:id - Delete screen from the local records. */
 router.delete('/screens/:id', async (req, res) => {
     try {
-        const screen = await dbGet('SELECT xibo_display_id FROM screens WHERE id = ?', [req.params.id]);
+        const screen = await dbGet('SELECT name, xibo_display_id FROM screens WHERE id = ?', [req.params.id]);
         if (screen && screen.xibo_display_id) {
             await dbRun('DELETE FROM slots WHERE displayId = ?', [screen.xibo_display_id]);
             await dbRun('DELETE FROM screen_partners WHERE displayId = ?', [screen.xibo_display_id]);
         }
         await dbRun(`DELETE FROM screens WHERE id = ?`, [req.params.id]);
+        logActivity({ action: ACTION.DELETE, module: MODULE.SCREEN, description: `Screen "${screen?.name || req.params.id}" (ID: ${req.params.id}) deleted`, req });
         res.json({ success: true });
-    } catch(err) { res.status(500).json({ error: err.message }); }
+    } catch(err) {
+        logActivity({ action: ACTION.ERROR, module: MODULE.SCREEN, description: `Failed to delete screen ID ${req.params.id}: ${err.message}`, req });
+        res.status(500).json({ error: err.message });
+    }
 });
 
 /**
@@ -1172,6 +1240,266 @@ router.patch('/creatives/:id/reject', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+
+// ─── XIBO AUTO-PROVISIONING (SAAS) ───────────────────────────────────────────
+
+const provisioningService = require('../services/xibo-provisioning.service');
+
+/**
+ * POST /admin/api/partners/:id/xibo/connect
+ * Save Xibo credentials for a partner and trigger auto-provisioning.
+ * Body: { xibo_base_url, client_id, client_secret }
+ */
+router.post('/partners/:id/xibo/connect', async (req, res) => {
+    const partnerId = parseInt(req.params.id, 10);
+    const { xibo_base_url, client_id, client_secret } = req.body;
+
+    if (!xibo_base_url || !client_id || !client_secret) {
+        return res.status(400).json({ error: 'xibo_base_url, client_id, and client_secret are required.' });
+    }
+
+    const partner = await dbGet('SELECT id, name FROM partners WHERE id = ?', [partnerId]);
+    if (!partner) return res.status(404).json({ error: 'Partner not found' });
+
+    try {
+        // Save credentials (upsert)
+        await dbRun(`
+            INSERT INTO partner_xibo_credentials 
+                (partner_id, xibo_base_url, client_id, client_secret, provision_status)
+            VALUES (?, ?, ?, ?, 'pending')
+            ON DUPLICATE KEY UPDATE
+                xibo_base_url = VALUES(xibo_base_url),
+                client_id = VALUES(client_id),
+                client_secret = VALUES(client_secret),
+                provision_status = 'pending',
+                provision_error = NULL,
+                provision_log = NULL,
+                updated_at = CURRENT_TIMESTAMP
+        `, [partnerId, xibo_base_url.trim().replace(/\/$/, ''), client_id.trim(), client_secret.trim()]);
+
+        // Trigger provisioning asynchronously (fire & forget for fast API response)
+        res.json({ success: true, message: 'Credentials saved. Provisioning started.', status: 'provisioning' });
+
+        // Run in background
+        provisioningService.provisionPartner(partnerId).catch(err => {
+            console.error(`[Admin API] Background provisioning failed for partner ${partnerId}:`, err.message);
+        });
+
+    } catch (err) {
+        console.error('[Admin API] Xibo connect error:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * GET /admin/api/partners/:id/xibo/status
+ * Poll the provisioning status + step log for a partner.
+ */
+router.get('/partners/:id/xibo/status', async (req, res) => {
+    const partnerId = parseInt(req.params.id, 10);
+    try {
+        const cred = await dbGet(
+            'SELECT provision_status, provision_error, provision_log, xibo_base_url, updated_at FROM partner_xibo_credentials WHERE partner_id = ?',
+            [partnerId]
+        );
+
+        if (!cred) {
+            return res.json({ connected: false, status: 'not_configured' });
+        }
+
+        let steps = [];
+        try { steps = JSON.parse(cred.provision_log || '{}')?.steps || []; } catch(e) {}
+
+        res.json({
+            connected: true,
+            status: cred.provision_status,
+            error: cred.provision_error || null,
+            xibo_base_url: cred.xibo_base_url,
+            steps,
+            updatedAt: cred.updated_at
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * POST /admin/api/partners/:id/xibo/reprovision
+ * Body: { reset: true } → clears all resources and re-provisions from scratch.
+ *       { reset: false } → idempotent re-run (only creates missing resources).
+ */
+router.post('/partners/:id/xibo/reprovision', async (req, res) => {
+    const partnerId = parseInt(req.params.id, 10);
+    const { reset = false } = req.body;
+
+    const cred = await dbGet('SELECT id FROM partner_xibo_credentials WHERE partner_id = ?', [partnerId]);
+    if (!cred) return res.status(404).json({ error: 'No Xibo credentials found. Connect first.' });
+
+    res.json({ success: true, message: reset ? 'Full reset provisioning started.' : 'Idempotent re-provision started.' });
+
+    // Background
+    const job = reset
+        ? provisioningService.resetAndReprovision(partnerId)
+        : provisioningService.reprovisionPartner(partnerId);
+
+    job.catch(err => console.error(`[Admin API] Reprovision failed for partner ${partnerId}:`, err.message));
+});
+
+/**
+ * DELETE /admin/api/partners/:id/xibo/disconnect
+ * Remove Xibo credentials and all provisioned resource records.
+ */
+router.delete('/partners/:id/xibo/disconnect', async (req, res) => {
+    const partnerId = parseInt(req.params.id, 10);
+    try {
+        await dbRun('DELETE FROM partner_xibo_resources WHERE partner_id = ?', [partnerId]);
+        await dbRun('DELETE FROM partner_xibo_credentials WHERE partner_id = ?', [partnerId]);
+        await dbRun(`
+            UPDATE partners 
+            SET xibo_provision_status = 'not_started', xibo_folder_id = NULL, xibo_display_group_id = NULL
+            WHERE id = ?
+        `, [partnerId]);
+        res.json({ success: true, message: 'Xibo integration disconnected.' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * GET /admin/api/partners/:id/xibo/resources
+ * List all Xibo resource IDs provisioned for a partner.
+ */
+router.get('/partners/:id/xibo/resources', async (req, res) => {
+    const partnerId = parseInt(req.params.id, 10);
+    try {
+        const [cred, resources] = await Promise.all([
+            dbGet('SELECT provision_status, xibo_base_url, provision_error FROM partner_xibo_credentials WHERE partner_id = ?', [partnerId]),
+            dbAll('SELECT resource_type, xibo_resource_id, xibo_resource_name, meta, created_at FROM partner_xibo_resources WHERE partner_id = ? ORDER BY id ASC', [partnerId])
+        ]);
+
+        res.json({
+            connected: !!cred,
+            status: cred?.provision_status || 'not_configured',
+            xibo_base_url: cred?.xibo_base_url || null,
+            error: cred?.provision_error || null,
+            resources: resources.map(r => ({
+                type: r.resource_type,
+                xibo_id: r.xibo_resource_id,
+                name: r.xibo_resource_name,
+                meta: r.meta ? JSON.parse(r.meta) : null,
+                createdAt: r.created_at
+            }))
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+
+/**
+ * GET /admin/api/xibo/discover
+ * Manually trigger auto-discovery of Xibo IDs from the current account.
+ * Returns: placeholder media ID, per-screen playlist IDs, display list.
+ * Useful after switching XIBO_BASE_URL to a new Xibo account.
+ */
+router.get('/xibo/discover', async (req, res) => {
+    try {
+        const result = await xiboService.autoDiscoverConfig();
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * GET /admin/api/xibo/config
+ * Returns current active Xibo config (what's live in process.env right now).
+ * Handy for confirming after a .env change that everything updated correctly.
+ */
+router.get('/xibo/config', (req, res) => {
+    res.json({
+        xibo_base_url: (process.env.XIBO_BASE_URL || '').replace(/\/$/, ''),
+        client_id_set: !!process.env.XIBO_CLIENT_ID,
+        placeholder_media_id: process.env.PLACEHOLDER_MEDIA_ID || null,
+        screen_playlist_vars: Object.entries(process.env)
+            .filter(([k]) => k.startsWith('SCREEN_') && k.endsWith('_PLAYLIST_ID'))
+            .map(([k, v]) => ({ key: k, value: v }))
+    });
+});
+
+// ─── ACTIVITY LOGS ────────────────────────────────────────────────────────────
+
+/**
+ * GET /admin/api/activity-logs
+ * Returns paginated activity logs with optional filters.
+ * Query params: module, action, user_id, from, to, search, page, limit
+ */
+router.get('/activity-logs', async (req, res) => {
+    try {
+        const { module: mod, action, user_id, from, to, search, page = 1, limit = 50 } = req.query;
+        const safePage  = Math.max(1, parseInt(page, 10)  || 1);
+        const safeLimit = Math.min(200, Math.max(1, parseInt(limit, 10) || 50));
+        const offset    = (safePage - 1) * safeLimit;
+
+        const wheres = [], params = [];
+        if (mod)     { wheres.push('al.module    = ?');       params.push(mod); }
+        if (action)  { wheres.push('al.action    = ?');       params.push(action); }
+        if (user_id) { wheres.push('al.user_id   = ?');       params.push(user_id); }
+        if (from)    { wheres.push('al.created_at >= ?');     params.push(from); }
+        if (to)      { wheres.push('al.created_at <= ?');     params.push(to); }
+        if (search)  { wheres.push('al.description LIKE ?');  params.push(`%${search}%`); }
+
+        const where = wheres.length ? 'WHERE ' + wheres.join(' AND ') : '';
+
+        const [rows, countRow] = await Promise.all([
+            dbAll(`
+                SELECT al.*, u.username, u.email as user_email
+                FROM activity_logs al
+                LEFT JOIN users u ON al.user_id = u.id
+                ${where}
+                ORDER BY al.created_at DESC
+                LIMIT ? OFFSET ?
+            `, [...params, safeLimit, offset]),
+            dbGet(`SELECT COUNT(*) as total FROM activity_logs al ${where}`, params)
+        ]);
+
+        res.json({
+            data:  rows,
+            total: countRow?.total || 0,
+            page:  safePage,
+            limit: safeLimit,
+            pages: Math.ceil((countRow?.total || 0) / safeLimit)
+        });
+    } catch (err) {
+        console.error('[Admin API] Activity Logs Error:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * GET /admin/api/activity-logs/stats
+ * Summary of recent activity grouped by module and action. Used for dashboard widget.
+ */
+router.get('/activity-logs/stats', async (req, res) => {
+    try {
+        const [moduleBreakdown, actionBreakdown, recentErrors, activityTrend] = await Promise.all([
+            dbAll(`SELECT module, COUNT(*) as count FROM activity_logs WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) GROUP BY module ORDER BY count DESC LIMIT 10`),
+            dbAll(`SELECT action, COUNT(*) as count FROM activity_logs WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) GROUP BY action ORDER BY count DESC`),
+            dbAll(`SELECT id, module, description, created_at, ip_address FROM activity_logs WHERE action = 'ERROR' ORDER BY created_at DESC LIMIT 5`),
+            dbAll(`SELECT DATE(created_at) as date, COUNT(*) as count FROM activity_logs WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY) GROUP BY DATE(created_at) ORDER BY date ASC`)
+        ]);
+        res.json({ moduleBreakdown, actionBreakdown, recentErrors, activityTrend });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 module.exports = router;
+
+
+
+
+
+
 
 

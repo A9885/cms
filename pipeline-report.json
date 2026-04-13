@@ -4,7 +4,7 @@
   "fail": 0,
   "warn": 19,
   "summary": {
-    "xibo": "https://signt.signcdn.com",
+    "xibo": "https://cms.signtral.info",
     "backend": "http://localhost:3000"
   },
   "results": [
@@ -21,7 +21,7 @@
     {
       "s": "pass",
       "label": "XIBO_BASE_URL set",
-      "detail": "https://signt.signcdn.com"
+      "detail": "https://cms.signtral.info"
     },
     {
       "s": "pass",
