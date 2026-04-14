@@ -179,6 +179,7 @@ async function initSchema() {
 
         // Migration for existing media_brands table
         try { await p.query("ALTER TABLE media_brands ADD COLUMN status VARCHAR(100) DEFAULT 'Approved'"); } catch(e) {}
+        try { await p.query("ALTER TABLE media_brands ADD COLUMN rejection_reason TEXT"); } catch(e) {}
 
         await p.query(`
             CREATE TABLE IF NOT EXISTS screens (

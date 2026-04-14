@@ -15,6 +15,11 @@ async function getAuth() {
     authInstance = betterAuth({
         baseURL: process.env.BETTER_AUTH_URL || 'http://localhost:3000',
         secret: process.env.BETTER_AUTH_SECRET,
+        trustedOrigins: [
+            "https://signtral.info",
+            "http://localhost:3001",
+            "http://localhost:3000"
+        ],
         database: mysql.createPool({
             host: process.env.DB_HOST || '127.0.0.1',
             user: process.env.DB_USER || 'root',
