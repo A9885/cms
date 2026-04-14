@@ -37,6 +37,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 app.set('io', io);
+app.set('trust proxy', 1); // Required for VPS reverse proxies (Nginx)
 
 const PORT = process.env.PORT || 3000;
 

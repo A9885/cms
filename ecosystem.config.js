@@ -2,23 +2,25 @@ module.exports = {
   apps: [{
     name: 'signtral-cms',
     script: 'server.js',
-    instances: 'max',       // Utilize all CPU cores
-    exec_mode: 'cluster',    // Run in cluster mode for scalability
+    cwd: '/var/www/cms', // Set correct working directory for VPS
+    instances: 'max',
+    exec_mode: 'cluster',
     autorestart: true,
-    watch: false,            // Don't watch files in production
+    watch: false,
     max_memory_restart: '1G',
     env: {
       NODE_ENV: 'development',
-      PORT: 3000
+      PORT: 3001
     },
     env_production: {
       NODE_ENV: 'production',
-      PORT: 3000
+      PORT: 3001
     },
-    // Log configuration
+    // Production log configuration
     log_date_format: 'YYYY-MM-DD HH:mm:ss',
-    error_file: './logs/err.log',
-    out_file: './logs/out.log',
+    error_file: '/var/log/cms/error.log',
+    out_file: '/var/log/cms/out.log',
+    log_file: '/var/log/cms/combined.log',
     merge_logs: true
   }]
 };
