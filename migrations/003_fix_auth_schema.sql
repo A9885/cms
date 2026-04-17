@@ -1,5 +1,5 @@
 -- ============================================================
--- Supplemental Migration: Fix Better Auth Schema (Rev 3 - Aggressive)
+-- Supplemental Migration: Fix Better Auth Schema (Rev 4 - Max Compatibility)
 -- Run: mysql -u $DB_USER -p$DB_PASSWORD $DB_NAME < migrations/003_fix_auth_schema.sql
 -- ============================================================
 
@@ -7,31 +7,62 @@
 SET FOREIGN_KEY_CHECKS = 0;
 
 -- 1. Drop existing Better Auth tables to clear all blocking FKs
--- Since this is a new hosting, dropping these is the safest way to fix schema mismatches.
--- The 'users' table is NOT dropped to preserve your admin account.
 DROP TABLE IF EXISTS account;
 DROP TABLE IF EXISTS session;
 DROP TABLE IF EXISTS verification;
 DROP TABLE IF EXISTS oauth; 
 
 -- 2. Modify 'users' table columns
--- Now that all referencing tables are gone, this WILL succeed.
+-- Standardize ID type
 ALTER TABLE users MODIFY id VARCHAR(255) NOT NULL;
 
--- Add missing columns with camelCase for Better Auth compatibility
-ALTER TABLE users ADD COLUMN IF NOT EXISTS name VARCHAR(255) AFTER id;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(255) UNIQUE AFTER username;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS emailVerified BOOLEAN DEFAULT FALSE AFTER email;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS image TEXT AFTER emailVerified;
+-- Safe Column Addition Procedure
+-- (This ensures compatibility with both MySQL 5.7 and MySQL 8.0)
+DROP PROCEDURE IF EXISTS AddColumnSafely;
+DELIMITER //
+CREATE PROCEDURE AddColumnSafely(
+    IN tableName VARCHAR(255),
+    IN columnName VARCHAR(255),
+    IN columnType VARCHAR(255),
+    IN afterColumn VARCHAR(255)
+)
+BEGIN
+    IF NOT EXISTS (
+        SELECT * FROM information_schema.COLUMNS 
+        WHERE TABLE_NAME = tableName AND COLUMN_NAME = columnName AND TABLE_SCHEMA = DATABASE()
+    ) THEN
+        SET @sql = CONCAT('ALTER TABLE ', tableName, ' ADD COLUMN ', columnName, ' ', columnType, ' AFTER ', afterColumn);
+        PREPARE stmt FROM @sql;
+        EXECUTE stmt;
+        DEALLOCATE PREPARE stmt;
+    END IF;
+END //
+DELIMITER ;
+
+-- Add missing columns safely
+CALL AddColumnSafely('users', 'name', 'VARCHAR(255)', 'id');
+CALL AddColumnSafely('users', 'email', 'VARCHAR(255)', 'username');
+CALL AddColumnSafely('users', 'emailVerified', 'BOOLEAN DEFAULT FALSE', 'email');
+CALL AddColumnSafely('users', 'image', 'TEXT', 'emailVerified');
+
+-- Unique index for email (Safe Addition)
+SET @exist_email_idx = (SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_NAME='users' AND INDEX_NAME='email' AND TABLE_SCHEMA=DATABASE());
+SET @s_email_idx = IF(@exist_email_idx = 0, 'ALTER TABLE users ADD UNIQUE (email)', 'SELECT 1');
+PREPARE stmt_e FROM @s_email_idx; EXECUTE stmt_e; DEALLOCATE PREPARE stmt_e;
 
 -- Standardize created/updated fields
 SET @exist_ca = (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='users' AND COLUMN_NAME='created_at' AND TABLE_SCHEMA=DATABASE());
 SET @s_ca = IF(@exist_ca > 0, 'ALTER TABLE users CHANGE created_at createdAt DATETIME DEFAULT CURRENT_TIMESTAMP', 'SELECT 1');
 PREPARE stmt_ca FROM @s_ca; EXECUTE stmt_ca; DEALLOCATE PREPARE stmt_ca;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;
+
+SET @exist_ua = (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='users' AND COLUMN_NAME='updatedAt' AND TABLE_SCHEMA=DATABASE());
+SET @s_ua = IF(@exist_ua = 0, 'ALTER TABLE users ADD COLUMN updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP', 'SELECT 1');
+PREPARE stmt_ua FROM @s_ua; EXECUTE stmt_ua; DEALLOCATE PREPARE stmt_ua;
+
+-- Cleanup procedure
+DROP PROCEDURE IF EXISTS AddColumnSafely;
 
 -- 3. Recreate Better Auth tables with standardized VARCHAR(255) types
--- This ensures they match the users.id type perfectly.
 CREATE TABLE account (
     id VARCHAR(255) PRIMARY KEY,
     userId VARCHAR(255) NOT NULL,
