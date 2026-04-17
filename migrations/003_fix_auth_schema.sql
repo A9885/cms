@@ -44,6 +44,7 @@ CALL AddColumnSafely('users', 'name', 'VARCHAR(255)', 'id');
 CALL AddColumnSafely('users', 'email', 'VARCHAR(255)', 'username');
 CALL AddColumnSafely('users', 'emailVerified', 'BOOLEAN DEFAULT FALSE', 'email');
 CALL AddColumnSafely('users', 'image', 'TEXT', 'emailVerified');
+CALL AddColumnSafely('users', 'password_hash', 'VARCHAR(255)', 'username'); -- Ensure this exists!
 
 -- Unique index for email (Safe Addition)
 SET @exist_email_idx = (SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_NAME='users' AND INDEX_NAME='email' AND TABLE_SCHEMA=DATABASE());
