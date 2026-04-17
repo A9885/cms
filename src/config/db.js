@@ -6,7 +6,7 @@ const mysql = require('mysql2/promise');
 // ─── Startup ENV Validation ───────────────────────────────────────────────────
 // Throw a hard error at boot time if any required DB variable is missing.
 // This prevents silent "undefined" connections that fail at query time.
-const REQUIRED_DB_VARS = ['DB_HOST', 'DB_USER', 'DB_PASSWORD', 'DB_NAME'];
+const REQUIRED_DB_VARS = ['DB_HOST', 'DB_USER', 'DB_NAME'];
 for (const key of REQUIRED_DB_VARS) {
     if (!process.env[key]) {
         throw new Error(

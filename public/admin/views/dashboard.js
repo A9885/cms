@@ -212,7 +212,7 @@ App.registerView('dashboard', {
             return card;
         };
         kpiContainer.appendChild(createKpi('kpi-blue', 'monitor', 'Total Screens', data.totalScreens));
-        kpiContainer.appendChild(createKpi('kpi-darkblue', 'play-circle', 'Daily Plays', (data.totalImpressions || 0).toLocaleString(), 'Across network'));
+        kpiContainer.appendChild(createKpi('kpi-darkblue', 'play-circle', 'Total PoP Plays', (data.totalImpressions || 0).toLocaleString(), 'Total verified plays'));
         kpiContainer.appendChild(createKpi('kpi-orange', 'layers', 'Campaigns', data.activeCampaigns));
         kpiContainer.appendChild(createKpi('kpi-lightblue', 'indian-rupee', 'Revenue', `₹${(data.monthlyRevenue || 0).toLocaleString()}`));
 
@@ -284,7 +284,7 @@ App.registerView('dashboard', {
                 item.className = 'alert-item'; item.style.borderLeft = '3px solid #ef4444';
                 const content = document.createElement('div');
                 const title = document.createElement('div');
-                title.style.fontWeight = '600'; title.textContent = `${s.name} Offline`;
+                title.style.fontWeight = '600'; title.textContent = `${s.name || s.display || s.id || s.displayId || 'Unknown'} Offline`;
                 content.append(title); item.append(content); container.appendChild(item);
             });
             alertBadge.textContent = offline.length; alertBadge.style.display = 'inline-block';
@@ -297,7 +297,7 @@ App.registerView('dashboard', {
                 item.className = 'alert-item'; item.style.borderLeft = '3px solid #10b981';
                 const content = document.createElement('div');
                 const title = document.createElement('div');
-                title.style.fontWeight = '600'; title.textContent = s.name;
+                title.style.fontWeight = '600'; title.textContent = s.name || s.display || s.id || s.displayId || 'Live Screen';
                 const playing = document.createElement('div');
                 playing.style.color = '#10b981'; playing.textContent = `▶ ${live ? live.adName : 'Syncing...'}`;
                 content.append(title, playing); item.append(content); container.appendChild(item);

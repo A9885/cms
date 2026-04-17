@@ -25,6 +25,7 @@ class XiboService {
     this.circuitOpen = false;
     this.threshold = 3;
     this.resetTimeout = 60000; // 60 seconds
+    this.clockOffset = 0;      // ms: XiboTime - LocalTime
   }
 
   /**
@@ -36,32 +37,49 @@ class XiboService {
       return { success: false, syncing: true, data: [] };
     }
 
-    try {
-      const result = await fn();
-      
-      if (this.failureCount >= this.threshold) {
-          console.log('[Xibo] Circuit CLOSED — Xibo connection restored');
-      }
-      
-      this.failureCount = 0;
-      this.circuitOpen = false;
-      return result; // RETURN RAW DATA ON SUCCESS
-    } catch (err) {
-      this.failureCount++;
-      console.error(`[Xibo] Request failed (${this.failureCount}/${this.threshold}):`, err.message);
-      
-      if (this.failureCount >= this.threshold) {
-        this.circuitOpen = true;
-        console.log('[Xibo] Circuit OPEN — returning cached state');
+    const maxRetries = 1;
+    let attempt = 0;
+
+    const execute = async () => {
+      try {
+        const result = await fn();
         
-        setTimeout(() => {
-          this.circuitOpen = false;
-          console.log('[Xibo] Circuit HALF-OPEN — retrying Xibo connection');
-        }, this.resetTimeout);
+        if (this.failureCount >= this.threshold) {
+            console.log('[Xibo] Circuit CLOSED — Xibo connection restored');
+        }
+        
+        this.failureCount = 0;
+        this.circuitOpen = false;
+        return result;
+      } catch (err) {
+        // 401 is handled by callers for token refresh, not a circuit failure
+        if (err.response?.status === 401) throw err;
+
+        if (attempt < maxRetries) {
+          attempt++;
+          console.warn(`[Xibo] Service transient failure. Retrying attempt ${attempt}...`);
+          await new Promise(r => setTimeout(r, 1000)); // 1s backoff
+          return await execute();
+        }
+
+        this.failureCount++;
+        console.error(`[Xibo] Request failed (${this.failureCount}/${this.threshold}):`, err.message);
+        
+        if (this.failureCount >= this.threshold) {
+          this.circuitOpen = true;
+          console.log('[Xibo] Circuit OPEN — returning cached state');
+          
+          setTimeout(() => {
+            this.circuitOpen = false;
+            console.log('[Xibo] Circuit HALF-OPEN — retrying Xibo connection');
+          }, this.resetTimeout);
+        }
+        
+        return { syncing: true, data: [] };
       }
-      
-      return { syncing: true, data: [] }; // RETURN SYNCING OBJECT ON FAILURE
-    }
+    };
+
+    return await execute();
   }
 
   // ─── Lazy credential accessors ─────────────────────────────────────────────
@@ -114,7 +132,8 @@ class XiboService {
       this.invalidateToken();
     }
 
-    if (this.cachedToken && this.tokenExpiry && Date.now() < this.tokenExpiry) {
+    // 5-minute buffer: refresh if expiring in less than 5 mins
+    if (this.cachedToken && this.tokenExpiry && Date.now() < (this.tokenExpiry - 300000)) {
       return this.cachedToken;
     }
 
@@ -185,7 +204,10 @@ class XiboService {
         const detail = err.response?.data || err.message;
         const is404 = err.response?.status === 404;
         let msg = `Xibo Authentication Failed: ${JSON.stringify(detail)}`;
-        if (is404) msg += ` - This usually means the API router is missing. Check Nginx rewrite rules or try adding /api/index.php manually to your URL.`;
+        if (is404) {
+          msg += ` - 💡 [HEURISTIC] This usually means your web server (Nginx/Apache) isn't routing /api requests correctly. 
+          Make sure your Nginx config has: location /api { try_files $uri $uri/ /api/index.php?$args; }`;
+        }
         throw new Error(msg);
     }
   }
@@ -206,19 +228,32 @@ class XiboService {
    */
   async getDisplays(params = {}) {
     return await this.xiboRequest(async () => {
-        const headers = await this.getHeaders();
-        const finalParams = { ...params };
-        const currentEmbed = (finalParams.embed || '').split(',').filter(Boolean);
-        if (!currentEmbed.includes('statsEnabled')) currentEmbed.push('statsEnabled');
-        if (!currentEmbed.includes('auditUntil')) currentEmbed.push('auditUntil');
-        finalParams.embed = currentEmbed.join(',');
+        const doRequest = async () => {
+          const headers = await this.getHeaders();
+          const finalParams = { ...params };
+          const currentEmbed = (finalParams.embed || '').split(',').filter(Boolean);
+          if (!currentEmbed.includes('statsEnabled')) currentEmbed.push('statsEnabled');
+          if (!currentEmbed.includes('auditUntil')) currentEmbed.push('auditUntil');
+          finalParams.embed = currentEmbed.join(',');
 
-        const resp = await axios.get(`${this.baseUrl}${this._apiPrefix}/display`, { 
-            headers, 
-            params: finalParams, 
-            timeout: 8000 
-        });
-        return resp.data;
+          const resp = await axios.get(`${this.baseUrl}${this._apiPrefix}/display`, { 
+              headers, 
+              params: finalParams, 
+              timeout: 8000 
+          });
+          return resp.data;
+        };
+
+        try {
+            return await doRequest();
+        } catch (err) {
+            if (err.response?.status === 401) {
+                console.warn('[XiboService] Displays 401 — refreshing token and retrying...');
+                this.invalidateToken();
+                return await doRequest();
+            }
+            throw err;
+        }
     });
   }
 
@@ -351,12 +386,29 @@ class XiboService {
    * @returns {Promise<Array>}
    */
   async getStats(type, additionalParams = {}) {
-    const headers = await this.getHeaders();
-    const resp = await axios.get(`${this.baseUrl}${this._apiPrefix}/stats`, {
-      headers,
-      params: { type, ...additionalParams }
+    return await this.xiboRequest(async () => {
+      const doRequest = async () => {
+        const headers = await this.getHeaders();
+        const resp = await axios.get(`${this.baseUrl}${this._apiPrefix}/stats`, {
+          headers,
+          params: { type, ...additionalParams },
+          timeout: 15000
+        });
+        return resp.data;
+      };
+
+      try {
+        return await doRequest();
+      } catch (err) {
+        // On 401 Unauthorized, force a token refresh and retry once
+        if (err.response?.status === 401) {
+          console.warn('[XiboService] Stats 401 — refreshing token and retrying...');
+          this.invalidateToken();
+          return await doRequest();
+        }
+        throw err;
+      }
     });
-    return resp.data;
   }
 
   /**
@@ -513,17 +565,45 @@ class XiboService {
 
   /**
    * Force a display to send its current playback statistics to the CMS immediately via XMR.
+   * Fallback to collectNow action if direct command fails.
    * @param {number} displayId
+   * @param {number} [displayGroupId] - Optional group ID for v4 collectNow action
    * @returns {Promise<boolean>}
    */
-  async forceCollectDisplayStats(displayId) {
+  async forceCollectDisplayStats(displayId, displayGroupId = null) {
     try {
       const headers = await this.getHeaders();
-      await axios.post(`${this.baseUrl}${this._apiPrefix}/display/${displayId}/command/collect_stats`, {}, { headers });
-      console.log(`[XiboService] Sent Collect Stats command to display ${displayId}`);
-      return true;
+      
+      // Attempt 1: v4 Action (Most reliable for Docker/v4 installs)
+      if (displayGroupId) {
+        try {
+          await axios.post(`${this.baseUrl}${this._apiPrefix}/displaygroup/${displayGroupId}/action/collectNow`, new URLSearchParams(), {
+            headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' },
+            timeout: 5000
+          });
+          console.log(`[XiboService] Sent collectNow signal to display group ${displayGroupId}`);
+          return true;
+        } catch (e) {
+          console.warn(`[XiboService] collectNow failed for group ${displayGroupId}:`, e.message);
+        }
+      }
+
+      // Attempt 2: Legacy Command (Backend fallback)
+      try {
+        await axios.post(`${this.baseUrl}${this._apiPrefix}/display/${displayId}/command/collect_stats`, {}, { headers, timeout: 5000 });
+        console.log(`[XiboService] Sent legacy Collect Stats command to display ${displayId}`);
+        return true;
+      } catch (err) {
+        const is500 = err.response?.status === 500;
+        if (is500) {
+           console.warn(`[XiboService] Display ${displayId} does not support direct collect_stats command (500).`);
+        } else {
+           console.error(`[XiboService] Failed to force stats collection for ${displayId}:`, err.message);
+        }
+        return false;
+      }
     } catch (err) {
-      console.error(`[XiboService] Failed to force stats collection for ${displayId}:`, err.message);
+      console.error(`[XiboService] forceCollectDisplayStats critical failure:`, err.message);
       return false;
     }
   }
@@ -537,7 +617,11 @@ class XiboService {
       const headers = await this.getHeaders();
       const tasksRes = await axios.get(`${this.baseUrl}${this._apiPrefix}/task?length=200`, { headers });
       const tasks = tasksRes.data || [];
-      const aggregationTask = tasks.find(t => t.name?.includes('Aggregation') || t.class?.includes('Aggregation'));
+      const aggregationTask = tasks.find(t => 
+        t.name?.toLowerCase().includes('aggregation') || 
+        t.class?.toLowerCase().includes('aggregation') ||
+        t.name?.toLowerCase().includes('stats')
+      );
       
       if (!aggregationTask) {
         console.warn('[XiboService] Aggregation task NOT FOUND in Xibo CMS.');
@@ -599,8 +683,12 @@ class XiboService {
 
       // 2. Create if not found
       console.log(`[XiboService] Creating playlist: ${playlistName}`);
+      const params = new URLSearchParams();
+      params.append('name', playlistName);
+      params.append('isDynamic', '0');
+      
       const createResp = await axios.post(`${this.baseUrl}${this._apiPrefix}/playlist`, 
-        `name=${encodeURIComponent(playlistName)}&isDynamic=0`,
+        params,
         { headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' } }
       );
       return createResp.data.playlistId;
@@ -625,7 +713,11 @@ class XiboService {
   async assignMediaToPlaylist(playlistId, mediaId, duration = 10) {
     const headers = await this.getHeaders();
     try {
-      const params = `media[0]=${mediaId}&duration=${duration}&useDuration=1`;
+      const params = new URLSearchParams();
+      params.append('media[0]', mediaId);
+      params.append('duration', duration);
+      params.append('useDuration', '1');
+
       const resp = await axios.post(`${this.baseUrl}${this._apiPrefix}/playlist/library/assign/${playlistId}`, params, {
         headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' }
       });
@@ -817,6 +909,42 @@ class XiboService {
         health.error = err.message;
     }
     return health;
+  }
+
+  /**
+   * Fetch the current CMS server time.
+   * @returns {Promise<Date>}
+   */
+  async getServerTime() {
+    const headers = await this.getHeaders();
+    const res = await axios.get(`${this.baseUrl}${this._apiPrefix}/clock`, { headers, timeout: 5000 });
+    const timeStr = res.data?.time || res.data;
+    if (!timeStr) throw new Error('Invalid clock response');
+    
+    // Treat as UTC (+Z) for normalization
+    const date = new Date(timeStr.toString().includes('Z') ? timeStr : timeStr + 'Z');
+    return date;
+  }
+
+  /**
+   * Calculate the drift (offset) in milliseconds between the local server and Xibo CMS.
+   * offset = XiboTime - LocalTime
+   * @returns {Promise<number>}
+   */
+  async getClockOffset() {
+    try {
+      const localStart = Date.now();
+      const xiboTime = await this.getServerTime();
+      const localAvg = (localStart + Date.now()) / 2;
+      
+      const co = xiboTime.getTime() - localAvg;
+      this.clockOffset = isNaN(co) ? 0 : co;
+      return this.clockOffset;
+    } catch (err) {
+      console.warn(`[XiboService] Clock Sync FAILED: ${err.message}`);
+      this.clockOffset = 0;
+      return 0;
+    }
   }
 }
 

@@ -172,23 +172,48 @@ class StatsService {
 
       // Group by mediaId, displayId, and date
       const aggregated = {}; 
-      allStats.forEach(r => {
+      
+      const processRecord = (r, isRawData) => {
         if (!r.mediaId || !r.displayId) return;
         const dateRaw = r.start || r.statDate || r.fromDt || '';
         const dateStr = dateRaw.toString().slice(0, 10);
         if (!dateStr || !dateStr.includes('-')) return;
         
         const key = `${r.mediaId}|${r.displayId}|${dateStr}`;
-        if (!aggregated[key]) aggregated[key] = 0;
-        aggregated[key] += (parseInt(r.numberPlays || r.count || 1, 10));
-      });
+        if (!aggregated[key]) {
+          aggregated[key] = { count: 0, isAggregated: false };
+        }
+
+        const count = parseInt(r.numberPlays || r.count || 1, 10);
+        
+        if (isRawData) {
+          // If we already have aggregated data for this day/media/display, skip raw entries 
+          // to avoid double-counting. Raw hits are only used as a fallback.
+          if (!aggregated[key].isAggregated) {
+            aggregated[key].count += count;
+          }
+        } else {
+          // Aggregated data found — mark this key so raw data won't be added to it
+          if (!aggregated[key].isAggregated) {
+            aggregated[key].count = 0; // Clear any previously added raw hits for this day
+            aggregated[key].isAggregated = true;
+          }
+          aggregated[key].count += count;
+        }
+      };
+
+      // Process aggregated stats first so they take precedence
+      (mediaRes.data || mediaRes || []).forEach(r => processRecord(r, false));
+      (widgetRes.data || widgetRes || []).forEach(r => processRecord(r, false));
+      // Process raw hits last as fallback for days where aggregation hasn't run yet
+      (rawRes.data || rawRes || []).forEach(r => processRecord(r, true));
 
       // Update database using REPLACE (upsert)
-      for (const [key, count] of Object.entries(aggregated)) {
+      for (const [key, data] of Object.entries(aggregated)) {
         const [mId, dId, date] = key.split('|');
         await dbRun(
           'REPLACE INTO daily_media_stats (mediaId, displayId, date, count) VALUES (?, ?, ?, ?)',
-          [mId, dId, date, count]
+          [mId, dId, date, data.count]
         );
       }
       
@@ -223,13 +248,14 @@ class StatsService {
         WHERE s.date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
       `);
 
-      const results = localStats.map(s => {
+    const results = localStats.map(s => {
         const brand = brandsList.find(b => String(b.id) === String(s.brand_id));
         let playedAt = new Date().toISOString(); // fallback
         try {
           if (s.date) {
-            // s.date is a Date object from mysql2
-            playedAt = new Date(s.date).toISOString().split('T')[0] + 'T00:00:00.000Z';
+            // Apply drift normalization if we have a measured offset
+            const baseTime = new Date(s.date).getTime();
+            playedAt = new Date(baseTime - xiboService.clockOffset).toISOString();
           }
         } catch (e) {}
 
@@ -310,8 +336,15 @@ class StatsService {
         const brand = mediaMapping ? await dbGet('SELECT name FROM brands WHERE id = ?', [mediaMapping.brand_id]) : null;
 
         const history = mergedRecords.map(r => {
-          let time = r.start || r.statDate || r.fromDt;
-          if (time && !time.endsWith('Z')) time += 'Z';
+          let timeRaw = r.start || r.statDate || r.fromDt;
+          if (timeRaw && !timeRaw.toString().endsWith('Z')) timeRaw += 'Z';
+          
+          // --- TIME NORMALIZATION FIX ---
+          // Subtract the CMS clock drift from the verification time
+          const originalTime = new Date(timeRaw);
+          const offset = isNaN(xiboService.clockOffset) ? 0 : xiboService.clockOffset;
+          const normalizedTime = new Date(originalTime.getTime() - offset);
+          const time = isNaN(normalizedTime.getTime()) ? originalTime.toISOString() : normalizedTime.toISOString();
           
           let slot = '-';
           const nameMatch = (r.media || r.layout || '').match(/(?:Slot_|S)(\d+)_/i);
@@ -373,7 +406,12 @@ class StatsService {
             const b = brandsList.find(bb => String(bb.id) === String(m.brand_id));
             if (b) brandName = b.name;
           }
-          snapshot[dId] = { displayId: dId, displayName: r.display || `Display ${dId}`, adName: r.media || r.layout || (r.widgetId ? `Widget ${r.widgetId}` : 'Unknown'), brandName, start: start + (start.endsWith('Z') ? '' : 'Z'), isLive: true };
+          const rawStart = start + (start.toString().endsWith('Z') ? '' : 'Z');
+          const offsetRaw = isNaN(xiboService.clockOffset) ? 0 : xiboService.clockOffset;
+          const nDate = new Date(new Date(rawStart).getTime() - offsetRaw);
+          const normalizedStart = isNaN(nDate.getTime()) ? new Date(rawStart).toISOString() : nDate.toISOString();
+
+          snapshot[dId] = { displayId: dId, displayName: r.display || `Display ${dId}`, adName: r.media || r.layout || (r.widgetId ? `Widget ${r.widgetId}` : 'Unknown'), brandName, start: normalizedStart, isLive: true };
         }
       });
       this._liveSnapshotCache = snapshot;

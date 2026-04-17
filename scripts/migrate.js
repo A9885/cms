@@ -3,55 +3,82 @@ const path = require('path');
 const mysql = require('mysql2/promise');
 require('dotenv').config();
 
+const args = process.argv.slice(2);
+const IS_FRESH = args.includes('--fresh');
+
 async function migrate() {
     const dbConfig = {
-        host: process.env.DB_HOST || 'localhost',
+        host: process.env.DB_HOST || '127.0.0.1',
         port: parseInt(process.env.DB_PORT, 10) || 3306,
         user: process.env.DB_USER || 'root',
         password: process.env.DB_PASSWORD || '',
     };
-    const dbName = process.env.DB_NAME || 'cms_db';
+    const dbName = process.env.DB_NAME || 'xibo_crm';
 
-    console.log(`[Migration] Connecting to MySQL at ${dbConfig.host}:${dbConfig.port}...`);
+    console.log(`\n[Migration] 🚀 Starting Database Setup...`);
+    console.log(`[Migration] Target: ${dbConfig.user}@${dbConfig.host}:${dbConfig.port}/${dbName}`);
 
     let connection;
     try {
-        // Connect without database first to ensure it exists
+        // 1. Initial Connection
         connection = await mysql.createConnection(dbConfig);
-        await connection.query(`CREATE DATABASE IF NOT EXISTS \`${dbName}\``);
-        await connection.query(`USE \`${dbName}\``);
 
-        const sqlPath = path.join(__dirname, '..', 'migrations', '001_init.sql');
-        if (!fs.existsSync(sqlPath)) {
-            throw new Error(`Migration file not found: ${sqlPath}`);
+        // 2. Clear Database if --fresh is set
+        if (IS_FRESH) {
+            console.warn(`[Migration] ⚠️  --fresh flag detected. Dropping database "${dbName}"...`);
+            await connection.query(`DROP DATABASE IF EXISTS \`${dbName}\``);
         }
 
-        const sql = fs.readFileSync(sqlPath, 'utf8');
-        
-        // Split by semicolon but be careful with nested semicolons (though simple for this script)
-        // A better way is to use a library or just run one by one if they are simple CREATE TABLEs
-        // For 001_init.sql, we can split by -- or just run it as multiple statements if the driver allows
-        
-        console.log(`[Migration] Executing ${sqlPath}...`);
-        
-        // mysql2/promise doesn't support multiple statements by default for security
-        // We'll enable it for the migration
-        const migrationConnection = await mysql.createConnection({
+        // 3. Ensure Database Exists
+        await connection.query(`CREATE DATABASE IF NOT EXISTS \`${dbName}\``);
+        await connection.query(`USE \`${dbName}\``);
+        await connection.end();
+
+        // 4. Run Migrations
+        // We prioritze mysql_schema.sql for fresh installs as it is the most comprehensive,
+        // then run any incremental updates if needed.
+        const migrationsDir = path.join(__dirname, '..', 'migrations');
+        const migrationFiles = [
+            'mysql_schema.sql',      // Full Base Schema
+            '001_init.sql',          // Fallback / Initial
+            '002_subscriptions.sql'  // Incremental Update
+        ];
+
+        const connectionForSchema = await mysql.createConnection({
             ...dbConfig,
             database: dbName,
             multipleStatements: true
         });
 
-        await migrationConnection.query(sql);
-        console.log('[Migration] Success! Database schema updated.');
-        
-        await migrationConnection.end();
+        for (const file of migrationFiles) {
+            const sqlPath = path.join(migrationsDir, file);
+            if (fs.existsSync(sqlPath)) {
+                console.log(`[Migration] 📂 Applying ${file}...`);
+                const sql = fs.readFileSync(sqlPath, 'utf8');
+                try {
+                    await connectionForSchema.query(sql);
+                    console.log(`[Migration] ✅ ${file} applied successfully.`);
+                } catch (err) {
+                    // Ignore "already exists" errors for IF NOT EXISTS queries
+                    if (err.code === 'ER_DUP_FIELDNAME' || err.code === 'ER_TABLE_EXISTS_ERROR') {
+                        console.log(`[Migration] ℹ️  ${file}: Some elements already exist, skipping duplicates.`);
+                    } else {
+                        throw err;
+                    }
+                }
+            }
+        }
+
+        console.log('\n[Migration] 🎉 Database setup complete!');
+        await connectionForSchema.end();
+
     } catch (err) {
-        console.error('[Migration] Failed:', err.message);
+        console.error('\n[Migration] ❌ Setup FAILED:');
+        console.error(`   Error: ${err.message}`);
+        console.error(`   Check your .env settings and MySQL status.\n`);
         process.exit(1);
-    } finally {
-        if (connection) await connection.end();
     }
 }
 
 migrate();
+

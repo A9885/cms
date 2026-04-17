@@ -104,9 +104,10 @@ async function initSchema() {
         try { await p.query("ALTER TABLE users MODIFY COLUMN createdAt DATETIME DEFAULT CURRENT_TIMESTAMP"); } catch(e) {}
         try { await p.query("ALTER TABLE users MODIFY COLUMN updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"); } catch(e) {}
 
-        const [users] = await p.query("SELECT COUNT(*) as c FROM users");
-        if (users[0].c === 0) {
-            // Need to use Better Auth compatible hashing
+        const [existingAdmin] = await p.query("SELECT id, username FROM users WHERE username = 'admin'");
+        
+        if (existingAdmin.length === 0) {
+            console.log('[DB] Admin user missing. Creating default...');
             const { hashPassword } = await import('@better-auth/utils/password');
             const hash = await hashPassword('admin123');
             const [userResult] = await p.query(
@@ -114,14 +115,42 @@ async function initSchema() {
                 [hash]
             );
             
-            // Better Auth requires an entry in the 'account' table for credential login
             if (userResult.insertId) {
                 await p.query(
-                    "INSERT INTO account (id, userId, providerId, accountId, password) VALUES (?, ?, 'credential', ?, ?)",
+                    "INSERT IGNORE INTO account (id, userId, providerId, accountId, password) VALUES (?, ?, 'credential', ?, ?)",
                     [Math.random().toString(36).substring(2), userResult.insertId, 'admin@signtral.com', hash]
                 );
+                console.log('[DB] Created default user: admin / admin123 (and Better Auth account)');
             }
-            console.log('[DB] Created default user: admin / admin123 (and Better Auth account)');
+        } else {
+            // Admin exists in users table, but verify identifiers for Better Auth
+            const adminId = existingAdmin[0].id;
+            const [accounts] = await p.query("SELECT accountId FROM account WHERE userId = ? AND providerId = 'credential'", [adminId]);
+            const accountIds = accounts.map(a => a.accountId);
+            
+            if (!accountIds.includes('admin') || !accountIds.includes('admin@signtral.com')) {
+                console.log('[DB] Admin user account identifiers incomplete. Synchronizing...');
+                const { hashPassword } = await import('@better-auth/utils/password');
+                const hash = await hashPassword('admin123');
+                
+                // Ensure users table matches
+                await p.query("UPDATE users SET email = 'admin@signtral.com', password_hash = ? WHERE id = ?", [hash, adminId]);
+                
+                // Add missing account entries
+                if (!accountIds.includes('admin@signtral.com')) {
+                    await p.query(
+                        "INSERT IGNORE INTO account (id, userId, providerId, accountId, password) VALUES (?, ?, 'credential', ?, ?)",
+                        [Math.random().toString(36).substring(2), adminId, 'admin@signtral.com', hash]
+                    );
+                }
+                if (!accountIds.includes('admin')) {
+                    await p.query(
+                        "INSERT IGNORE INTO account (id, userId, providerId, accountId, password) VALUES (?, ?, 'credential', ?, ?)",
+                        [Math.random().toString(36).substring(2), adminId, 'admin', hash]
+                    );
+                }
+                console.log('[DB] Synchronized admin user with Better Auth (both admin and admin@signtral.com).');
+            }
         }
 
         await p.query(`
@@ -179,7 +208,6 @@ async function initSchema() {
 
         // Migration for existing media_brands table
         try { await p.query("ALTER TABLE media_brands ADD COLUMN status VARCHAR(100) DEFAULT 'Approved'"); } catch(e) {}
-        try { await p.query("ALTER TABLE media_brands ADD COLUMN rejection_reason TEXT"); } catch(e) {}
 
         await p.query(`
             CREATE TABLE IF NOT EXISTS screens (

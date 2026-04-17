@@ -267,7 +267,14 @@ App.registerView('inventory', {
         }
 
         try {
-            const locRes = await fetch('/xibo/displays/locations?t=' + Date.now()).then(r => r.json());
+            const rawRes = await fetch('/xibo/displays/locations?t=' + Date.now()).then(r => r.json());
+            const locRes = rawRes.data || rawRes || {};
+            
+            if (rawRes.syncing) {
+                const badge = document.getElementById('inv-sync-badge');
+                if (badge) { badge.textContent = '⚡ Syncing Data...'; badge.className = 'inv-sync-badge syncing'; }
+            }
+            
             this._screens = locRes;
             const dIds = Object.keys(locRes);
 

@@ -154,28 +154,35 @@ router.post('/change-password', authMiddleware, async (req, res) => {
     }
 
     try {
-        const { auth } = await getAuth();
-        const { fromNodeHeaders } = await import('better-auth/node');
-        await auth.api.changePassword({
-            body: { 
-                newPassword: newPassword,
-                revokeOtherSessions: true 
-            },
-            headers: fromNodeHeaders(req.headers)
-        });
+        // For forced resets (new brand/partner accounts), there is no current password.
+        // We bypass Better Auth's changePassword (which requires currentPassword) and
+        // directly update the password hash in the DB instead.
+        const { hashPassword } = await import('@better-auth/utils/password');
+        const hash = await hashPassword(newPassword);
         
-        await dbRun('UPDATE users SET force_password_reset = 0 WHERE id = ?', [req.user.id]);
+        const userId = req.user.id;
+        const userEmail = req.user.email;
+
+        // 1. Update the users table
+        await dbRun('UPDATE users SET password_hash = ?, force_password_reset = 0 WHERE id = ?', [hash, userId]);
+
+        // 2. Update the Better Auth account table (the authoritative source for login)
+        await dbRun(
+            `UPDATE account SET password = ? WHERE userId = ? AND providerId = 'credential'`,
+            [hash, userId]
+        );
+
         logActivity({
             action: ACTION.UPDATE,
             module: MODULE.AUTH,
-            description: `User "${req.user.username || req.user.email}" changed their password`,
+            description: `User "${req.user.username || userEmail}" set their account password`,
             req,
-            userId: req.user.id
+            userId
         });
         res.json({ success: true, message: 'Password updated successfully.' });
     } catch (err) {
         console.error('Change password error:', err);
-        res.status(500).json({ error: 'Failed to update password.' });
+        res.status(500).json({ error: 'Failed to update password. Please try again.' });
     }
 });
 

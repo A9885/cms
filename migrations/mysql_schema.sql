@@ -164,3 +164,9 @@ CREATE TABLE IF NOT EXISTS activity_logs (
     INDEX idx_user_id    (user_id),
     INDEX idx_created_at (created_at)
 );
+
+-- Default SuperAdmin (admin / admin123)
+-- Hash generated for 'admin123' with cost factor 10
+INSERT IGNORE INTO users (username, email, password_hash, role)
+VALUES ('admin', 'admin@signtral.com', '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'SuperAdmin');
+

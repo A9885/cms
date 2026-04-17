@@ -79,11 +79,10 @@ const Api = {
         try {
             const res = await fetch(`/xibo/displays/locations`);
             const data = await res.json();
-            if (data.syncing) {
-                if (window.App) window.App.showSyncingBanner();
-                return data.data || {};
+            if (data.syncing && window.App) {
+                window.App.showSyncingBanner();
             }
-            return data;
+            return data.data || data || {};
         } catch (err) { return {}; }
     },
 

@@ -21,8 +21,7 @@ router.get('/dashboard', hasPermission('audit:view'), async (req, res) => {
             campaignsRes,
             totalSlotsObj,
             assignedSlotsObj,
-            revenueTrend,
-            allStats
+            revenueTrend
         ] = await Promise.all([
             dbGet('SELECT COUNT(*) as count FROM brands'),
             dbGet('SELECT COUNT(*) as count FROM partners'),
@@ -31,10 +30,7 @@ router.get('/dashboard', hasPermission('audit:view'), async (req, res) => {
                 console.warn('[Admin API] Xibo Displays unreachable:', e.message);
                 return [];
             }),
-            xiboService.getCampaigns().catch(e => {
-                console.warn('[Admin API] Xibo Campaigns unreachable:', e.message);
-                return [];
-            }),
+            dbGet('SELECT COUNT(*) as count FROM campaigns WHERE status = "Active"'),
             dbGet('SELECT COUNT(*) as count FROM slots'),
             dbGet('SELECT COUNT(*) as count FROM slots WHERE brand_id IS NOT NULL'),
             dbAll(`
@@ -44,8 +40,7 @@ router.get('/dashboard', hasPermission('audit:view'), async (req, res) => {
                 GROUP BY month 
                 ORDER BY month ASC 
                 LIMIT 6
-            `),
-            require('../services/stats.service').getAllMediaStats()
+            `)
         ]);
         
         const isSyncing = rawDisplays.syncing || false;
@@ -53,15 +48,15 @@ router.get('/dashboard', hasPermission('audit:view'), async (req, res) => {
         
         const totalScreens = displays.length;
         const onlineScreens = displays.filter(d => d.loggedIn === 1 || d.loggedIn === true).length;
-        const activeCampaigns = (campaignsRes.syncing || !campaignsRes) ? 0 : campaignsRes.length;
+        const activeCampaigns = campaignsRes?.count || 0;
         const availableSlotsCount = (totalSlotsObj && totalSlotsObj.count > 0) ? (totalSlotsObj.count - assignedSlotsObj.count) : (totalScreens * 20);
 
         let totalImpressions = 0;
-        if (allStats) {
-            Object.values(allStats).forEach(stat => {
-                totalImpressions += (stat.totalPlays || 0);
-            });
-        }
+        // Sum ALL verified proof-of-play records from local DB
+        const totalPlaysObj = await dbGet(
+            `SELECT COALESCE(SUM(count), 0) as total FROM daily_media_stats`
+        ).catch(() => ({ total: 0 }));
+        totalImpressions = totalPlaysObj?.total || 0;
 
         res.json({
             totalScreens,
@@ -77,11 +72,34 @@ router.get('/dashboard', hasPermission('audit:view'), async (req, res) => {
             recentAlerts: displays
                 .filter(d => d.loggedIn === 0 || d.loggedIn === false)
                 .slice(0, 5)
-                .map(d => ({ type: 'danger', text: `Screen ${d.display} is currently offline` }))
+                .map(d => ({ type: 'danger', text: `Screen ${d.display || d.name || d.displayId || 'Unknown'} is currently offline` }))
         });
     } catch (err) {
         console.error('[Admin API] Dashboard Error:', err);
         res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * GET /api/admin/health/xibo
+ */
+router.get('/health/xibo', hasPermission('audit:view'), async (req, res) => {
+    try {
+        const token = await xiboService.getAccessToken().catch(() => null);
+        const monitor = require('../services/screen.monitor');
+        res.json({
+            status: token ? 'Connected' : 'Disconnected',
+            baseUrl: xiboService.baseUrl,
+            apiPrefix: xiboService._apiPrefix,
+            circuitBreaker: {
+                open: xiboService.circuitOpen,
+                failureCount: xiboService.failureCount
+            },
+            monitor: monitor.getStatus(),
+            timestamp: new Date().toISOString()
+        });
+    } catch (err) {
+        res.status(500).json({ status: 'Error', error: err.message });
     }
 });
 
@@ -1523,143 +1541,6 @@ router.get('/xibo/config', (req, res) => {
             .filter(([k]) => k.startsWith('SCREEN_') && k.endsWith('_PLAYLIST_ID'))
             .map(([k, v]) => ({ key: k, value: v }))
     });
-});
-
-// ─── USER MANAGEMENT (SuperAdmin Only) ─────────────────────────────────────────
-
-/** GET /admin/api/users - List all users */
-router.get('/users', hasPermission('user:view'), async (req, res) => {
-    try {
-        const users = await dbAll(`
-            SELECT u.id, u.username, u.email, u.role, u.brand_id, u.partner_id, u.created_at,
-                   b.name as brand_name, p.name as partner_name
-            FROM users u
-            LEFT JOIN brands b ON u.brand_id = b.id
-            LEFT JOIN partners p ON u.partner_id = p.id
-            ORDER BY u.created_at DESC
-        `);
-        res.json(users);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-/** POST /admin/api/users - Create new user */
-router.post('/users', hasPermission('*'), async (req, res) => {
-    const { username, email, password, role, brand_id, partner_id } = req.body;
-    if (!username || !password || !role) return res.status(400).json({ error: 'Username, password and role are required' });
-
-    try {
-        const { hashPassword } = await import('@better-auth/utils/password');
-        const hash = await hashPassword(password);
-        
-        const result = await dbRun(
-            'INSERT INTO users (username, email, password_hash, role, brand_id, partner_id) VALUES (?, ?, ?, ?, ?, ?)',
-            [username, email, hash, role, brand_id || null, partner_id || null]
-        );
-
-        logActivity({
-            action: ACTION.CREATE,
-            module: MODULE.USER,
-            description: `Created user ${username} (Role: ${role})`,
-            req
-        });
-
-        res.json({ success: true, id: result.id });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-/** PUT /admin/api/users/:id - Update user */
-router.put('/users/:id', hasPermission('*'), async (req, res) => {
-    const { email, role, brand_id, partner_id, password } = req.body;
-    try {
-        if (password) {
-            const { hashPassword } = await import('@better-auth/utils/password');
-            const hash = await hashPassword(password);
-            await dbRun('UPDATE users SET password_hash = ? WHERE id = ?', [hash, req.params.id]);
-        }
-
-        await dbRun(
-            'UPDATE users SET email = ?, role = ?, brand_id = ?, partner_id = ? WHERE id = ?',
-            [email, role, brand_id || null, partner_id || null, req.params.id]
-        );
-
-        logActivity({
-            action: ACTION.UPDATE,
-            module: MODULE.USER,
-            description: `Updated user ID ${req.params.id}`,
-            req
-        });
-
-        res.json({ success: true });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-/** DELETE /admin/api/users/:id - Delete user */
-router.delete('/users/:id', hasPermission('*'), async (req, res) => {
-    try {
-        const user = await dbGet('SELECT username FROM users WHERE id = ?', [req.params.id]);
-        if (!user) return res.status(404).json({ error: 'User not found' });
-
-        await dbRun('DELETE FROM users WHERE id = ?', [req.params.id]);
-
-        logActivity({
-            action: ACTION.DELETE,
-            module: MODULE.USER,
-            description: `Deleted user ${user.username} (ID: ${req.params.id})`,
-            req
-        });
-
-        res.json({ success: true });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// ─── CREATIVE MODERATION ──────────────────────────────────────────────────────
-
-/** GET /admin/api/creatives/pending - List creatives for approval */
-router.get('/creatives/pending', hasPermission('creative:moderate'), async (req, res) => {
-    try {
-        const pending = await dbAll(`
-            SELECT mb.*, b.name as brand_name
-            FROM media_brands mb
-            JOIN brands b ON mb.brand_id = b.id
-            WHERE mb.status = 'Pending'
-            ORDER BY mb.mediaId DESC
-        `);
-        res.json(pending);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-/** PUT /admin/api/creatives/:id/moderate - Approve or Reject */
-router.put('/creatives/:id/moderate', hasPermission('creative:moderate'), async (req, res) => {
-    const { status, reason } = req.body;
-    if (!['Approved', 'Rejected'].includes(status)) return res.status(400).json({ error: 'Invalid status' });
-
-    try {
-        await dbRun(
-            'UPDATE media_brands SET status = ?, rejection_reason = ? WHERE mediaId = ?',
-            [status, reason || null, req.params.id]
-        );
-
-        logActivity({
-            action: status === 'Approved' ? ACTION.APPROVE : ACTION.REJECT,
-            module: MODULE.CREATIVE,
-            description: `${status} Media ID ${req.params.id}${reason ? ' (Reason: '+reason+')' : ''}`,
-            req
-        });
-
-        res.json({ success: true });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
 });
 
 // ─── ACTIVITY LOGS ────────────────────────────────────────────────────────────
