@@ -171,10 +171,10 @@ CREATE TABLE IF NOT EXISTS activity_logs (
 
 -- Better Auth Core Tables
 CREATE TABLE IF NOT EXISTS account (
-    id TEXT NOT NULL,
-    userId TEXT NOT NULL,
-    accountId TEXT NOT NULL,
-    providerId TEXT NOT NULL,
+    id VARCHAR(255) PRIMARY KEY,
+    userId VARCHAR(255) NOT NULL,
+    accountId VARCHAR(255) NOT NULL,
+    providerId VARCHAR(255) NOT NULL,
     password TEXT,
     accessToken TEXT,
     refreshToken TEXT,
@@ -183,30 +183,27 @@ CREATE TABLE IF NOT EXISTS account (
     passwordExpiresAt DATETIME,
     scope TEXT,
     createdAt DATETIME NOT NULL,
-    updatedAt DATETIME NOT NULL,
-    PRIMARY KEY (id(255))
+    updatedAt DATETIME NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS session (
-    id TEXT NOT NULL,
-    userId TEXT NOT NULL,
+    id VARCHAR(255) PRIMARY KEY,
+    userId VARCHAR(255) NOT NULL,
     token TEXT NOT NULL,
     expiresAt DATETIME NOT NULL,
-    ipAddress TEXT,
+    ipAddress VARCHAR(255),
     userAgent TEXT,
     createdAt DATETIME NOT NULL,
-    updatedAt DATETIME NOT NULL,
-    PRIMARY KEY (id(255))
+    updatedAt DATETIME NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS verification (
-    id TEXT NOT NULL,
+    id VARCHAR(255) PRIMARY KEY,
     identifier TEXT NOT NULL,
     value TEXT NOT NULL,
     expiresAt DATETIME NOT NULL,
     createdAt DATETIME,
-    updatedAt DATETIME,
-    PRIMARY KEY (id(255))
+    updatedAt DATETIME
 );
 
 
