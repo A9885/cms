@@ -36,15 +36,19 @@ CREATE TABLE IF NOT EXISTS partners (
 
 -- Users  (Better Auth compatible: has email, username, role, brand_id, partner_id)
 CREATE TABLE IF NOT EXISTS users (
-    id                   INT AUTO_INCREMENT PRIMARY KEY,
+    id                   VARCHAR(255) PRIMARY KEY,
+    name                 VARCHAR(255),
     username             VARCHAR(255) UNIQUE NOT NULL,
     email                VARCHAR(255) UNIQUE,
+    emailVerified        BOOLEAN      DEFAULT FALSE,
+    image                TEXT,
     password_hash        VARCHAR(255) NOT NULL,
     role                 VARCHAR(255) DEFAULT 'Admin',
     brand_id             INT,
     partner_id           INT,
     force_password_reset BOOLEAN      DEFAULT FALSE,
-    created_at           DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    createdAt            DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    updatedAt            DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (brand_id)   REFERENCES brands(id)   ON DELETE SET NULL,
     FOREIGN KEY (partner_id) REFERENCES partners(id) ON DELETE SET NULL
 );
@@ -208,6 +212,6 @@ CREATE TABLE IF NOT EXISTS verification (
 
 -- Default SuperAdmin (admin / admin123)
 -- Hash generated for 'admin123' with cost factor 10
-INSERT IGNORE INTO users (username, email, password_hash, role)
-VALUES ('admin', 'admin@signtral.com', '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'SuperAdmin');
+INSERT IGNORE INTO users (id, username, email, password_hash, role)
+VALUES ('admin_001', 'admin', 'admin@signtral.com', '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'SuperAdmin');
 
