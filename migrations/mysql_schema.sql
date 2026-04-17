@@ -165,6 +165,47 @@ CREATE TABLE IF NOT EXISTS activity_logs (
     INDEX idx_created_at (created_at)
 );
 
+-- Better Auth Core Tables
+CREATE TABLE IF NOT EXISTS account (
+    id TEXT NOT NULL,
+    userId TEXT NOT NULL,
+    accountId TEXT NOT NULL,
+    providerId TEXT NOT NULL,
+    password TEXT,
+    accessToken TEXT,
+    refreshToken TEXT,
+    idToken TEXT,
+    expiresAt DATETIME,
+    passwordExpiresAt DATETIME,
+    scope TEXT,
+    createdAt DATETIME NOT NULL,
+    updatedAt DATETIME NOT NULL,
+    PRIMARY KEY (id(255))
+);
+
+CREATE TABLE IF NOT EXISTS session (
+    id TEXT NOT NULL,
+    userId TEXT NOT NULL,
+    token TEXT NOT NULL,
+    expiresAt DATETIME NOT NULL,
+    ipAddress TEXT,
+    userAgent TEXT,
+    createdAt DATETIME NOT NULL,
+    updatedAt DATETIME NOT NULL,
+    PRIMARY KEY (id(255))
+);
+
+CREATE TABLE IF NOT EXISTS verification (
+    id TEXT NOT NULL,
+    identifier TEXT NOT NULL,
+    value TEXT NOT NULL,
+    expiresAt DATETIME NOT NULL,
+    createdAt DATETIME,
+    updatedAt DATETIME,
+    PRIMARY KEY (id(255))
+);
+
+
 -- Default SuperAdmin (admin / admin123)
 -- Hash generated for 'admin123' with cost factor 10
 INSERT IGNORE INTO users (username, email, password_hash, role)

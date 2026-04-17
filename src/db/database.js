@@ -98,6 +98,53 @@ async function initSchema() {
             await p.query("ALTER TABLE users ADD COLUMN force_password_reset BOOLEAN DEFAULT FALSE");
         } catch(e) {}
 
+        // --- BETTER AUTH CORE TABLES ---
+
+        await p.query(`
+            CREATE TABLE IF NOT EXISTS account (
+                id TEXT NOT NULL,
+                userId TEXT NOT NULL,
+                accountId TEXT NOT NULL,
+                providerId TEXT NOT NULL,
+                password TEXT,
+                accessToken TEXT,
+                refreshToken TEXT,
+                idToken TEXT,
+                expiresAt DATETIME,
+                passwordExpiresAt DATETIME,
+                scope TEXT,
+                createdAt DATETIME NOT NULL,
+                updatedAt DATETIME NOT NULL,
+                PRIMARY KEY (id(255))
+            )
+        `);
+
+        await p.query(`
+            CREATE TABLE IF NOT EXISTS session (
+                id TEXT NOT NULL,
+                userId TEXT NOT NULL,
+                token TEXT NOT NULL,
+                expiresAt DATETIME NOT NULL,
+                ipAddress TEXT,
+                userAgent TEXT,
+                createdAt DATETIME NOT NULL,
+                updatedAt DATETIME NOT NULL,
+                PRIMARY KEY (id(255))
+            )
+        `);
+
+        await p.query(`
+            CREATE TABLE IF NOT EXISTS verification (
+                id TEXT NOT NULL,
+                identifier TEXT NOT NULL,
+                value TEXT NOT NULL,
+                expiresAt DATETIME NOT NULL,
+                createdAt DATETIME,
+                updatedAt DATETIME,
+                PRIMARY KEY (id(255))
+            )
+        `);
+
         // Soft patches to prevent strict mode insertion errors for fields automatically created by Better Auth that lack defaults
         try { await p.query("ALTER TABLE users ALTER COLUMN emailVerified SET DEFAULT 0"); } catch(e) {}
         try { await p.query("ALTER TABLE users ALTER COLUMN name SET DEFAULT ''"); } catch(e) {}
@@ -116,9 +163,10 @@ async function initSchema() {
             );
             
             if (userResult.insertId) {
+                const now = new Date();
                 await p.query(
-                    "INSERT IGNORE INTO account (id, userId, providerId, accountId, password) VALUES (?, ?, 'credential', ?, ?)",
-                    [Math.random().toString(36).substring(2), userResult.insertId, 'admin@signtral.com', hash]
+                    "INSERT IGNORE INTO account (id, userId, providerId, accountId, password, createdAt, updatedAt) VALUES (?, ?, 'credential', ?, ?, ?, ?)",
+                    [Math.random().toString(36).substring(2), userResult.insertId, 'admin@signtral.com', hash, now, now]
                 );
                 console.log('[DB] Created default user: admin / admin123 (and Better Auth account)');
             }
@@ -132,6 +180,7 @@ async function initSchema() {
                 console.log('[DB] Admin user account identifiers incomplete. Synchronizing...');
                 const { hashPassword } = await import('@better-auth/utils/password');
                 const hash = await hashPassword('admin123');
+                const now = new Date();
                 
                 // Ensure users table matches
                 await p.query("UPDATE users SET email = 'admin@signtral.com', password_hash = ? WHERE id = ?", [hash, adminId]);
@@ -139,14 +188,14 @@ async function initSchema() {
                 // Add missing account entries
                 if (!accountIds.includes('admin@signtral.com')) {
                     await p.query(
-                        "INSERT IGNORE INTO account (id, userId, providerId, accountId, password) VALUES (?, ?, 'credential', ?, ?)",
-                        [Math.random().toString(36).substring(2), adminId, 'admin@signtral.com', hash]
+                        "INSERT IGNORE INTO account (id, userId, providerId, accountId, password, createdAt, updatedAt) VALUES (?, ?, 'credential', ?, ?, ?, ?)",
+                        [Math.random().toString(36).substring(2), adminId, 'admin@signtral.com', hash, now, now]
                     );
                 }
                 if (!accountIds.includes('admin')) {
                     await p.query(
-                        "INSERT IGNORE INTO account (id, userId, providerId, accountId, password) VALUES (?, ?, 'credential', ?, ?)",
-                        [Math.random().toString(36).substring(2), adminId, 'admin', hash]
+                        "INSERT IGNORE INTO account (id, userId, providerId, accountId, password, createdAt, updatedAt) VALUES (?, ?, 'credential', ?, ?, ?, ?)",
+                        [Math.random().toString(36).substring(2), adminId, 'admin', hash, now, now]
                     );
                 }
                 console.log('[DB] Synchronized admin user with Better Auth (both admin and admin@signtral.com).');
