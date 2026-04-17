@@ -3,11 +3,22 @@
 -- Run: mysql -u $DB_USER -p$DB_PASSWORD $DB_NAME < migrations/003_fix_auth_schema.sql
 -- ============================================================
 
--- Disable FK checks to allow changing column types across tables
+-- Disable FK checks
 SET FOREIGN_KEY_CHECKS = 0;
 
--- 1. Modify 'users' table columns
--- Changing 'id' type (this will work now that FK checks are disabled)
+-- 1. Drop known foreign keys that block the ID modification
+-- We use a safe way to drop them if they exist
+SET @drop_account_fk = (SELECT IF(count(*) > 0, 'ALTER TABLE account DROP FOREIGN KEY account_ibfk_1', 'SELECT 1') 
+    FROM information_schema.TABLE_CONSTRAINTS 
+    WHERE CONSTRAINT_NAME='account_ibfk_1' AND TABLE_NAME='account' AND TABLE_SCHEMA=DATABASE());
+PREPARE stmt1 FROM @drop_account_fk; EXECUTE stmt1; DEALLOCATE PREPARE stmt1;
+
+SET @drop_session_fk = (SELECT IF(count(*) > 0, 'ALTER TABLE session DROP FOREIGN KEY session_ibfk_1', 'SELECT 1') 
+    FROM information_schema.TABLE_CONSTRAINTS 
+    WHERE CONSTRAINT_NAME='session_ibfk_1' AND TABLE_NAME='session' AND TABLE_SCHEMA=DATABASE());
+PREPARE stmt2 FROM @drop_session_fk; EXECUTE stmt2; DEALLOCATE PREPARE stmt2;
+
+-- 2. Modify 'users' table columns
 ALTER TABLE users MODIFY id VARCHAR(255) NOT NULL;
 
 -- Add missing columns with camelCase for Better Auth compatibility
