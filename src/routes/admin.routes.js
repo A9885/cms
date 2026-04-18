@@ -200,7 +200,7 @@ router.post('/brands', hasPermission('*'), async (req, res) => {
             `INSERT INTO account (id, userId, providerId, accountId, password) 
              VALUES (?, ?, 'credential', ?, ?)
              ON DUPLICATE KEY UPDATE password = VALUES(password)`,
-            [generateId('acc_'), userId, 'credential', email, hash]
+            [generateId('acc_'), userId, email, hash]
         );
 
         logActivity({ action: ACTION.CREATE, module: MODULE.BRAND, description: `Brand "${finalName}" created (ID: ${result.id})`, req });
