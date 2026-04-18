@@ -14,7 +14,6 @@ module.exports = {
     env_production: {
       NODE_ENV: 'production',
       PORT: 3000,
-      ALLOWED_ORIGINS: '*' // Change this to your production domain in .env
     },
     // Log configuration
     log_date_format: 'YYYY-MM-DD HH:mm:ss',

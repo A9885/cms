@@ -15,7 +15,7 @@ async function getAuth() {
     authInstance = betterAuth({
         baseURL: process.env.BETTER_AUTH_URL || 'http://localhost:3000',
         trustedOrigins: process.env.ALLOWED_ORIGINS 
-            ? process.env.ALLOWED_ORIGINS.split(',') 
+            ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()) 
             : ['http://localhost:3000', 'http://127.0.0.1:3000'],
         secret: process.env.BETTER_AUTH_SECRET,
         database: mysql.createPool({
