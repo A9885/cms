@@ -150,7 +150,16 @@ async function initSchema() {
         try { await p.query("ALTER TABLE users ALTER COLUMN name SET DEFAULT ''"); } catch(e) {}
         try { await p.query("ALTER TABLE users MODIFY COLUMN createdAt DATETIME DEFAULT CURRENT_TIMESTAMP"); } catch(e) {}
         try { await p.query("ALTER TABLE users MODIFY COLUMN updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"); } catch(e) {}
-
+        
+        // Better Auth Table Patches
+        try { await p.query("ALTER TABLE account MODIFY COLUMN createdAt DATETIME DEFAULT CURRENT_TIMESTAMP"); } catch(e) {}
+        try { await p.query("ALTER TABLE account MODIFY COLUMN updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"); } catch(e) {}
+        try { await p.query("ALTER TABLE session MODIFY COLUMN createdAt DATETIME DEFAULT CURRENT_TIMESTAMP"); } catch(e) {}
+        try { await p.query("ALTER TABLE session MODIFY COLUMN updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"); } catch(e) {}
+        try { await p.query("ALTER TABLE verification MODIFY COLUMN createdAt DATETIME DEFAULT CURRENT_TIMESTAMP"); } catch(e) {}
+        try { await p.query("ALTER TABLE verification MODIFY COLUMN updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"); } catch(e) {}
+        try { await p.query("ALTER TABLE account MODIFY COLUMN password TEXT NULL"); } catch(e) {}
+        
         const [existingAdmin] = await p.query("SELECT id, username FROM users WHERE username = 'admin'");
         
         if (existingAdmin.length === 0) {
