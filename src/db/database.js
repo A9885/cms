@@ -156,20 +156,21 @@ async function initSchema() {
         if (existingAdmin.length === 0) {
             console.log('[DB] Admin user missing. Creating default...');
             const { hashPassword } = await import('@better-auth/utils/password');
+            const crypto = require('crypto');
             const hash = await hashPassword('admin123');
-            const [userResult] = await p.query(
-                "INSERT INTO users (username, email, password_hash, role) VALUES ('admin', 'admin@signtral.com', ?, 'SuperAdmin')", 
-                [hash]
+            const adminId = 'user_' + crypto.randomBytes(12).toString('hex');
+            
+            await p.query(
+                "INSERT INTO users (id, username, email, password_hash, role) VALUES (?, 'admin', 'admin@signtral.com', ?, 'SuperAdmin')", 
+                [adminId, hash]
             );
             
-            if (userResult.insertId) {
-                const now = new Date();
-                await p.query(
-                    "INSERT IGNORE INTO account (id, userId, providerId, accountId, password, createdAt, updatedAt) VALUES (?, ?, 'credential', ?, ?, ?, ?)",
-                    [Math.random().toString(36).substring(2), userResult.insertId, 'admin@signtral.com', hash, now, now]
-                );
-                console.log('[DB] Created default user: admin / admin123 (and Better Auth account)');
-            }
+            const now = new Date();
+            await p.query(
+                "INSERT IGNORE INTO account (id, userId, providerId, accountId, password, createdAt, updatedAt) VALUES (?, ?, 'credential', ?, ?, ?, ?)",
+                ['acc_' + crypto.randomBytes(12).toString('hex'), adminId, 'admin@signtral.com', hash, now, now]
+            );
+            console.log('[DB] Created default user: admin / admin123 (and Better Auth account)');
         } else {
             // Admin exists in users table, but verify identifiers for Better Auth
             const adminId = existingAdmin[0].id;

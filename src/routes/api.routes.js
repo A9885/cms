@@ -150,24 +150,25 @@ router.post('/partners', async (req, res) => {
             VALUES (?, ?, ?, ?, ?, ?)
         `, [partner_name, company, city, contact, email, revenue_share_pct || 50]);
 
+        const { generateId } = require('../utils/id.utils.js');
         const { hashPassword } = await import('@better-auth/utils/password');
         const hash = await hashPassword('Partner@123');
+        const userId = generateId('user_');
+        
         const userResult = await dbRun(
-            `INSERT INTO users (username, email, password_hash, role, partner_id, force_password_reset) 
-             VALUES (?, ?, ?, 'Partner', ?, 1)
-             ON DUPLICATE KEY UPDATE partner_id = VALUES(partner_id), role = VALUES(role)`,
-            [email, email, hash, result.id]
-        ).catch(e => console.error('Failed to create/link user for partner:', e.message));
+            `INSERT INTO users (id, username, email, password_hash, role, partner_id, force_password_reset) 
+             VALUES (?, ?, ?, ?, 'Partner', ?, 1)
+             ON DUPLICATE KEY UPDATE partner_id = VALUES(partner_id), role = VALUES(role), password_hash = VALUES(password_hash)`,
+            [userId, email, email, hash, result.id]
+        );
 
         // Better Auth requires an entry in the 'account' table for credential login
-        if (userResult && userResult.id) {
-            await dbRun(
-                `INSERT INTO account (id, userId, providerId, accountId, password) 
-                 VALUES (?, ?, 'credential', ?, ?)
-                 ON DUPLICATE KEY UPDATE password = VALUES(password)`,
-                [Math.random().toString(36).substring(2), userResult.id, email, hash]
-            ).catch(e => console.error('Failed to create account for partner:', e.message));
-        }
+        await dbRun(
+            `INSERT INTO account (id, userId, providerId, accountId, password) 
+             VALUES (?, ?, 'credential', ?, ?)
+             ON DUPLICATE KEY UPDATE password = VALUES(password)`,
+            [generateId('acc_'), userId, email, hash]
+        ).catch(e => console.error('Failed to create account for partner:', e.message));
 
         res.status(201).json({ success: true, partner_id: result.id });
     } catch(e) { res.status(500).json({ error: e.message }); }
