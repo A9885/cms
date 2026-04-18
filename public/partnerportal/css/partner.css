@@ -1,24 +1,24 @@
 /* ═══ Partner Portal Design System ═══ */
 :root {
-    --accent:       #6366f1;
-    --accent-light: rgba(99, 102, 241, 0.12);
-    --accent-glow:  rgba(99, 102, 241, 0.35);
-    --success:      #10b981;
-    --warning:      #f59e0b;
-    --danger:       #ef4444;
-
-    --sidebar-bg:   #0d1117;
-    --sidebar-border: rgba(255,255,255,0.06);
+    --bg-main: #f8fafc;
+    --bg-surface: #ffffff;
+    --sidebar-bg: #0f172a; 
+    --sidebar-bg-hover: rgba(255, 255, 255, 0.05);
     --sidebar-text: #94a3b8;
-    --sidebar-active-bg: rgba(99,102,241,0.15);
-    --sidebar-active-text: #fff;
-
-    --bg-main:      #f4f6fb;
-    --bg-surface:   #ffffff;
+    --sidebar-text-active: #ffffff;
+    --sidebar-active: rgba(37, 99, 235, 0.15);
+    
     --text-primary: #0f172a;
-    --text-secondary:#475569;
-    --text-muted:   #94a3b8;
-    --border:       #e2e8f0;
+    --text-secondary: #475569;
+    --text-muted: #64748b;
+    
+    --border: #e2e8f0;
+    
+    --accent: #2563eb;
+    --accent-glow: rgba(37, 99, 235, 0.4);
+    --success: #10b981;
+    --warning: #f59e0b;
+    --danger: #ef4444;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }

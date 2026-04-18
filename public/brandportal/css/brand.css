@@ -1,23 +1,20 @@
 :root {
-    /* Premium Color Palette - Refined */
-    --bg-main: #f4f7fa;
+    --bg-main: #f8fafc;
+    --bg-surface: #ffffff;
     --sidebar-bg: #0f172a;
+    --sidebar-bg-hover: rgba(255, 255, 255, 0.05);
     --sidebar-text: #94a3b8;
-    --sidebar-active: #ffffff;
-    --sidebar-accent: #3b82f6;
-    
-    --card-bg: rgba(255, 255, 255, 0.8);
-    --card-border: rgba(255, 255, 255, 0.4);
-    --card-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.08);
+    --sidebar-text-active: #ffffff;
+    --sidebar-active: rgba(37, 99, 235, 0.15);
     
     --text-primary: #0f172a;
     --text-secondary: #475569;
-    --text-muted: #94a3b8;
+    --text-muted: #64748b;
     
-    --accent: #3b82f6;
-    --accent-glow: rgba(59, 130, 246, 0.15);
-    --accent-light: #eff6ff;
+    --border: #e2e8f0;
     
+    --accent: #2563eb;
+    --accent-glow: rgba(37, 99, 235, 0.4);
     --success: #10b981;
     --warning: #f59e0b;
     --danger: #ef4444;
