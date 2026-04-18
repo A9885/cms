@@ -48,6 +48,38 @@ app.set('trust proxy', 1);
 // Enable gzip compression for better performance
 app.use(compression());
 
+app.use(cors({
+    origin: (origin, callback) => {
+        const allowed = process.env.ALLOWED_ORIGINS 
+            ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()) 
+            : ['https://signtral.info', 'https://www.signtral.info'];
+        
+        // In development, also allow localhost if not explicitly in ALLOWED_ORIGINS
+        if (process.env.NODE_ENV !== 'production') {
+            if (!allowed.includes('http://localhost:3000')) allowed.push('http://localhost:3000');
+            if (!allowed.includes('http://127.0.0.1:3000')) allowed.push('http://127.0.0.1:3000');
+        }
+
+        if (!origin || allowed.includes(origin)) {
+            callback(null, true);
+        } else {
+            console.warn(`[CORS] Blocked origin: ${origin}`);
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
+    credentials: true
+}));
+
+const cookieParser = require('cookie-parser');
+app.use(cookieParser());
+const { getAuth } = require('./src/auth.js');
+let authHandler = null;
+getAuth().then(({ handler }) => { authHandler = handler; }).catch(console.error);
+app.all('/api/auth/*splat', (req, res, next) => {
+    if (authHandler) return authHandler(req, res);
+    next(new Error("Auth handler not ready"));
+});
+
 const io = new Server(server, { 
     cors: { 
         origin: process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : '*',
@@ -629,18 +661,7 @@ app.use(helmet({
     contentSecurityPolicy: false
 }));
 
-// Enable CORS with environment-aware origins
-const allowedOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : '*';
-app.use(cors({
-    origin: (origin, callback) => {
-        if (!origin || allowedOrigins === '*' || allowedOrigins.includes(origin)) {
-            callback(null, true);
-        } else {
-            callback(new Error('Not allowed by CORS'));
-        }
-    },
-    credentials: true
-}));
+
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
@@ -687,20 +708,7 @@ app.get('/partner', (req, res) => {
 
 app.get('/health', (req, res) => res.json({ status: 'OK', uptime: process.uptime() }));
 
-const cookieParser = require('cookie-parser');
-app.use(cookieParser());
 
-const { getAuth } = require('./src/auth.js');
-let authHandler = null;
-getAuth().then(({ handler }) => { authHandler = handler; }).catch(console.error);
-
-// Express 5: wildcard routes require named params → /*splat
-app.all('/api/auth/*splat', (req, res, next) => {
-    if (authHandler) {
-        return authHandler(req, res);
-    }
-    next(new Error("Auth handler not ready"));
-});
 
 const authRoutes = require('./src/routes/auth.routes');
 // Legacy auth routes are temporarily kept for any fallback, but most frontends should use /api/auth
