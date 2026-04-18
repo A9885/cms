@@ -199,16 +199,16 @@ body {
 
 .card {
     background: var(--bg-surface);
-    border-radius: 20px;
+    border-radius: 24px;
     padding: 1.75rem;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
-    border: 1px solid rgba(226, 232, 240, 0.5);
-    transition: all 0.2s ease;
+    box-shadow: 0 10px 40px rgba(15, 23, 42, 0.04);
+    border: 1px solid rgba(226, 232, 240, 0.4);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .card:hover {
-    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.05);
-    transform: translateY(-2px);
-    border-color: rgba(37, 99, 235, 0.1);
+    box-shadow: 0 20px 60px rgba(15, 23, 42, 0.08);
+    transform: translateY(-4px);
+    border-color: rgba(37, 99, 235, 0.15);
 }
 .card-title {
     font-size: 1rem;

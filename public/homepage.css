@@ -133,11 +133,11 @@ a {
 .site-header {
   position: sticky;
   top: 0;
-  z-index: 20;
-  padding: 18px 0;
-  background: rgba(247, 250, 255, 0.76);
-  backdrop-filter: blur(18px);
-  border-bottom: 1px solid rgba(79, 70, 229, 0.08);
+  z-index: 100;
+  padding: 12px 0;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(15, 23, 42, 0.05);
 }
 
 .nav-wrap {
@@ -156,8 +156,9 @@ a {
 }
 
 .brand img {
-  width: 38px;
-  height: 38px;
+  height: 32px;
+  width: auto;
+  object-fit: contain;
 }
 
 .site-nav,
@@ -220,14 +221,11 @@ a {
 
 .hero {
   position: relative;
-  min-height: 100vh;
+  min-height: 90vh;
   display: flex;
   align-items: center;
-  padding: 120px 0 80px;
-  background: 
-    linear-gradient(rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.2)),
-    url('assets/premium-hero-bg.png') no-repeat center center;
-  background-size: cover;
+  padding: 80px 0;
+  background: radial-gradient(circle at 100% 50%, #f1f5f9 0%, #ffffff 60%);
   overflow: hidden;
 }
 
@@ -274,13 +272,15 @@ a {
 }
 
 .hero-copy h1 {
-  font-size: clamp(3.5rem, 7vw, 5.5rem);
-  line-height: 0.95;
-  letter-spacing: -0.05em;
-  margin: 0 0 24px;
+  font-size: clamp(3rem, 6.5vw, 5rem);
+  line-height: 1.05;
+  letter-spacing: -0.04em;
+  margin: 0 0 28px;
+  font-weight: 900;
 }
 
 .hero-copy h1 span {
+  display: block;
   color: var(--primary);
 }
 
@@ -326,10 +326,9 @@ a {
 
 .visual-totem {
   width: 100%;
-  max-width: 500px;
-  border-radius: 20px;
-  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.15);
-  transform: perspective(1000px) rotateY(-5deg);
+  max-width: 650px;
+  border-radius: 40px;
+  box-shadow: 0 40px 100px rgba(15, 23, 42, 0.12);
 }
 
 .glass,
