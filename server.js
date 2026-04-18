@@ -1112,23 +1112,27 @@ app.get('/xibo/stats/diag', async (req, res) => {
             stats.aggregationTask = agg ? (agg.isActive ? 'Active ✅' : 'Inactive ⚠️') : 'Not Found ❌';
         } catch (e) { stats.aggregationTask = `Error: ${e.message}`; }
 
-        // 4. Raw Hits Check (last 2 hours)
+        // 4. Raw Hits Check (last 24 hours) — More breadth to catch data gaps
         try {
             const now = new Date();
-            const twoHoursAgo = new Date(now.getTime() - 120 * 60 * 1000);
+            const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
             const pad = (n) => n.toString().padStart(2, '0');
             const fmt = (d) => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
             
-            const raw = await xiboService.getStats('raw', { fromDt: fmt(twoHoursAgo), toDt: fmt(now), length: 100 });
-            stats.rawHitsSample = (raw.data || raw || []).length;
+            const raw = await xiboService.getStats('raw', { fromDt: fmt(twentyFourHoursAgo), toDt: fmt(now), length: 100 });
+            stats.rawHitsSample = (Array.isArray(raw) ? raw : (raw.data || [])).length;
             
-            // 5. Display Config Check
+            // 5. Display Config Check — Full debug
             const displays = await xiboService.getDisplays();
-            stats.displayStatsConfig = (displays.data || displays || []).map(d => ({
+            const allD = Array.isArray(displays) ? displays : (displays.data || []);
+            stats.displayStatsConfig = allD.map(d => ({
                 id: d.displayId,
                 name: d.display,
                 statsEnabled: d.statsEnabled,
-                auditUntil: d.auditUntil
+                auditUntil: d.auditUntil,
+                isLoggedIn: d.isLoggedIn,
+                lastAccessed: d.lastAccessed,
+                inc: Object.keys(d) // See all keys available
             }));
         } catch (e) { stats.rawHitsSample = `Error: ${e.message}`; }
 
