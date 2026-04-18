@@ -1102,7 +1102,13 @@ app.get('/xibo/stats/diag', async (req, res) => {
         try {
             const headers = await xiboService.getHeaders();
             const tres = await axios.get(`${xiboService.baseUrl}/api/task`, { headers, params: { length: 50 } });
-            const agg = (tres.data || []).find(t => t.name?.toLowerCase().includes('aggregation'));
+            const allTasks = tres.data || [];
+            stats.taskNames = allTasks.map(t => t.name);
+            const agg = allTasks.find(t => 
+                t.name?.toLowerCase().includes('aggregation') || 
+                t.class?.toLowerCase().includes('aggregation') ||
+                t.name?.toLowerCase().includes('stats')
+            );
             stats.aggregationTask = agg ? (agg.isActive ? 'Active ✅' : 'Inactive ⚠️') : 'Not Found ❌';
         } catch (e) { stats.aggregationTask = `Error: ${e.message}`; }
 
@@ -1115,6 +1121,15 @@ app.get('/xibo/stats/diag', async (req, res) => {
             
             const raw = await xiboService.getStats('raw', { fromDt: fmt(twoHoursAgo), toDt: fmt(now), length: 100 });
             stats.rawHitsSample = (raw.data || raw || []).length;
+            
+            // 5. Display Config Check
+            const displays = await xiboService.getDisplays();
+            stats.displayStatsConfig = (displays.data || displays || []).map(d => ({
+                id: d.displayId,
+                name: d.display,
+                statsEnabled: d.statsEnabled,
+                auditUntil: d.auditUntil
+            }));
         } catch (e) { stats.rawHitsSample = `Error: ${e.message}`; }
 
         res.json(stats);
