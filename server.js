@@ -1073,6 +1073,57 @@ app.get('/xibo/stats/media-summary', async (req, res) => {
 });
 
 /**
+ * GET /xibo/stats/diag
+ * Deep diagnostic for PoP stats synchronization.
+ */
+app.get('/xibo/stats/diag', async (req, res) => {
+    try {
+        const stats = {
+            timestamp: new Date().toISOString(),
+            database: 'Checking...',
+            xibo: 'Checking...',
+            aggregationTask: 'Checking...',
+            rawHitsSample: 0
+        };
+
+        // 1. DB Check
+        try {
+            await dbGet('SELECT 1');
+            stats.database = 'Connected ✅';
+        } catch (e) { stats.database = `Error: ${e.message} ❌`; }
+
+        // 2. Xibo Check
+        try {
+            const xinfo = await xiboService.getAccessToken();
+            stats.xibo = 'Authenticated ✅';
+        } catch (e) { stats.xibo = `Auth Failed: ${e.message} ❌`; }
+
+        // 3. Xibo Task Check
+        try {
+            const headers = await xiboService.getHeaders();
+            const tres = await axios.get(`${xiboService.baseUrl}/api/task`, { headers, params: { length: 50 } });
+            const agg = (tres.data || []).find(t => t.name?.toLowerCase().includes('aggregation'));
+            stats.aggregationTask = agg ? (agg.isActive ? 'Active ✅' : 'Inactive ⚠️') : 'Not Found ❌';
+        } catch (e) { stats.aggregationTask = `Error: ${e.message}`; }
+
+        // 4. Raw Hits Check (last 2 hours)
+        try {
+            const now = new Date();
+            const twoHoursAgo = new Date(now.getTime() - 120 * 60 * 1000);
+            const pad = (n) => n.toString().padStart(2, '0');
+            const fmt = (d) => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+            
+            const raw = await xiboService.getStats('raw', { fromDt: fmt(twoHoursAgo), toDt: fmt(now), length: 100 });
+            stats.rawHitsSample = (raw.data || raw || []).length;
+        } catch (e) { stats.rawHitsSample = `Error: ${e.message}`; }
+
+        res.json(stats);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
  * POST /xibo/displays/:displayId/sync
  (Phase 5: Force Sync)
  * Triggers a collectNow and re-enables auditing/stats.

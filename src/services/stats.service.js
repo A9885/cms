@@ -145,22 +145,38 @@ class StatsService {
    * This is called by a background worker in server.js.
    */
   async syncAllStats() {
+    const startTime = Date.now();
     console.log('[StatsService] Starting global playback synchronization...');
     try {
+      // 1. Check database connectivity first
+      try {
+        await dbGet('SELECT 1');
+      } catch (dbErr) {
+        throw new Error(`Local database unreachable: ${dbErr.message}`);
+      }
+
       const now = new Date();
-      const thirtyDaysAgo = new Date(now.getTime() - 25 * 24 * 60 * 60 * 1000);
+      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
       const fortyEightHoursAgo = new Date(now.getTime() - 48 * 60 * 60 * 1000);
       
       const fromDt = this._formatLocal(thirtyDaysAgo);
       const fromDtRaw = this._formatLocal(fortyEightHoursAgo);
       const toDt = this._formatLocal(now);
 
-      const params = { fromDt, toDt, length: 10000 };
+      console.log(`[StatsService] Fetching Xibo stats from ${fromDt} to ${toDt}...`);
+
+      const params = { fromDt, toDt, length: 15000 };
       const [mediaRes, widgetRes, rawRes] = await Promise.all([
-        this._getStatsWithRetry('media', params).catch(() => ({ data: [] })),
-        this._getStatsWithRetry('widget', params).catch(() => ({ data: [] })),
-        this._getStatsWithRetry('raw', { fromDt: fromDtRaw, toDt, length: 5000 }).catch(() => ({ data: [] }))
+        this._getStatsWithRetry('media', params).catch(e => { console.warn('[StatsService] Media stats fetch failed:', e.message); return { data: [] }; }),
+        this._getStatsWithRetry('widget', params).catch(e => { console.warn('[StatsService] Widget stats fetch failed:', e.message); return { data: [] }; }),
+        this._getStatsWithRetry('raw', { fromDt: fromDtRaw, toDt, length: 10000 }).catch(e => { console.warn('[StatsService] Raw stats fetch failed:', e.message); return { data: [] }; })
       ]);
+
+      const mCount = (mediaRes.data || mediaRes || []).length;
+      const wCount = (widgetRes.data || widgetRes || []).length;
+      const rCount = (rawRes.data || rawRes || []).length;
+      
+      console.log(`[StatsService] Xibo Data: ${mCount} media, ${wCount} widgets, ${rCount} raw hits.`);
 
       const allStats = [
         ...(mediaRes.data || mediaRes || []),
@@ -168,7 +184,10 @@ class StatsService {
         ...(rawRes.data || rawRes || [])
       ];
 
-      if (allStats.length === 0) return { success: true, count: 0 };
+      if (allStats.length === 0) {
+          console.log('[StatsService] No playback records found in Xibo for this window.');
+          return { success: true, count: 0 };
+      }
 
       // Group by mediaId, displayId, and date
       const aggregated = {}; 
@@ -187,41 +206,46 @@ class StatsService {
         const count = parseInt(r.numberPlays || r.count || 1, 10);
         
         if (isRawData) {
-          // If we already have aggregated data for this day/media/display, skip raw entries 
-          // to avoid double-counting. Raw hits are only used as a fallback.
           if (!aggregated[key].isAggregated) {
             aggregated[key].count += count;
           }
         } else {
-          // Aggregated data found — mark this key so raw data won't be added to it
           if (!aggregated[key].isAggregated) {
-            aggregated[key].count = 0; // Clear any previously added raw hits for this day
+            aggregated[key].count = 0; 
             aggregated[key].isAggregated = true;
           }
           aggregated[key].count += count;
         }
       };
 
-      // Process aggregated stats first so they take precedence
       (mediaRes.data || mediaRes || []).forEach(r => processRecord(r, false));
       (widgetRes.data || widgetRes || []).forEach(r => processRecord(r, false));
-      // Process raw hits last as fallback for days where aggregation hasn't run yet
       (rawRes.data || rawRes || []).forEach(r => processRecord(r, true));
 
       // Update database using REPLACE (upsert)
+      let saved = 0;
+      let errors = 0;
       for (const [key, data] of Object.entries(aggregated)) {
         const [mId, dId, date] = key.split('|');
-        await dbRun(
-          'REPLACE INTO daily_media_stats (mediaId, displayId, date, count) VALUES (?, ?, ?, ?)',
-          [mId, dId, date, data.count]
-        );
+        try {
+            await dbRun(
+              'REPLACE INTO daily_media_stats (mediaId, displayId, date, count) VALUES (?, ?, ?, ?)',
+              [mId, dId, date, data.count]
+            );
+            saved++;
+        } catch (dbErr) {
+            errors++;
+            if (errors < 5) console.error(`[StatsService] DB Save Error for ${key}:`, dbErr.message);
+        }
       }
       
-      console.log(`[StatsService] Synced ${Object.keys(aggregated).length} playback entries to local DB.`);
+      const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+      console.log(`[StatsService] Sync COMPLETE! Saved ${saved} entries to local DB (${errors} errors). Duration: ${duration}s`);
+      
       this.invalidateCache();
-      return { success: true, count: Object.keys(aggregated).length };
+      return { success: true, count: saved };
     } catch (err) {
-      console.error('[StatsService] Global sync failed:', err.message);
+      console.error('[StatsService] Global sync CRITICAL FAILURE:', err.message);
       return { success: false, error: err.message };
     }
   }
