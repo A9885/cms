@@ -52,9 +52,12 @@ async function initSchema() {
                 email VARCHAR(255),
                 phone VARCHAR(255),
                 status VARCHAR(100) DEFAULT 'Pending',
+                extra_fields JSON NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         `);
+
+        try { await p.query("ALTER TABLE brands ADD COLUMN extra_fields JSON NULL AFTER status"); } catch(e) {}
 
         await p.query(`
             CREATE TABLE IF NOT EXISTS partners (
@@ -76,10 +79,13 @@ async function initSchema() {
 
         await p.query(`
             CREATE TABLE IF NOT EXISTS users (
-                id INT AUTO_INCREMENT PRIMARY KEY,
+                id VARCHAR(255) PRIMARY KEY,
                 username VARCHAR(255) UNIQUE NOT NULL,
                 email VARCHAR(255) UNIQUE,
                 password_hash VARCHAR(255) NOT NULL,
+                name VARCHAR(255) DEFAULT '',
+                emailVerified TINYINT(1) DEFAULT 0,
+                image TEXT NULL,
                 role VARCHAR(255) DEFAULT 'Admin',
                 brand_id INT,
                 partner_id INT,
@@ -145,9 +151,7 @@ async function initSchema() {
             )
         `);
 
-        // Soft patches to prevent strict mode insertion errors for fields automatically created by Better Auth that lack defaults
-        try { await p.query("ALTER TABLE users ALTER COLUMN emailVerified SET DEFAULT 0"); } catch(e) {}
-        try { await p.query("ALTER TABLE users ALTER COLUMN name SET DEFAULT ''"); } catch(e) {}
+        // Soft patches for timestamps
         try { await p.query("ALTER TABLE users MODIFY COLUMN createdAt DATETIME DEFAULT CURRENT_TIMESTAMP"); } catch(e) {}
         try { await p.query("ALTER TABLE users MODIFY COLUMN updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"); } catch(e) {}
         
@@ -281,12 +285,27 @@ async function initSchema() {
                 xibo_display_id INT,
                 xibo_display_group_id INT,
                 status VARCHAR(100) DEFAULT 'Pending',
+                orientation VARCHAR(50) DEFAULT 'Landscape',
+                resolution VARCHAR(50),
+                client_address VARCHAR(100),
+                mac_address VARCHAR(100),
+                brand VARCHAR(255),
+                device_model VARCHAR(255),
                 notes TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 FOREIGN KEY (partner_id) REFERENCES partners(id) ON DELETE SET NULL
             )
         `);
+
+        // Migration for screens table: Add new columns if they don't exist
+        try { await p.query("ALTER TABLE screens ADD COLUMN orientation VARCHAR(50) DEFAULT 'Landscape' AFTER status"); } catch(e) {}
+        try { await p.query("ALTER TABLE screens ADD COLUMN resolution VARCHAR(50) AFTER orientation"); } catch(e) {}
+        try { await p.query("ALTER TABLE screens ADD COLUMN client_address VARCHAR(100) AFTER resolution"); } catch(e) {}
+        try { await p.query("ALTER TABLE screens ADD COLUMN mac_address VARCHAR(100) AFTER client_address"); } catch(e) {}
+        try { await p.query("ALTER TABLE screens ADD COLUMN brand VARCHAR(255) AFTER mac_address"); } catch(e) {}
+        try { await p.query("ALTER TABLE screens ADD COLUMN device_model VARCHAR(255) AFTER brand"); } catch(e) {}
+        try { await p.query("ALTER TABLE screens ADD COLUMN screen_id VARCHAR(100) AFTER id"); } catch(e) {}
  
         await p.query(`
             CREATE TABLE IF NOT EXISTS daily_media_stats (
@@ -341,7 +360,7 @@ async function initSchema() {
         await p.query(`
             CREATE TABLE IF NOT EXISTS activity_logs (
                 id          INT AUTO_INCREMENT PRIMARY KEY,
-                user_id     INT DEFAULT NULL,
+                user_id     VARCHAR(255) DEFAULT NULL,
                 action      VARCHAR(50)  NOT NULL,
                 module      VARCHAR(50)  NOT NULL,
                 description TEXT         NOT NULL,

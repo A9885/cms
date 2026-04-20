@@ -498,7 +498,14 @@
                     <h2 class="panel-title">Company Profile</h2>
                     <div class="form-group">
                         <label>Company Name</label>
-                        <input type="text" class="form-control" id="acc-company-name" value="Brand Name Pvt Ltd">
+                        <input type="text" class="form-control" id="acc-company-name" value="Brand Name Pvt Ltd" readonly>
+                    </div>
+                </div>
+                
+                <div class="glass-panel" id="custom-attributes-panel" style="display:none;">
+                    <h2 class="panel-title">Brand Attributes</h2>
+                    <div id="custom-attributes-list" style="display:grid; grid-template-columns:1fr 1fr; gap:1.2rem;">
+                        <!-- Custom fields injected here -->
                     </div>
                 </div>
                 <div class="glass-panel">
@@ -628,6 +635,7 @@
                 if (target === 'market' && typeof loadMarket === 'function') loadMarket();
                 if (target === 'billing' && typeof loadBilling === 'function') loadBilling();
                 if (target === 'billing' && typeof loadSubscription === 'function') loadSubscription();
+                if (target === 'account' && typeof loadAccount === 'function') loadAccount();
             });
         });
     </script>

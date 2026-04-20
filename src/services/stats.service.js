@@ -3,6 +3,7 @@ const path = require('path');
 const axios = require('axios');
 const { dbRun, dbAll, dbGet } = require('../db/database');
 const xiboService = require('./xibo.service');
+const timeUtils = require('../utils/time');
 
 // ─── PRIVATE CACHES ───────────────────────────────────────────────────────
 const WIDGET_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -161,7 +162,10 @@ class StatsService {
       
       const fromDt = this._formatLocal(thirtyDaysAgo);
       const fromDtRaw = this._formatLocal(fortyEightHoursAgo);
-      const toDt = this._formatLocal(now);
+
+      // --- DRIFT BUFFER FIX: Fetch hits up to 2 hours in the future ---
+      // This ensures we catch records if the Xibo CMS clock is ahead of the server clock.
+      const toDt = this._formatLocal(new Date(now.getTime() + 2 * 60 * 60 * 1000));
 
       console.log(`[StatsService] Fetching Xibo stats from ${fromDt} to ${toDt}...`);
 
@@ -194,9 +198,19 @@ class StatsService {
       
       const processRecord = (r, isRawData) => {
         if (!r.mediaId || !r.displayId) return;
+        
+        // --- DRIFT + IST NORMALIZATION ---
         const dateRaw = r.start || r.statDate || r.fromDt || '';
-        const dateStr = dateRaw.toString().slice(0, 10);
-        if (!dateStr || !dateStr.includes('-')) return;
+        if (!dateRaw) return;
+        
+        // Use measured CMS clock offset to convert Xibo time to Server/UTC time
+        const xiboTime = new Date(dateRaw);
+        const offset = isNaN(xiboService.clockOffset) ? 0 : xiboService.clockOffset;
+        const utcTime = new Date(xiboTime.getTime() + offset);
+        
+        // Group by IST Date (YYYY-MM-DD in India)
+        const dateStr = timeUtils.getISTDateString(utcTime);
+        if (!dateStr) return;
         
         const key = `${r.mediaId}|${r.displayId}|${dateStr}`;
         if (!aggregated[key]) {
@@ -305,6 +319,42 @@ class StatsService {
     }
   }
 
+  async getWeeklyStats() {
+    try {
+      // Query raw totals grouped by date over the past 7 days 
+      const rawRecords = await dbAll(`
+        SELECT DATE(date) as day, SUM(count) as totalPlays 
+        FROM daily_media_stats 
+        WHERE date >= DATE_SUB(CURDATE(), INTERVAL 6 DAY) 
+        GROUP BY DATE(date)
+        ORDER BY DATE(date) ASC
+      `);
+
+      // Ensure a continuous 7-day mapping, filling 0 for days without records
+      const mappedStats = [];
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        // Format YYYY-MM-DD
+        const dateStr = d.toISOString().split('T')[0];
+        
+        // Find if this date exists in the query result
+        const existing = rawRecords.find(r => r.day === dateStr);
+        
+        // Push the mapped item
+        mappedStats.push({
+          date: dateStr,
+          total: existing ? parseInt(existing.totalPlays) : 0
+        });
+      }
+
+      return { success: true, data: mappedStats };
+    } catch (err) {
+      console.error('[StatsService] getWeeklyStats failed:', err.message);
+      return { success: false, data: [] };
+    }
+  }
+
   async getMediaStats(mediaId) {
     const cacheKey = String(mediaId);
     const cached = _statResultCache.get(cacheKey);
@@ -317,7 +367,9 @@ class StatsService {
         const ninetyDaysAgo = new Date(now.getTime() - 7776000000);
         
         const ninetyDaysAgoStr = this._formatLocal(ninetyDaysAgo);
-        const nowStr = this._formatLocal(now);
+        
+        // --- DRIFT BUFFER FIX: Fetch hits up to 2 hours in the future ---
+        const nowStr = this._formatLocal(new Date(now.getTime() + 2 * 60 * 60 * 1000));
         const params = { fromDt: ninetyDaysAgoStr, toDt: nowStr, length: 10000 };
 
         const allRecords = await this._fetchRawPlaybackRecords(mediaId, params);
@@ -361,14 +413,15 @@ class StatsService {
 
         const history = mergedRecords.map(r => {
           let timeRaw = r.start || r.statDate || r.fromDt;
-          if (timeRaw && !timeRaw.toString().endsWith('Z')) timeRaw += 'Z';
+          if (!timeRaw) return null;
           
           // --- TIME NORMALIZATION FIX ---
-          // Subtract the CMS clock drift from the verification time
-          const originalTime = new Date(timeRaw);
+          // Use the measured CMS clock offset to convert Xibo time to Server/UTC time.
+          const xiboTime = new Date(timeRaw);
           const offset = isNaN(xiboService.clockOffset) ? 0 : xiboService.clockOffset;
-          const normalizedTime = new Date(originalTime.getTime() - offset);
-          const time = isNaN(normalizedTime.getTime()) ? originalTime.toISOString() : normalizedTime.toISOString();
+          const utcTime = new Date(xiboTime.getTime() + offset);
+          const time = utcTime.toISOString();
+          const timeIST = timeUtils.formatIST(utcTime);
           
           let slot = '-';
           const nameMatch = (r.media || r.layout || '').match(/(?:Slot_|S)(\d+)_/i);
@@ -386,8 +439,8 @@ class StatsService {
             }
           }
 
-          return { time, display: r.display || `Display ${r.displayId}`, slot, brandName: brand ? brand.name : 'Unlinked' };
-        }).filter(r => r.time).sort((a, b) => new Date(b.time) - new Date(a.time));
+          return { time, timeIST, display: r.display || `Display ${r.displayId}`, slot, brandName: brand ? brand.name : 'Unlinked' };
+        }).filter(r => r && r.time).sort((a, b) => new Date(b.time) - new Date(a.time));
 
         const result = { mediaId, playCount: allRecords.reduce((sum, r) => sum + (r.numberPlays || 1), 0), history, lastCheckIn };
         _statResultCache.set(cacheKey, { result, ts: Date.now(), promise: null });
@@ -408,7 +461,9 @@ class StatsService {
     if (this._liveSnapshotCache && (now - this._liveSnapshotCacheTime) < 30000) return this._liveSnapshotCache;
     try {
       const fifteenMinsAgo = new Date(Date.now() - 900000).toISOString().split('.')[0].replace('T', ' ');
-      const nowStr = new Date().toISOString().split('.')[0].replace('T', ' ');
+      
+      // --- DRIFT BUFFER FIX: Fetch hits up to 2 hours in the future ---
+      const nowStr = this._formatLocal(new Date(Date.now() + 2 * 60 * 60 * 1000));
       const params = { fromDt: fifteenMinsAgo, toDt: nowStr, length: 1500 };
 
       const [mediaRes, widgetRes, mediaMappings, brandsList] = await Promise.all([
@@ -430,10 +485,9 @@ class StatsService {
             const b = brandsList.find(bb => String(bb.id) === String(m.brand_id));
             if (b) brandName = b.name;
           }
-          const rawStart = start + (start.toString().endsWith('Z') ? '' : 'Z');
           const offsetRaw = isNaN(xiboService.clockOffset) ? 0 : xiboService.clockOffset;
-          const nDate = new Date(new Date(rawStart).getTime() - offsetRaw);
-          const normalizedStart = isNaN(nDate.getTime()) ? new Date(rawStart).toISOString() : nDate.toISOString();
+          const nDate = new Date(new Date(start).getTime() + offsetRaw);
+          const normalizedStart = nDate.toISOString();
 
           snapshot[dId] = { displayId: dId, displayName: r.display || `Display ${dId}`, adName: r.media || r.layout || (r.widgetId ? `Widget ${r.widgetId}` : 'Unknown'), brandName, start: normalizedStart, isLive: true };
         }

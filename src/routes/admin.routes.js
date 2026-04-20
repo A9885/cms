@@ -28,7 +28,7 @@ router.get('/dashboard', hasPermission('audit:view'), async (req, res) => {
             dbGet('SELECT COUNT(*) as count FROM brands'),
             dbGet('SELECT COUNT(*) as count FROM partners'),
             dbGet("SELECT SUM(amount) as total FROM invoices WHERE status = 'Paid'"),
-            xiboService.getDisplays().catch(e => {
+            xiboService.getClockOffset().then(() => xiboService.getDisplays()).catch(e => {
                 console.warn('[Admin API] Xibo Displays unreachable:', e.message);
                 return [];
             }),
@@ -49,7 +49,7 @@ router.get('/dashboard', hasPermission('audit:view'), async (req, res) => {
         const displays = isSyncing ? [] : rawDisplays;
         
         const totalScreens = displays.length;
-        const onlineScreens = displays.filter(d => d.loggedIn === 1 || d.loggedIn === true).length;
+        const onlineScreens = displays.filter(d => xiboService.getDisplayHealth(d).status === 'Online').length;
         const activeCampaigns = campaignsRes?.count || 0;
         const availableSlotsCount = (totalSlotsObj && totalSlotsObj.count > 0) ? (totalSlotsObj.count - assignedSlotsObj.count) : (totalScreens * 20);
 
@@ -72,9 +72,15 @@ router.get('/dashboard', hasPermission('audit:view'), async (req, res) => {
             revenueTrend,
             syncing: isSyncing,
             recentAlerts: displays
-                .filter(d => d.loggedIn === 0 || d.loggedIn === false)
+                .filter(d => xiboService.getDisplayHealth(d).status !== 'Online')
                 .slice(0, 5)
-                .map(d => ({ type: 'danger', text: `Screen ${d.display || d.name || d.displayId || 'Unknown'} is currently offline` }))
+                .map(d => {
+                    const health = xiboService.getDisplayHealth(d);
+                    return { 
+                        type: health.status === 'Stale' ? 'warning' : 'danger', 
+                        text: `Screen ${d.display || d.name || d.displayId || 'Unknown'} is ${health.status}` 
+                    };
+                })
         });
     } catch (err) {
         console.error('[Admin API] Dashboard Error:', err);
@@ -103,6 +109,16 @@ router.get('/health/xibo', hasPermission('audit:view'), async (req, res) => {
     } catch (err) {
         res.status(500).json({ status: 'Error', error: err.message });
     }
+});
+
+// ─── UTILITIES ───
+const sanitizeUsername = (str) => (str || '').toLowerCase().replace(/[^a-z0-9._-]/g, '_');
+
+router.get('/brands/debug', async (req, res) => {
+    try {
+        const brands = await dbAll('SELECT id, name, extra_fields, custom_fields FROM brands ORDER BY id DESC LIMIT 2');
+        res.json({ success: true, brands});
+    } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
 // ─── BRANDS ───
@@ -163,7 +179,7 @@ router.get('/brands/:id', hasPermission('screen:manage'), async (req, res) => {
 
 /** POST /api/admin/brands - Create a brand with email validation and conflict check. */
 router.post('/brands', hasPermission('*'), async (req, res) => {
-    const { company_name, name, industry, contact_person, email, phone, password } = req.body;
+    const { company_name, name, industry, contact_person, email, phone, password, extra_fields, customFields } = req.body;
     const finalName = company_name || name;
     
     if (!finalName || !email) {
@@ -175,25 +191,37 @@ router.post('/brands', hasPermission('*'), async (req, res) => {
         return res.status(400).json({ error: 'Invalid email format' });
     }
 
+    // Clean empty fields from customFields array
+    const cleanedCustomFields = Array.isArray(customFields) 
+        ? customFields.filter(f => f && f.key && f.key.trim() !== '') 
+        : [];
+
     try {
         const existing = await dbGet('SELECT id FROM brands WHERE email = ?', [email]);
         if (existing) return res.status(409).json({ error: 'Email already exists' });
 
         const result = await dbRun(
-            `INSERT INTO brands (name, industry, contact_person, email, phone, status) VALUES (?, ?, ?, ?, ?, 'Active')`,
-            [finalName, industry, contact_person, email, phone]
+            `INSERT INTO brands (name, industry, contact_person, email, phone, status, extra_fields, custom_fields) VALUES (?, ?, ?, ?, ?, 'Active', ?, ?)`,
+            [finalName, industry, contact_person, email, phone, JSON.stringify(extra_fields || {}), JSON.stringify(cleanedCustomFields)]
         );
         
         const { auth } = await getAuth();
-        await auth.api.signUpEmail({
-            body: {
-                name: contact_person || finalName,
-                email: email,
-                password: password || 'Brand@123',
-                role: 'Brand',
-                brand_id: result.id
-            }
-        });
+        try {
+            await auth.api.signUpEmail({
+                body: {
+                    name: contact_person || finalName,
+                    username: sanitizeUsername(email),
+                    email: email,
+                    password: password || 'Brand@123',
+                    role: 'Brand',
+                    brand_id: result.id
+                }
+            });
+        } catch (authErr) {
+            console.error(`[Admin API] User creation failed for brand ${result.id}. Cleaning up brand record...`);
+            await dbRun('DELETE FROM brands WHERE id = ?', [result.id]);
+            throw new Error(`Failed to create brand account: ${authErr.message}`);
+        }
 
         logActivity({ action: ACTION.CREATE, module: MODULE.BRAND, description: `Brand "${finalName}" created (ID: ${result.id})`, req });
         res.status(201).json({ success: true, brand_id: result.id });
@@ -230,6 +258,7 @@ router.post('/users', hasPermission('*'), async (req, res) => {
         const resObj = await auth.api.signUpEmail({
             body: {
                 name: username,
+                username: sanitizeUsername(username),
                 email: email,
                 password: password,
                 role: role,
@@ -284,11 +313,18 @@ router.patch('/brands/:id/disable', async (req, res) => {
 
 /** PUT /api/admin/brands/:id - Update brand profile. */
 router.put('/brands/:id', async (req, res) => {
-    const { name, industry, contact_person, email, phone, status, password } = req.body;
+    console.log(`[Admin API] PUT /brands/${req.params.id} body:`, JSON.stringify(req.body));
+    const { name, industry, contact_person, email, phone, status, password, extra_fields, customFields } = req.body;
+    
+    // Clean empty fields
+    const cleanedCustomFields = Array.isArray(customFields) 
+        ? customFields.filter(f => f && f.key && f.key.trim() !== '') 
+        : [];
+
     try {
         await dbRun(
-            `UPDATE brands SET name=?, industry=?, contact_person=?, email=?, phone=?, status=? WHERE id=?`,
-            [name, industry, contact_person, email, phone, status, req.params.id]
+            `UPDATE brands SET name=?, industry=?, contact_person=?, email=?, phone=?, status=?, extra_fields=?, custom_fields=? WHERE id=?`,
+            [name, industry, contact_person, email, phone, status, JSON.stringify(extra_fields || {}), JSON.stringify(cleanedCustomFields), req.params.id]
         );
 
         if (email && password) {
@@ -310,6 +346,7 @@ router.put('/brands/:id', async (req, res) => {
                 await auth.api.signUpEmail({
                     body: {
                         name: contact_person || name,
+                        username: sanitizeUsername(email),
                         email: email,
                         password: password,
                         role: 'Brand',
@@ -322,6 +359,65 @@ router.put('/brands/:id', async (req, res) => {
         logActivity({ action: ACTION.UPDATE, module: MODULE.BRAND, description: `Brand ID ${req.params.id} updated`, req });
         res.json({ success: true });
     } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
+/** 
+ * GET /api/admin/brands/:id/impersonate
+ * High-privilege route allowing admins to act as a brand user.
+ * Generates a direct session and redirects to the brand portal.
+ */
+router.get('/brands/:id/impersonate', hasPermission('*'), async (req, res) => {
+    const brandId = req.params.id;
+    try {
+        // 1. Find a user associated with this brand
+        const user = await dbGet('SELECT id, email, username FROM users WHERE brand_id = ? LIMIT 1', [brandId]);
+        
+        if (!user) {
+            return res.status(404).send(`
+                <html>
+                    <body style="font-family:sans-serif; padding:40px; text-align:center;">
+                        <h2>No User Found</h2>
+                        <p>This brand has no associated user account to impersonate.</p>
+                        <button onclick="window.close()">Close Window</button>
+                    </body>
+                </html>
+            `);
+        }
+
+        // 2. Generate a manual session in the Better Auth session table
+        const sessionId = generateId('sess_');
+        const token = generateId('tok_');
+        const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000); // 2 hours
+
+        await dbRun(
+            'INSERT INTO session (id, userId, token, expiresAt, ipAddress, userAgent) VALUES (?, ?, ?, ?, ?, ?)',
+            [sessionId, user.id, token, expiresAt, req.ip, req.headers['user-agent'] || 'Admin Impersonation']
+        );
+
+        // 3. Set the Better Auth session cookie
+        // Note: Cookie name must match better-auth configuration (default is better-auth.session-token)
+        const isProd = process.env.NODE_ENV === 'production';
+        res.cookie('better-auth.session-token', token, {
+            httpOnly: true,
+            secure: isProd,
+            expires: expiresAt,
+            path: '/',
+            sameSite: 'lax'
+        });
+
+        logActivity({
+            action: ACTION.LOGIN,
+            module: MODULE.AUTH,
+            description: `Admin impersonated Brand User: ${user.email} (Brand ID: ${brandId})`,
+            req
+        });
+
+        // 4. Redirect to the Brand Portal
+        res.redirect('/brandportal/index.html');
+    } catch (err) {
+        console.error('[Admin API] Impersonation Error:', err.message);
+        res.status(500).json({ error: err.message });
+    }
 });
 
 /** DELETE /api/admin/brands/:id - Delete brand and clean up all associated slot allocations. */
@@ -612,17 +708,18 @@ router.post('/partners', async (req, res) => {
 
         const { hashPassword } = await import('@better-auth/utils/password');
         const hash = await hashPassword(password || 'Partner@123');
+        const userId = generateId('user_');
         // 1. Create or update user record
-        const userResult = await dbRun(
-            `INSERT INTO users (username, email, password_hash, role, partner_id, force_password_reset) 
-             VALUES (?, ?, ?, 'Partner', ?, 1)
+        await dbRun(
+            `INSERT INTO users (id, username, email, password_hash, role, partner_id, force_password_reset) 
+             VALUES (?, ?, ?, ?, 'Partner', ?, 1)
              ON DUPLICATE KEY UPDATE partner_id = VALUES(partner_id), role = VALUES(role), password_hash = VALUES(password_hash)`,
-            [email, email, hash, result.id]
+            [userId, email, email, hash, result.id]
         );
 
-        // Get the real integer userId (either newly created or existing)
+        // Get the real string userId (either newly created or existing)
         const user = await dbGet('SELECT id FROM users WHERE email = ?', [email]);
-        const realUserId = user ? user.id : userResult.id;
+        const realUserId = user ? user.id : userId;
         
         // 2. Ensure Better Auth account exists and is synced
         if (realUserId) {
@@ -699,21 +796,21 @@ router.put('/partners/:id', async (req, res) => {
             const hash = password ? await hashPassword(password) : null;
             
             // Sync user record
+            const user = await dbGet('SELECT id FROM users WHERE email = ?', [email]);
+            const userId = user ? user.id : generateId('user_');
+
             const userUpdateSql = hash 
-                ? `INSERT INTO users (username, email, password_hash, role, partner_id, force_password_reset) 
-                   VALUES (?, ?, ?, 'Partner', ?, 1)
+                ? `INSERT INTO users (id, username, email, password_hash, role, partner_id, force_password_reset) 
+                   VALUES (?, ?, ?, ?, 'Partner', ?, 1)
                    ON DUPLICATE KEY UPDATE partner_id = VALUES(partner_id), role = VALUES(role), password_hash = VALUES(password_hash)`
-                : `INSERT INTO users (username, email, password_hash, role, partner_id, force_password_reset) 
-                   VALUES (?, ?, '---', 'Partner', ?, 0)
+                : `INSERT INTO users (id, username, email, password_hash, role, partner_id, force_password_reset) 
+                   VALUES (?, ?, ?, '---', 'Partner', ?, 0)
                    ON DUPLICATE KEY UPDATE partner_id = VALUES(partner_id), role = VALUES(role)`;
             
-            const params = hash ? [email, email, hash, req.params.id] : [email, email, req.params.id];
+            const params = hash ? [userId, email, email, hash, req.params.id] : [userId, email, email, req.params.id];
             
             // Perform the upsert
             await dbRun(userUpdateSql, params);
-
-            const user = await dbGet('SELECT id FROM users WHERE email = ?', [email]);
-            const userId = user ? user.id : null;
 
             // Sync account if we have a userId and password was provided
             if (hash && userId) {
@@ -833,6 +930,29 @@ router.get('/screens', async (req, res) => {
     } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
+/**
+ * POST /api/admin/screens/register-xibo
+ * Authorizes a brand new Xibo display using an activation code (hardware key).
+ */
+router.post('/screens/register-xibo', hasPermission('screen:manage'), async (req, res) => {
+    const { name, code } = req.body;
+    if (!name || !code) return res.status(400).json({ error: 'Screen name and Activation Code are required' });
+    
+    try {
+        const display = await xiboService.addDisplay(name, code);
+        
+        // Success! Now force a sync to create/update local record
+        const screenService = require('../services/screen.service');
+        await screenService.syncDisplays();
+        
+        logActivity({ action: ACTION.CREATE, module: MODULE.SCREEN, description: `Xibo Display "${name}" registered via code (Xibo ID: ${display.displayId})`, req });
+        res.json({ success: true, display });
+    } catch (err) {
+        console.error('[Admin API] Xibo Register Error:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 /** POST /api/admin/screens - Add a new screen to the CRM. */
 router.post('/screens', async (req, res) => {
     const { name, city, address, latitude, longitude, timezone, partner_id, notes } = req.body;
@@ -853,7 +973,11 @@ router.post('/screens', async (req, res) => {
 
 /** PUT /api/admin/screens/:id - Update screen details. */
 router.put('/screens/:id', async (req, res) => {
-    let { name, city, address, latitude, longitude, timezone, partner_id, notes, xibo_display_id, status, is_fixed_location, location_source } = req.body;
+    let { 
+        name, city, address, latitude, longitude, timezone, partner_id, notes, 
+        xibo_display_id, status, is_fixed_location, location_source, 
+        orientation, resolution 
+    } = req.body;
     
     // Sanitize coordinates to handle empty strings or UI nulls
     if (latitude === '' || latitude === undefined) latitude = null;
@@ -867,13 +991,18 @@ router.put('/screens/:id', async (req, res) => {
     try {
         let query, params;
         if (fixedLocation !== null || location_source) {
-            query = `UPDATE screens SET name=?, city=?, address=?, latitude=?, longitude=?, timezone=?, partner_id=?, notes=?, xibo_display_id=?, status=?, is_fixed_location=COALESCE(?,is_fixed_location), location_source=COALESCE(?,location_source), updated_at=CURRENT_TIMESTAMP WHERE id=?`;
-            params = [name, city, address, latitude, longitude, timezone, partner_id, notes, xibo_display_id, status, fixedLocation, location_source || null, req.params.id];
+            query = `UPDATE screens SET name=?, city=?, address=?, latitude=?, longitude=?, timezone=?, partner_id=?, notes=?, xibo_display_id=?, status=?, is_fixed_location=COALESCE(?,is_fixed_location), location_source=COALESCE(?,location_source), orientation=COALESCE(?,orientation), resolution=COALESCE(?,resolution), updated_at=CURRENT_TIMESTAMP WHERE id=?`;
+            params = [name, city, address, latitude, longitude, timezone, partner_id, notes, xibo_display_id, status, fixedLocation, location_source || null, orientation || null, resolution || null, req.params.id];
         } else {
-            query = `UPDATE screens SET name=?, city=?, address=?, latitude=?, longitude=?, timezone=?, partner_id=?, notes=?, xibo_display_id=?, status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`;
-            params = [name, city, address, latitude, longitude, timezone, partner_id, notes, xibo_display_id, status, req.params.id];
+            query = `UPDATE screens SET name=?, city=?, address=?, latitude=?, longitude=?, timezone=?, partner_id=?, notes=?, xibo_display_id=?, status=?, orientation=COALESCE(?,orientation), resolution=COALESCE(?,resolution), updated_at=CURRENT_TIMESTAMP WHERE id=?`;
+            params = [name, city, address, latitude, longitude, timezone, partner_id, notes, xibo_display_id, status, orientation || null, resolution || null, req.params.id];
         }
         await dbRun(query, params);
+        
+        // Push updates to Xibo in the background if linked
+        const screenService = require('../services/screen.service');
+        screenService.pushToXibo(req.params.id).catch(e => console.error('[Admin API] Background Xibo push error:', e.message));
+
         logActivity({ action: ACTION.UPDATE, module: MODULE.SCREEN, description: `Screen ID ${req.params.id} updated`, req });
         res.json({ success: true });
     } catch(err) { res.status(500).json({ error: err.message }); }

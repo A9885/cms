@@ -82,7 +82,8 @@ App.registerView('dashboard', {
             this.loadKPIs(),
             this.loadScreens(),
             this.loadRecentPlays(),
-            this.loadLiveSnapshot()
+            this.loadLiveSnapshot(),
+            this.loadWeeklyStats()
         ]);
         this.updateLiveStatus();
         if (this.map) this.updateMapMarkers();
@@ -129,8 +130,19 @@ App.registerView('dashboard', {
                     tbody.appendChild(tr);
                 });
             }
-            this.renderDailyChart(records.length);
         } catch (e) { console.error('Failed to load recent plays:', e); }
+    },
+
+    async loadWeeklyStats() {
+        try {
+            const res = await fetch('/admin/api/xibo/stats/weekly');
+            if (res.ok) {
+                const result = await res.json();
+                if (result.success && result.data) {
+                    this.renderDailyChart(result.data);
+                }
+            }
+        } catch (e) { console.error('Failed to load weekly stats:', e); }
     },
 
     async loadLiveSnapshot() {
@@ -244,14 +256,45 @@ App.registerView('dashboard', {
         lucide.createIcons();
     },
 
-    renderDailyChart(totalVolume) {
+    renderDailyChart(weeklyData) {
         const canvas = document.getElementById('chart-daily-plays');
         if (!canvas) return;
+        
+        // Prevent layout overlap bugs by destroying previous chart instantiation
+        if (this.dailyChartInst) {
+            this.dailyChartInst.destroy();
+        }
+
         const ctx = canvas.getContext('2d');
-        new Chart(ctx, {
+
+        // Map array of { date: 'YYYY-MM-DD', total: number } mappings onto separate X/Y layout vectors
+        const labels = weeklyData.map(d => {
+            const date = new Date(d.date);
+            const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            return days[date.getDay()];
+        });
+        const dataVals = weeklyData.map(d => d.total);
+
+        this.dailyChartInst = new Chart(ctx, {
             type: 'bar',
-            data: { labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], datasets: [{ label: 'Plays', data: [0, 0, 0, 0, 0, 0, totalVolume], backgroundColor: '#6366f1', borderRadius: 4 }] },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true }, x: { grid: { display: false } } } }
+            data: { 
+                labels: labels, 
+                datasets: [{ 
+                    label: 'Plays', 
+                    data: dataVals, 
+                    backgroundColor: '#6366f1', 
+                    borderRadius: 4 
+                }] 
+            },
+            options: { 
+                responsive: true, 
+                maintainAspectRatio: false, 
+                plugins: { legend: { display: false } }, 
+                scales: { 
+                    y: { beginAtZero: true }, 
+                    x: { grid: { display: false } } 
+                } 
+            }
         });
     },
 

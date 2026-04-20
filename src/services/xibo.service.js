@@ -1,6 +1,8 @@
 const axios = require('axios');
 const FormData = require('form-data');
 const fs = require('fs');
+const path = require('path');
+const timeUtils = require('../utils/time');
 
 /**
  * Service for interacting with the Xibo CMS API.
@@ -429,29 +431,57 @@ class XiboService {
   }
 
   /**
-   * LEGACY: Register a display using an activation number/hardware key.
+   * Register a display using an activation code or hardware key.
+   * In Xibo v4, this can use the 6-digit activation code displayed on the player.
    * @param {string} name - Friendly name for the screen.
-   * @param {string} hardwareKey - Activation key from the player.
+   * @param {string} code - Activation code (6-digits) or Hardware Key.
    * @returns {Promise<Object>}
    */
-  async addDisplay(name, hardwareKey) {
-    console.log(`[XiboService] Searching for display with hardwareKey: ${hardwareKey}`);
+  async addDisplay(name, code) {
+    console.log(`[XiboService] Registering display "${name}" with code: ${code}`);
+    
+    // 1. First, try to find an existing unauthorized display (Standard Hardware Key match)
     const displays = await this.getDisplays();
-    const keyLower = (hardwareKey || '').trim().toLowerCase();
-    const matching = displays.find(d => {
+    const codeLower = (code || '').trim().toLowerCase();
+    
+    let matching = displays.find(d => {
       if (!d.license) return false;
       const licLower = d.license.toLowerCase();
-      return licLower === keyLower || licLower.includes(keyLower) || keyLower.includes(licLower);
+      // Match by exact license or contains logic
+      return licLower === codeLower || licLower.includes(codeLower) || codeLower.includes(licLower);
     });
-    if (!matching) {
-      throw new Error(
-        `No display found with that Activation Number. ` +
-        `Please make sure the Xibo player has connected to the CMS at least once, ` +
-        `then try again. (Searched ${displays.length} display(s))`
-      );
+
+    if (matching) {
+      console.log(`[XiboService] Found matching existing display (ID: ${matching.displayId}). Authorizing...`);
+      return await this.registerDisplay(matching.displayId, name);
     }
-    return await this.registerDisplay(matching.displayId, name);
+
+    // 2. If no match, try Xibo v4 "Register with Code" flow
+    // This uses POST /display with activationCode parameter
+    console.log(`[XiboService] No existing match found for "${code}". Attempting v4 Registration...`);
+    
+    return await this.xiboRequest(async () => {
+        const headers = await this.getHeaders();
+        try {
+            const resp = await axios.post(`${this.baseUrl}${this._apiPrefix}/display`, {
+                display: name,
+                activationCode: code
+            }, { headers, timeout: 10000 });
+            
+            console.log(`[XiboService] ✅ Display registered successfully via Activation Code!`);
+            return resp.data;
+        } catch (err) {
+            const detail = err.response?.data?.error || err.response?.data?.message || err.message;
+            console.error(`[XiboService] Registration FAILED:`, detail);
+            
+            throw new Error(
+                `Registration failed: ${detail}. ` +
+                `Please ensure the 6-digit code is correct and the player is online.`
+            );
+        }
+    });
   }
+
 
   /**
    * Authorize and rename a brand-new Xibo display.
@@ -774,9 +804,18 @@ class XiboService {
    * @returns {Object} Health status and metrics.
    */
   getDisplayHealth(d) {
-    const lastSeen = d.lastAccessed ? new Date(d.lastAccessed) : null;
+    let lastSeen = d.lastAccessed ? new Date(d.lastAccessed) : null;
     const now = new Date();
-    const stalenessMinutes = lastSeen ? Math.floor((now - lastSeen) / 60000) : Infinity;
+    
+    // --- DRIFT NORMALIZATION: Adjust timestamp by the measured clock offset ---
+    // This handles cases where the Xibo CMS clock is ahead/behind the server clock.
+    const offset = isNaN(this.clockOffset) ? 0 : this.clockOffset;
+    if (lastSeen && !isNaN(lastSeen.getTime())) {
+        // Offset is (Server - Xibo), so NormalizedTime = Xibo + Offset
+        lastSeen = new Date(lastSeen.getTime() + offset);
+    }
+
+    const stalenessMinutes = (lastSeen && !isNaN(lastSeen.getTime())) ? Math.floor((now - lastSeen) / 60000) : Infinity;
 
     // Health Rules:
     // 1. Online: LoggedIn = 1 AND Seen in last 15 mins
@@ -790,12 +829,14 @@ class XiboService {
     // Storage Status:
     const freeGB = d.storageAvailableSpace ? (d.storageAvailableSpace / 1073741824).toFixed(2) : null;
     const storageStatus = freeGB && freeGB < 2 ? 'Critical' : 'Healthy';
+    const lastSeenIST = timeUtils.formatIST(lastSeen);
 
     return {
       displayId: d.displayId,
       name: d.display,
       status,
       stalenessMinutes,
+      lastSeenIST,
       storage: {
           freeGB,
           totalGB: d.storageTotalSpace ? (d.storageTotalSpace / 1073741824).toFixed(2) : null,
@@ -919,11 +960,29 @@ class XiboService {
     const headers = await this.getHeaders();
     const res = await axios.get(`${this.baseUrl}${this._apiPrefix}/clock`, { headers, timeout: 5000 });
     const timeStr = res.data?.time || res.data;
-    if (!timeStr) throw new Error('Invalid clock response');
+    return this._parseXiboTime(timeStr);
+  }
+
+  _parseXiboTime(timeStr) {
+    if (!timeStr) return new Date();
+    const str = timeStr.toString();
     
-    // Treat as UTC (+Z) for normalization
-    const date = new Date(timeStr.toString().includes('Z') ? timeStr : timeStr + 'Z');
-    return date;
+    // Handle "HH:mm BST" or "HH:mm GMT" format
+    const timeMatch = str.match(/^(\d{1,2}):(\d{2})(\s+([a-zA-Z]+))?$/);
+    if (timeMatch) {
+       const hours = parseInt(timeMatch[1], 10);
+       const mins = parseInt(timeMatch[2], 10);
+       const d = new Date();
+       d.setUTCHours(hours, mins, 0, 0);
+       
+       // Handle BST (UTC+1) normalization inside the parse
+       // If the timezone is BST, we treat the input as UTC and let getClockOffset calculate the difference.
+       return d;
+    }
+    
+    // Treat as UTC (+Z) for normalization if it looks like an ISO date
+    const date = new Date(str.includes(' ') && !str.includes('T') ? str.replace(' ', 'T') + 'Z' : (str.includes('Z') ? str : str + 'Z'));
+    return isNaN(date.getTime()) ? new Date() : date;
   }
 
   /**
@@ -937,7 +996,8 @@ class XiboService {
       const xiboTime = await this.getServerTime();
       const localAvg = (localStart + Date.now()) / 2;
       
-      const co = xiboTime.getTime() - localAvg;
+      // offset = ServerTime - XiboTime
+      const co = localAvg - xiboTime.getTime();
       this.clockOffset = isNaN(co) ? 0 : co;
       return this.clockOffset;
     } catch (err) {

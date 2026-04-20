@@ -89,10 +89,10 @@ router.get('/list', async (req, res) => {
       xiboService.getLibrary({ length: 1000 }), // Increased to 1000 to ensure we find everything
       dbAll('SELECT mediaId, status FROM media_brands WHERE brand_id = ?', [brandId]),
       dbAll(`
-        SELECT c.creative_id, c.slot_number, s.name as screen_name 
-        FROM campaigns c 
-        LEFT JOIN screens s ON c.screen_id = s.screen_id 
-        WHERE c.brand_id = ? AND c.status = 'Active'
+        SELECT sl.mediaId as creative_id, sl.slot_number, s.name as screen_name 
+        FROM slots sl 
+        LEFT JOIN screens s ON sl.displayId = s.xibo_display_id 
+        WHERE sl.brand_id = ? AND sl.status = 'Active' AND sl.mediaId IS NOT NULL
       `, [brandId])
     ]);
 

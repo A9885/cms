@@ -28,8 +28,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
     }
 
-    // 2. Load Dashboard initially
-    loadDashboard();
+    // 2. Initial View Detection
+    const activeNav = document.querySelector('.nav-item.active');
+    const target = activeNav ? activeNav.getAttribute('data-target') : 'dashboard';
+    if (target === 'account') loadAccount();
+    else loadDashboard();
 
     // 3. Real-time Socket.io connection
     if (authed && window.io) {
@@ -59,6 +62,7 @@ function refreshActiveView(background = false) {
     if (target === 'dashboard') loadDashboard();
     else if (target === 'screens') loadScreens();
     else if (target === 'creatives') loadCreatives();
+    else if (target === 'account') loadAccount();
     else if (target === 'reports') {
         const isDetail = document.getElementById('reports-detail-view').style.display === 'block';
         if (isDetail) {
@@ -1117,6 +1121,65 @@ async function loadCreatives() {
         tbody.appendChild(tr);
     });
     lucide.createIcons();
+}
+
+async function loadAccount() {
+    console.log('[Brand Portal] Loading account profile...');
+    const brand = await safeFetch('/brandportal/api/profile');
+    if (!brand) {
+        console.error('[Brand Portal] Brand profile fetch failed');
+        return;
+    }
+    if (brand.error) {
+        console.error('[Brand Portal] API Error:', brand.error);
+        return;
+    }
+
+    console.log('[Brand Portal] Brand data:', brand);
+
+    // Update Company Name
+    const nameInput = document.getElementById('acc-company-name');
+    if (nameInput) {
+        nameInput.value = brand.name || '';
+        console.log('[Brand Portal] Updated company name to:', brand.name);
+    }
+
+    // Render Custom Attributes
+    const panel = document.getElementById('custom-attributes-panel');
+    const list = document.getElementById('custom-attributes-list');
+    
+    if (panel && list) {
+        list.innerHTML = '';
+        
+        let customFieldsList = [];
+        try {
+            let parsed = brand.custom_fields;
+            if (typeof parsed === 'string') parsed = JSON.parse(parsed);
+            if (typeof parsed === 'string') parsed = JSON.parse(parsed); // Catch double stringification
+            customFieldsList = parsed || [];
+        } catch(e) {
+            console.error('[Brand Portal] Failed to parse custom_fields:', e);
+        }
+
+        if (Array.isArray(customFieldsList) && customFieldsList.length > 0) {
+            panel.style.display = 'block';
+            customFieldsList.forEach(field => {
+                if (field && field.key && field.value) {
+                    const item = document.createElement('div');
+                    item.className = 'form-group';
+                    item.style.marginBottom = '0';
+                    item.innerHTML = `
+                        <label style="color:var(--text-muted); font-size:0.75rem; text-transform:uppercase; font-weight:700;">${field.key}</label>
+                        <div style="font-weight:600; font-size:1rem; padding: 10px 0; border-bottom:1px solid #f1f5f9;">${field.value}</div>
+                    `;
+                    list.appendChild(item);
+                }
+            });
+            if (list.children.length === 0) panel.style.display = 'none';
+        } else {
+            panel.style.display = 'none';
+        }
+    }
 }
 
 function openCreativePreview(media) {

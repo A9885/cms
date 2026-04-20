@@ -136,10 +136,65 @@ App.registerView('inventory', {
             border-radius: 20px; margin-left: 6px; vertical-align: middle;
         }
 
+        /* Tooltip Card */
+        .inv-screen-tooltip {
+            position: fixed;
+            z-index: 10000;
+            width: 280px;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(226, 232, 240, 0.8);
+            border-radius: 12px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+            padding: 16px;
+            pointer-events: none;
+            font-family: inherit;
+            transition: opacity 0.2s, transform 0.2s;
+            transform: translateY(10px);
+            opacity: 0;
+            color: #1e293b;
+        }
+        .inv-screen-tooltip.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .inv-screen-tooltip-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 12px;
+            border-bottom: 1px solid #f1f5f9;
+            padding-bottom: 8px;
+        }
+        .inv-screen-tooltip-name {
+            font-weight: 800;
+            font-size: 0.95rem;
+            color: #1e293b;
+        }
+        .inv-screen-tooltip-item {
+            margin-top: 8px;
+        }
+        .inv-screen-tooltip-label {
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-weight: 700;
+            color: #94a3b8;
+        }
+        .inv-screen-tooltip-value {
+            font-size: 0.78rem;
+            color: #475569;
+            font-weight: 600;
+            line-height: 1.4;
+        }
+
         @keyframes inv-pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
         .inv-loading { text-align: center; padding: 3rem; color: #718096; animation: inv-pulse 1.5s ease-in-out infinite; font-size: 0.85rem; }
         .inv-empty { text-align: center; padding: 3rem; color: #718096; font-size: 0.85rem; }
         </style>
+
+        <!-- Tooltip box -->
+        <div id="inv-screen-tooltip" class="inv-screen-tooltip"></div>
 
         <!-- Toast box -->
         <div id="inv-toast-box"></div>
@@ -247,6 +302,72 @@ App.registerView('inventory', {
         document.getElementById('inv-breadcrumb').innerHTML = html;
     },
 
+    showTooltip(e, dId) {
+        const d = this._screens[dId] || (this._selectedScreen && this._selectedScreen.id === dId ? this._selectedScreen : null);
+        if (!d) return;
+
+        const tip = document.getElementById('inv-screen-tooltip');
+        if (!tip) return;
+
+        const statusLabel = d.online ? 'Online' : 'Offline';
+        const lastSeen = d.lastAccessed ? new Date(d.lastAccessed + ' UTC').toLocaleString() : 'Never';
+
+        tip.innerHTML = `
+            <div class="inv-screen-tooltip-header">
+                <div class="inv-screen-tooltip-name">${this._esc(d.name)}</div>
+                <span class="${d.online ? 'inv-badge-online' : 'inv-badge-offline'}" style="font-size:0.6rem; padding: 2px 6px;">
+                    <span class="inv-badge-dot"></span>${statusLabel}
+                </span>
+            </div>
+            <div class="inv-screen-tooltip-item">
+                <div class="inv-screen-tooltip-label">Area / Location</div>
+                <div class="inv-screen-tooltip-value">${this._esc(d.location || d.address || 'Unknown')}</div>
+            </div>
+            <div class="inv-screen-tooltip-item">
+                <div class="inv-screen-tooltip-label">Device Info</div>
+                <div class="inv-screen-tooltip-value">${this._esc(d.device || 'Unknown')} ${d.resolution ? '(' + d.resolution + ')' : ''}</div>
+            </div>
+            <div class="inv-screen-tooltip-item">
+                <div class="inv-screen-tooltip-label">Last Seen</div>
+                <div class="inv-screen-tooltip-value">${this._esc(lastSeen)}</div>
+            </div>
+            <div style="margin-top:12px; font-size:0.65rem; color:#94a3b8; font-style:italic; border-top:1px solid #f1f5f9; padding-top:8px;">
+                ID: ${dId} ${d.timezone ? ' · ' + d.timezone : ''}
+            </div>
+        `;
+
+        tip.style.display = 'block';
+        
+        // Position it
+        const rect = e.target.getBoundingClientRect();
+        const tipRect = tip.getBoundingClientRect();
+        
+        let top = rect.top - tipRect.height - 12;
+        let left = rect.left + (rect.width / 2) - (tipRect.width / 2);
+
+        // Boundary checks
+        if (top < 10) top = rect.bottom + 12;
+        if (left < 10) left = 10;
+        if (left + tipRect.width > window.innerWidth - 10) left = window.innerWidth - tipRect.width - 10;
+
+        tip.style.top = top + 'px';
+        tip.style.left = left + 'px';
+
+        // Trigger reflow for animation
+        tip.offsetHeight;
+        tip.classList.add('visible');
+    },
+
+    hideTooltip() {
+        const tip = document.getElementById('inv-screen-tooltip');
+        if (tip) {
+            tip.classList.remove('visible');
+            setTimeout(() => {
+                if (!tip.classList.contains('visible')) tip.style.display = 'none';
+            }, 200);
+        }
+    },
+
     async loadMediaSummary() {
         try {
             const resp = await fetch('/xibo/stats/media-summary');
@@ -319,7 +440,11 @@ App.registerView('inventory', {
                 rows += `
                 <tr>
                     <td>
-                        <div style="font-weight:700;font-size:0.85rem;">${this._esc(d.name)}</div>
+                        <div style="font-weight:700;font-size:0.85rem; cursor:help; border-bottom:1px dashed #cbd5e1; display:inline-block;" 
+                             onmouseenter="window.InvView.showTooltip(event, '${dId}')" 
+                             onmouseleave="window.InvView.hideTooltip()">
+                             ${this._esc(d.name)}
+                        </div>
                         <div style="font-size:0.72rem;color:#94a3b8;margin-top:2px;">ID: ${dId}${d.device ? ' · ' + this._esc(d.device) : ''}</div>
                     </td>
                     <td>${locHtml}</td>
@@ -550,7 +675,13 @@ App.registerView('inventory', {
                     }
                     return `<tr>
                         <td style="color:#4a5568;">${dt.toLocaleString()}${liveBadge}</td>
-                        <td style="font-weight:700;">${this._esc(r.display || 'Display')}</td>
+                        <td style="font-weight:700; cursor:help;">
+                            <span onmouseenter="window.InvView.showTooltip(event, '${this._selectedScreen.id}')" 
+                                  onmouseleave="window.InvView.hideTooltip()"
+                                  style="border-bottom:1px dashed #cbd5e1;">
+                                ${this._esc(r.display || 'Display')}
+                            </span>
+                        </td>
                         <td>${slot}</td>
                         <td>${brand}</td>
                         <td>${locCell}</td>

@@ -88,7 +88,7 @@ async function getBrandSlots(brandId) {
     return await dbAll(`
         SELECT 
             sl.id, sl.slot_number, sl.displayId, sl.status, sl.brand_id,
-            sl.start_date, sl.end_date, sl.creative_name,
+            sl.start_date, sl.end_date, sl.creative_name, sl.mediaId,
             s.name as screen_name, s.city, s.address, s.notes
         FROM slots sl
         LEFT JOIN screens s ON sl.displayId = s.xibo_display_id
@@ -96,6 +96,29 @@ async function getBrandSlots(brandId) {
         ORDER BY sl.displayId, sl.slot_number
     `, [brandId]);
 }
+
+// ─── PROFILE ──────────────────────────────────────────────────────────────
+
+/**
+ * GET /brandportal/api/profile
+ * Returns the brand's own details including extra_fields.
+ */
+router.get('/profile', async (req, res) => {
+    const brandId = req.user.brand_id;
+    console.log(`[Brand API] Fetching profile for brandId: ${brandId}, User: ${req.user.email}`);
+    try {
+        if (!brandId) return res.status(400).json({ error: 'No brand assigned to this user' });
+        const brand = await dbGet('SELECT * FROM brands WHERE id = ?', [brandId]);
+        if (!brand) return res.status(404).json({ error: 'Brand not found' });
+        
+        // Remove sensitive info if any
+        delete brand.password;
+        
+        res.json(brand);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
 
 // ─── SUBSCRIPTION ─────────────────────────────────────────────────────────
@@ -507,11 +530,12 @@ router.get('/campaigns', async (req, res) => {
     try {
         const [campaigns, statsSummary] = await Promise.all([
             dbAll(`
-                SELECT c.*, s.name as screen_name, s.city, s.location
-                FROM campaigns c
-                LEFT JOIN screens s ON c.screen_id = s.screen_id
-                WHERE c.brand_id = ?
-                ORDER BY c.created_at DESC
+                SELECT sl.id, sl.creative_name as campaign_name, sl.displayId as screen_id, s.name as screen_name, s.city, s.address as location,
+                sl.slot_number, sl.start_date, sl.end_date, sl.status, sl.mediaId as creative_id
+                FROM slots sl
+                LEFT JOIN screens s ON sl.displayId = s.xibo_display_id
+                WHERE sl.brand_id = ? AND sl.mediaId IS NOT NULL
+                ORDER BY sl.updated_at DESC
             `, [brandId]),
             require('../services/stats.service').getAllMediaStats()
         ]);

@@ -8,7 +8,7 @@ App.registerView('screens', {
                     </div>
                     <div class="table-header-actions">
                         <button class="btn btn-secondary" id="btn-view-map">Map View</button>
-                        <button class="btn btn-success" style="background: #10b981; color: white;" onclick="window.open('https://cms.signtral.info/display/view', 'XiboReg', 'width=1100,height=800,left=150,top=100,popup=1')"><i data-lucide="monitor" style="width:14px; margin-right:4px;"></i>Register Xibo Display</button>
+                        <button class="btn btn-success" style="background: #10b981; color: white;" id="btn-open-register-xibo"><i data-lucide="monitor" style="width:14px; margin-right:4px;"></i>Register Xibo Display</button>
                         <button class="btn btn-primary" id="btn-open-create-screen">+ Add Screen</button>
                     </div>
                 </div>
@@ -91,6 +91,32 @@ App.registerView('screens', {
                                 <div id="det-address" style="font-size:0.85rem; line-height:1.4;">—</div>
                             </div>
                             <div style="margin-top:8px;" id="det-fixed-badge-row"></div>
+                        </div>
+
+                        <div class="detail-section">
+                            <div class="detail-section-title">Technical Specifications</div>
+                            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+                                <div>
+                                    <label style="font-size:0.7rem; color:var(--text-muted);">Orientation</label>
+                                    <div id="det-orientation" style="font-size:0.85rem; font-weight:600; display:flex; align-items:center; gap:6px;">—</div>
+                                </div>
+                                <div>
+                                    <label style="font-size:0.7rem; color:var(--text-muted);">Resolution</label>
+                                    <div id="det-resolution" style="font-size:0.85rem; font-weight:600;">—</div>
+                                </div>
+                                <div>
+                                    <label style="font-size:0.7rem; color:var(--text-muted);">Brand/Model</label>
+                                    <div id="det-hardware-model" style="font-size:0.85rem; font-weight:600;">—</div>
+                                </div>
+                                <div>
+                                    <label style="font-size:0.7rem; color:var(--text-muted);">Connection IP</label>
+                                    <div id="det-ip-address" style="font-size:0.85rem; font-weight:600; color:var(--primary);">—</div>
+                                </div>
+                            </div>
+                            <div style="margin-top:10px;">
+                                <label style="font-size:0.7rem; color:var(--text-muted);">MAC Address</label>
+                                <div id="det-mac-address" style="font-size:0.75rem; font-family:monospace; color:var(--text-muted);">—</div>
+                            </div>
                         </div>
 
                         <!-- Link Alert for Unlinked Screens -->
@@ -216,6 +242,19 @@ App.registerView('screens', {
                             <label>Address</label>
                             <textarea id="edit-screen-address" class="form-control" style="height:60px;"></textarea>
                         </div>
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                            <div class="form-group">
+                                <label>Presentation Orientation</label>
+                                <select id="edit-screen-orientation" class="form-control">
+                                    <option value="Landscape">Landscape</option>
+                                    <option value="Portrait">Portrait</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Screen Dimensions</label>
+                                <input type="text" id="edit-screen-resolution" class="form-control" placeholder="e.g., 1920x1080">
+                            </div>
+                        </div>
                         <div class="form-group">
                             <label>Notes</label>
                             <textarea id="edit-screen-notes" class="form-control" style="height:60px;"></textarea>
@@ -305,6 +344,31 @@ App.registerView('screens', {
                     </div>
                 </div>
             </div>
+
+            <!-- Register Xibo Modal -->
+            <div id="register-xibo-modal" class="modal-overlay" style="z-index: 1004;">
+                <div class="modal">
+                    <div class="modal-header">
+                        <span class="modal-title">🔗 Register New Xibo Display</span>
+                        <button onclick="document.getElementById('register-xibo-modal').classList.remove('active')" class="modal-close">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <p style="font-size:0.85rem; margin-bottom:15px; color:var(--text-muted);">Enter the activation code shown on your Xibo player screen to authorize it.</p>
+                        <div class="form-group">
+                            <label>Display Name *</label>
+                            <input type="text" id="reg-xibo-name" placeholder="E.g., Office-Entrance" class="form-control">
+                        </div>
+                        <div class="form-group">
+                            <label>Activation Code (Hardware Key) *</label>
+                            <input type="text" id="reg-xibo-code" placeholder="Enter key from player screen" class="form-control">
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="document.getElementById('register-xibo-modal').classList.remove('active')">Cancel</button>
+                        <button class="btn btn-primary" id="btn-submit-registration">Authorize Player</button>
+                    </div>
+                </div>
+            </div>
         `;
     },
 
@@ -379,6 +443,44 @@ App.registerView('screens', {
         const btnOpenAdd = document.getElementById('btn-open-create-screen');
         if (btnOpenAdd) {
             btnOpenAdd.onclick = () => document.getElementById('create-screen-modal').classList.add('active');
+        }
+
+        // Register Xibo Modal
+        const btnOpenReg = document.getElementById('btn-open-register-xibo');
+        if (btnOpenReg) {
+            btnOpenReg.onclick = () => {
+                document.getElementById('reg-xibo-name').value = '';
+                document.getElementById('reg-xibo-code').value = '';
+                document.getElementById('register-xibo-modal').classList.add('active');
+            };
+        }
+
+        const btnSubmitReg = document.getElementById('btn-submit-registration');
+        if (btnSubmitReg) {
+            btnSubmitReg.onclick = async () => {
+                const name = document.getElementById('reg-xibo-name').value;
+                const code = document.getElementById('reg-xibo-code').value;
+                if (!name || !code) return App.showToast('Please enter both name and code', 'error');
+
+                btnSubmitReg.disabled = true;
+                btnSubmitReg.innerText = 'Authorizing...';
+
+                try {
+                    const res = await window.Api.post('/screens/register-xibo', { name, code });
+                    if (res.success) {
+                        App.showToast('Display registered successfully!', 'success');
+                        document.getElementById('register-xibo-modal').classList.remove('active');
+                        this.mount(container);
+                    } else {
+                        App.showToast('Registration failed: ' + (res.error || 'Unknown error'), 'error');
+                    }
+                } catch (err) {
+                    App.showToast('Error connecting to CMS: ' + err.message, 'error');
+                } finally {
+                    btnSubmitReg.disabled = false;
+                    btnSubmitReg.innerText = 'Authorize Player';
+                }
+            };
         }
 
         const btnSubmitAdd = document.getElementById('btn-submit-create');
@@ -572,6 +674,17 @@ App.registerView('screens', {
         } else {
             fixedRow.innerHTML = '';
         }
+
+        // Technical Specs
+        const orientationDiv = document.getElementById('det-orientation');
+        const orient = screen.orientation || 'Landscape';
+        orientationDiv.innerHTML = `<i data-lucide="${orient === 'Portrait' ? 'smartphone' : 'monitor'}" style="width:14px;"></i> ${orient}`;
+        document.getElementById('det-resolution').innerText = screen.resolution || '—';
+        document.getElementById('det-hardware-model').innerText = `${screen.brand || ''} ${screen.device_model || ''}`.trim() || '—';
+        document.getElementById('det-ip-address').innerText = screen.client_address || '—';
+        document.getElementById('det-mac-address').innerText = screen.mac_address || '—';
+        
+        lucide.createIcons();
 
         const xibo = this.allXiboDisplays.find(xd => xd.displayId === screen.xibo_display_id);
         const online = xibo ? xibo.loggedIn : false;
@@ -876,6 +989,8 @@ App.registerView('screens', {
         document.getElementById('edit-screen-lng').value = screen.longitude || '';
         document.getElementById('edit-screen-partner-select').value = screen.partner_id || '';
         document.getElementById('edit-screen-notes').value = screen.notes || '';
+        document.getElementById('edit-screen-orientation').value = screen.orientation || 'Landscape';
+        document.getElementById('edit-screen-resolution').value = screen.resolution || '';
         document.getElementById('edit-screen-modal').classList.add('active');
 
         document.getElementById('btn-submit-edit').onclick = async () => {
@@ -883,10 +998,12 @@ App.registerView('screens', {
                 name: document.getElementById('edit-screen-name').value,
                 city: document.getElementById('edit-screen-city').value,
                 address: document.getElementById('edit-screen-address').value,
-                latitude: document.getElementById('edit-screen-lat').value || null,
-                longitude: document.getElementById('edit-screen-lng').value || null,
+                latitude: document.getElementById('edit-screen-lat').value,
+                longitude: document.getElementById('edit-screen-lng').value,
                 partner_id: document.getElementById('edit-screen-partner-select').value || null,
-                notes: document.getElementById('edit-screen-notes').value
+                notes: document.getElementById('edit-screen-notes').value,
+                orientation: document.getElementById('edit-screen-orientation').value,
+                resolution: document.getElementById('edit-screen-resolution').value
             };
             try {
                 await window.Api.put(`/screens/${screen.id}`, body);

@@ -1,4 +1,5 @@
 require('dotenv').config();
+if (!globalThis.crypto) { globalThis.crypto = require('node:crypto').webcrypto; }
 // Final restart for admin account synchronization fix
 
 
@@ -1030,6 +1031,20 @@ app.get('/xibo/stats/live', async (req, res) => {
 });
 
 /**
+ * GET /xibo/stats/weekly
+ * Returns aggregated plays per day over the last 7 days for the chart.
+ */
+app.get('/xibo/stats/weekly', async (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  try {
+    const result = await statsService.getWeeklyStats();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
  * GET /xibo/stats/recent
  * Returns all recent plays, merging Xibo API stats with local logs.
  */
@@ -1839,7 +1854,7 @@ async function synchronizeMainLoop(displayId, displayGroupId) {
 
     if (!mainLoopId) throw new Error("Could not find or create Main Loop playlist.");
 
-    // 2. Refresh Main Loop with widgets
+    // 2. Refresh Main Loop with Sub-Playlist widgets (Robustness Upgrade)
     const mlResp = await axios.get(`${xiboService.baseUrl}${xiboService._apiPrefix}/playlist`, {
         headers,
         params: { name: mainLoopName, embed: 'widgets' }
@@ -1847,38 +1862,76 @@ async function synchronizeMainLoop(displayId, displayGroupId) {
     const mainLoop = mlResp.data?.find(p => (p.playlist === mainLoopName || p.name === mainLoopName));
     const existingWidgets = mainLoop?.widgets || [];
 
-    // First: completely empty the Main Loop playlist of existing widgets to rebuild it cleanly
-    if (existingWidgets.length > 0) {
-        for (const w of existingWidgets) {
+    // Clean up non-subplaylist widgets (legacy library assignments) and map existing subplaylists
+    const subPlaylistMap = new Map();
+    for (const w of existingWidgets) {
+        if (w.type === 'subplaylist') {
+            const match = (w.name || '').match(/Slot\s*(\d+)/i);
+            if (match) {
+                subPlaylistMap.set(parseInt(match[1], 10), w.widgetId);
+            } else {
+                await axios.delete(`${xiboService.baseUrl}${xiboService._apiPrefix}/playlist/widget/${w.widgetId}`, { headers }).catch(() => {});
+            }
+        } else {
+            // Delete legacy library media widgets
             await axios.delete(`${xiboService.baseUrl}${xiboService._apiPrefix}/playlist/widget/${w.widgetId}`, { headers }).catch(() => {});
         }
     }
 
-    // Now directly insert the media for the active slots into the Main Loop playlist
-    const localSlots = await dbAll('SELECT slot_number, mediaId FROM slots WHERE displayId = ? AND mediaId IS NOT NULL ORDER BY slot_number ASC', [displayId]).catch(()=>[]);
-    let linkedCount = 0;
+    // 3. Ensure all 20 slots exist as sub-playlists in the Main Loop
+    const MAX_SLOTS = 20;
+    let createdCount = 0;
+    for (let i = 1; i <= MAX_SLOTS; i++) {
+        if (subPlaylistMap.has(i)) continue;
 
-    for (const slot of localSlots) {
-        if (!slot.mediaId) continue;
-        const index = slot.slot_number;
+        const slotPlaylistName = `SCREEN_${displayId}_SLOT_${i}_PLAYLIST`;
+        const sSearch = await axios.get(`${xiboService.baseUrl}${xiboService._apiPrefix}/playlist`, {
+            headers,
+            params: { name: slotPlaylistName }
+        });
+        const slotPlaylist = sSearch.data?.find(p => (p.playlist === slotPlaylistName || p.name === slotPlaylistName));
+        
+        if (!slotPlaylist) {
+            // Provision empty playlist if missing
+            console.warn(`[synchronizeMainLoop] Slot Playlist ${slotPlaylistName} not found. Robustness check failed for this slot.`);
+            continue;
+        }
+
         try {
-            await axios.post(`${xiboService.baseUrl}${xiboService._apiPrefix}/playlist/library/assign/${mainLoopId}`, 
-                `media[0]=${slot.mediaId}&duration=13&useDuration=1`,
+            // Add Sub-Playlist widget to Main Loop
+            const spRes = await axios.post(`${xiboService.baseUrl}${xiboService._apiPrefix}/playlist/widget/subplaylist/${mainLoopId}`, 
+                "", 
                 { headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' } }
             );
-            console.log(`Assigned Media ${slot.mediaId} for Slot ${index} to Main Loop.`);
-            linkedCount++;
+            const widgetId = spRes.data.widgetId;
+
+            // Link widget to the specific slot playlist
+            const putParams = new URLSearchParams();
+            putParams.set('subPlaylists', JSON.stringify([{ playlistId: slotPlaylist.playlistId, spots: 1 }]));
+            putParams.set('name', `Slot ${i}`);
+            await axios.put(`${xiboService.baseUrl}${xiboService._apiPrefix}/playlist/widget/${widgetId}`, 
+                putParams.toString(), 
+                { headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' } }
+            );
+            console.log(`[synchronizeMainLoop] Linked Slot ${i} Sub-Playlist to Main Loop for Display ${displayId}`);
+            createdCount++;
         } catch (err) {
-            console.warn(`Failed to assign Media ${slot.mediaId} for Slot ${index}:`, err.response?.data || err.message);
+            console.error(`[synchronizeMainLoop] Failed to link Slot ${i}:`, err.response?.data || err.message);
         }
     }
     
     // Auto-Publish the Main Loop so Xibo pushes updates to the displays
-    if (mainLoopId && linkedCount > 0) {
+    if (mainLoopId) {
         await axios.put(`${xiboService.baseUrl}${xiboService._apiPrefix}/playlist/publish/${mainLoopId}`, 'publish=1', { headers }).catch(() => {});
     }
 
-    // Orphan widgets are no longer an issue because the Main Loop is rebuilt from scratch above.
+    // Trigger immediate collection on the screen if belonging to a group
+    if (displayGroupId) {
+        await axios.post(`${xiboService.baseUrl}${xiboService._apiPrefix}/displaygroup/${displayGroupId}/action/collectNow`, 
+            new URLSearchParams(), 
+            { headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' } }
+        ).catch(() => {});
+    }
 
     // Resolve syncId (displayGroupId for the display)
     let syncId = displayGroupId;
@@ -2345,9 +2398,26 @@ async function syncDisplayStats() {
       try {
         // --- PoP WAKE-UP FIX: Send high-priority XMR command to force hit-collection ---
         await xiboService.forceCollectDisplayStats(d.displayId, d.displayGroupId);
+
+        // --- ROBUSTNESS: Verify Main Loop integrity (Sub-Playlist Check) ---
+        // Only verify for online displays to keep API noise low.
+        if (d.loggedIn || d.loggedIn === 1) {
+            const mainLoopName = `SCREEN_${d.displayId}_MAIN_LOOP`;
+            const mlSearch = await axios.get(`${xiboService.baseUrl}${xiboService._apiPrefix}/playlist`, {
+                headers, params: { name: mainLoopName, embed: 'widgets' }
+            });
+            const mainLoop = mlSearch.data?.find(p => (p.playlist === mainLoopName || p.name === mainLoopName));
+            const subPlaylistCount = (mainLoop?.widgets || []).filter(w => w.type === 'subplaylist').length;
+            
+            if (subPlaylistCount < 20) {
+                console.log(`[StatsSync] Resilience Fix: Rebuilding loop for Display ${d.display} (${subPlaylistCount}/20 slots ok)`);
+                await synchronizeMainLoop(d.displayId, d.displayGroupId).catch(e => console.warn(`[StatsSync] Loop rebuild failed for ${d.display}:`, e.message));
+            }
+        }
+
         console.log(`[StatsSync] Signal sent to display ${d.display} (ID: ${d.displayId})`);
       } catch (e) {
-        console.warn(`[StatsSync] Could not wake display ${d.display}:`, e.message);
+        console.warn(`[StatsSync] Could not wake/verify display ${d.display}:`, e.message);
       }
     }));
     

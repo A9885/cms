@@ -82,6 +82,16 @@ App.registerView('brands', {
                                     </select>
                                 </div>
                             </div>
+
+                            <div style="margin-top: 1.5rem; border-top: 1px solid var(--border); padding-top: 1rem;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                                    <label style="font-weight: 600;">Custom Fields</label>
+                                    <button type="button" class="btn btn-secondary" style="padding: 2px 8px; font-size: 0.75rem;" onclick="Views.brands.addCustomFieldRow()">+ Add Field</button>
+                                </div>
+                                <div id="custom-fields-container" style="display: flex; flex-direction: column; gap: 0.5rem;">
+                                    <!-- Dynamic rows injected here -->
+                                </div>
+                            </div>
                         </form>
                     </div>
                     <div class="modal-footer">
@@ -280,6 +290,17 @@ App.registerView('brands', {
                 viewBtn.appendChild(userIcon);
                 tdActions.appendChild(viewBtn);
 
+                const portalBtn = document.createElement('button');
+                portalBtn.className = 'icon-btn';
+                portalBtn.title = 'View Brand Portal';
+                portalBtn.style.color = 'var(--accent)';
+                portalBtn.onclick = () => window.open(`/admin/api/brands/${b.id}/impersonate`, '_blank');
+                const portalIcon = document.createElement('i');
+                portalIcon.setAttribute('data-lucide', 'external-link');
+                portalIcon.style.width = '14px';
+                portalBtn.appendChild(portalIcon);
+                tdActions.appendChild(portalBtn);
+
                 const editBtn = document.createElement('button');
                 editBtn.className = 'icon-btn';
                 editBtn.title = 'Edit';
@@ -402,6 +423,17 @@ App.registerView('brands', {
                     { label: 'Contact', value: brand.contact_person || '-' },
                     { label: 'Email', value: brand.email || '-', class: 'email' }
                 ];
+
+                // Append custom fields
+                if (brand.extra_fields) {
+                    try {
+                        const extra = typeof brand.extra_fields === 'string' ? JSON.parse(brand.extra_fields) : brand.extra_fields;
+                        Object.entries(extra).forEach(([k, v]) => {
+                            fields.push({ label: k, value: v });
+                        });
+                    } catch (e) { console.error('Error parsing extra fields', e); }
+                }
+
                 fields.forEach(f => {
                     const div = document.createElement('div');
                     div.style.marginBottom = '8px';
@@ -431,6 +463,20 @@ App.registerView('brands', {
                 editBtn.textContent = 'Edit Profile';
                 editBtn.onclick = () => this.showModal(brand.id);
                 infoBox.appendChild(editBtn);
+
+                const portalBtn = document.createElement('button');
+                portalBtn.className = 'btn btn-primary'; 
+                portalBtn.style.width = '100%'; 
+                portalBtn.style.fontSize = '0.8rem';
+                portalBtn.style.marginTop = '8px';
+                portalBtn.style.display = 'flex';
+                portalBtn.style.alignItems = 'center';
+                portalBtn.style.justifyContent = 'center';
+                portalBtn.style.gap = '8px';
+                portalBtn.innerHTML = '<i data-lucide="external-link" style="width:14px;"></i> View Brand Portal';
+                portalBtn.onclick = () => window.open(`/admin/api/brands/${brand.id}/impersonate`, '_blank');
+                infoBox.appendChild(portalBtn);
+
                 leftCol.appendChild(infoBox);
 
                 const kpiGrid = document.createElement('div');
@@ -708,8 +754,24 @@ App.registerView('brands', {
     },
 
     showSubModal(brandId, subId = null) {
+        // UX Improvement: Prevent complex nested modal overlapping by directly closing 
+        // the background profile modal if it is active. This replaces stacking with 
+        // a much cleaner "modal swap" approach.
+        const profileModal = document.getElementById('brand-profile-modal');
+        if (profileModal && profileModal.classList.contains('active')) {
+            profileModal.classList.remove('active');
+        }
+
         this._subEditId = subId;
         this._subBrandId = brandId;
+
+        const formatDate = (d) => {
+            if (!d) return '';
+            // Extract YYYY-MM-DD from ISO string
+            if (typeof d === 'string' && d.includes('T')) return d.split('T')[0];
+            return d;
+        };
+
         document.getElementById('sub-modal-title').textContent = subId ? 'Edit Subscription' : 'Create Subscription';
         document.getElementById('subscription-form').reset();
         if (subId) {
@@ -717,8 +779,8 @@ App.registerView('brands', {
                 const s = (subs || []).find(x => x.id === subId);
                 if (s) {
                     document.getElementById('sub-plan-name').value = s.plan_name || '';
-                    document.getElementById('sub-start-date').value = s.start_date || '';
-                    document.getElementById('sub-end-date').value = s.end_date || '';
+                    document.getElementById('sub-start-date').value = formatDate(s.start_date);
+                    document.getElementById('sub-end-date').value = formatDate(s.end_date);
                     document.getElementById('sub-screens').value = s.screens_included || 1;
                     document.getElementById('sub-slots').value = s.slots_included || 1;
                     document.getElementById('sub-cities').value = s.cities || '';
@@ -772,6 +834,14 @@ App.registerView('brands', {
 
 
     showModal(id = null) {
+        // UX Improvement: Prevent complex nested modal overlapping by directly closing 
+        // the background profile modal if it is active. This replaces stacking with 
+        // a much cleaner "modal swap" approach.
+        const profileModal = document.getElementById('brand-profile-modal');
+        if (profileModal && profileModal.classList.contains('active')) {
+            profileModal.classList.remove('active');
+        }
+
         this.editingId = id;
         const modal = document.getElementById('brand-modal');
         const title = document.getElementById('modal-title');
@@ -793,7 +863,60 @@ App.registerView('brands', {
             title.innerText = 'Add New Brand';
             form.reset();
         }
+        
+        // Custom Fields
+        const customCont = document.getElementById('custom-fields-container');
+        if (customCont) {
+            customCont.innerHTML = '';
+            if (id) {
+                const brand = this.brandsData.find(x => x.id === id);
+                if (brand && brand.custom_fields) {
+                    try {
+                        let fields = brand.custom_fields;
+                        if (typeof fields === 'string') fields = JSON.parse(fields);
+                        if (typeof fields === 'string') fields = JSON.parse(fields); // Defend double stringify
+                        
+                        if (Array.isArray(fields)) {
+                            fields.forEach(f => {
+                                if(f && f.key) this.addCustomFieldRow(f.key, f.value);
+                            });
+                        }
+                    } catch (e) {
+                        console.error('[Brands View] Failed to parse custom_fields', e);
+                    }
+                }
+            }
+        }
+
         modal.classList.add('active');
+    },
+
+    addCustomFieldRow(key = '', value = '') {
+        console.log('[Brands View] Adding custom field row:', { key, value });
+        const container = document.getElementById('custom-fields-container');
+        if (!container) {
+            console.error('[Brands View] Could not find custom-fields-container');
+            return;
+        }
+
+        const row = document.createElement('div');
+        row.className = 'custom-field-row';
+        row.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr 32px; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem;';
+
+        row.innerHTML = `
+            <input type="text" class="form-control field-key" placeholder="Key (e.g. GST)" value="${key}">
+            <input type="text" class="form-control field-value" placeholder="Value" value="${value}">
+            <button type="button" class="icon-btn" style="color: var(--danger); display: flex; align-items: center; justify-content: center;" onclick="this.parentElement.remove()">
+                <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>
+            </button>
+        `;
+        container.appendChild(row);
+        
+        if (window.lucide) {
+            lucide.createIcons();
+        } else {
+            console.warn('[Brands View] Lucide icons not available');
+        }
     },
 
     closeModal() {
@@ -809,17 +932,46 @@ App.registerView('brands', {
             email: document.getElementById('brand-email').value,
             phone: document.getElementById('brand-phone').value,
             status: document.getElementById('brand-status').value,
-            password: document.getElementById('brand-password').value
+            password: document.getElementById('brand-password').value,
+            customFields: []
         };
+
+        // Collect Custom Fields
+        const container = document.getElementById('custom-fields-container');
+        if (container) {
+            const rows = container.querySelectorAll('.custom-field-row');
+            rows.forEach(row => {
+                const keyElem = row.querySelector('.field-key');
+                const valElem = row.querySelector('.field-value');
+                if (keyElem && valElem) {
+                    const key = keyElem.value.trim();
+                    const val = valElem.value.trim();
+                    if (key) {
+                        payload.customFields.push({ key, value: val });
+                    }
+                }
+            });
+        }
+
+        console.log('Payload before API call:', JSON.stringify(payload, null, 2));
+
         if (!payload.name || !payload.email) return App.showToast('Brand Name and Email are required', 'error');
 
         let res;
-        if (this.editingId) {
-            res = await Api.put(`/brands/${this.editingId}`, payload);
-        } else {
-            res = await Api.post('/brands', payload);
+        try {
+            if (this.editingId) {
+                console.log('[Brands View] Updating brand:', this.editingId);
+                res = await Api.put(`/brands/${this.editingId}`, payload);
+            } else {
+                console.log('[Brands View] Creating new brand');
+                res = await Api.post('/brands', payload);
+            }
+        } catch (err) {
+            console.error('[Brands View] API error:', err);
+            return App.showToast('API Error: ' + err.message, 'error');
         }
 
+        console.log('API response:', res);
         if (res.error) {
             App.showToast('Error: ' + res.error, 'error');
         } else {

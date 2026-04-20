@@ -1,4 +1,5 @@
 const mysql = require('mysql2/promise');
+if (!globalThis.crypto) { globalThis.crypto = require('node:crypto').webcrypto; }
 require('dotenv').config();
 
 let authInstance = null;

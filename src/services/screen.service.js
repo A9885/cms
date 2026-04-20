@@ -58,6 +58,13 @@ class ScreenService {
                 // Extend audit window to 2027; updateDisplayAuditing() will auto-assign
                 // a defaultLayoutId if one is missing, preventing the Xibo 422 error.
                 await xiboService.updateDisplayAuditing(d.displayId, '2027-12-31 00:00:00');
+
+                // --- ROBUSTNESS: Ensure all media in active slots have Stats Collection Enabled ---
+                const slotAds = await dbAll('SELECT mediaId FROM slots WHERE displayId = ? AND mediaId IS NOT NULL', [d.displayId]);
+                for (const ad of slotAds) {
+                   await xiboService.setStatCollection('media', ad.mediaId, true).catch(() => {});
+                }
+
                 console.log(`[ScreenService] ✅ Self-Healing complete for Display ${d.display}`);
             } catch (e) {
                 // Non-fatal: log but don't break the sync loop for other displays
@@ -65,17 +72,41 @@ class ScreenService {
             }
         }
 
+        const orientation = d.orientation || 'Landscape';
+        const resolution = d.resolution || '';
+        const clientAddress = d.clientAddress || '';
+        const macAddress = d.macAddress || '';
+        const brand = d.brand || '';
+        const model = d.model || '';
+
         if (!existing) {
           console.log(`[ScreenService] NEW Display detected: ${d.display} (ID: ${d.displayId}). Provisioning slots...`);
           const byName = await dbGet('SELECT id FROM screens WHERE name = ? AND xibo_display_id IS NULL', [d.display]);
           if (byName) {
-            await dbRun('UPDATE screens SET xibo_display_id = ?, status = ?, screen_id = COALESCE(screen_id, ?) WHERE id = ?', [d.displayId, status, `SIG-${d.displayId}`, byName.id]);
+            await dbRun(
+              `UPDATE screens SET 
+                xibo_display_id = ?, status = ?, screen_id = COALESCE(screen_id, ?),
+                orientation = ?, resolution = ?, client_address = ?, mac_address = ?, 
+                brand = ?, device_model = ? 
+               WHERE id = ?`, 
+              [d.displayId, status, `SIG-${d.displayId}`, orientation, resolution, clientAddress, macAddress, brand, model, byName.id]
+            );
           } else {
             const sid = `SIG-${d.displayId}`;
-            await dbRun(`INSERT INTO screens (name, xibo_display_id, status, screen_id) VALUES (?, ?, ?, ?)`, [d.display || 'Unknown', d.displayId, status, sid]);
+            await dbRun(
+              `INSERT INTO screens (name, xibo_display_id, status, screen_id, orientation, resolution, client_address, mac_address, brand, device_model) 
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, 
+              [d.display || 'Unknown', d.displayId, status, sid, orientation, resolution, clientAddress, macAddress, brand, model]
+            );
           }
         } else {
-          await dbRun('UPDATE screens SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [status, existing.id]);
+          await dbRun(
+            `UPDATE screens SET 
+              status = ?, orientation = ?, resolution = ?, client_address = ?, 
+              mac_address = ?, brand = ?, device_model = ?, updated_at = CURRENT_TIMESTAMP 
+             WHERE id = ?`, 
+            [status, orientation, resolution, clientAddress, macAddress, brand, model, existing.id]
+          );
         }
         
         await this.provisionSlots(d.displayId);
@@ -237,6 +268,31 @@ class ScreenService {
       }
     } catch (err) {
       console.warn(`[ScreenService] onScreenRemovedFromPartner non-fatal:`, err.message);
+    }
+  }
+
+  /**
+   * Push local screen updates (name, location) back to Xibo CMS.
+   * @param {number|string} screenId Local screen ID
+   */
+  async pushToXibo(screenId) {
+    try {
+      const screen = await dbGet('SELECT * FROM screens WHERE id = ?', [screenId]);
+      if (!screen || !screen.xibo_display_id) return;
+
+      console.log(`[ScreenService] Pushing updates for Screen ${screenId} to Xibo (Display ID: ${screen.xibo_display_id})`);
+      
+      const updates = {
+        name: screen.name,
+        latitude: screen.latitude,
+        longitude: screen.longitude,
+        address: screen.address
+      };
+
+      await xiboService.updateDisplay(screen.xibo_display_id, updates);
+      console.log(`[ScreenService] ✅ Xibo sync successful for Screen ${screenId}`);
+    } catch (err) {
+      console.error(`[ScreenService] ❌ Failed to push updates to Xibo for Screen ${screenId}:`, err.message);
     }
   }
 }
