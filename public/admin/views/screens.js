@@ -353,19 +353,29 @@ App.registerView('screens', {
                         <button onclick="document.getElementById('register-xibo-modal').classList.remove('active')" class="modal-close">&times;</button>
                     </div>
                     <div class="modal-body">
-                        <p style="font-size:0.85rem; margin-bottom:15px; color:var(--text-muted);">Enter the activation code shown on your Xibo player screen to authorize it.</p>
+                        <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:10px; padding:12px; margin-bottom:16px; font-size:0.8rem; line-height:1.6;">
+                            <strong>📋 Before registering:</strong><br>
+                            1. Open the Xibo Player app on the display<br>
+                            2. In player settings, set <strong>CMS Address</strong> to:<br>
+                            <code id="reg-cms-url" style="background:#dbeafe; padding:2px 6px; border-radius:4px; font-size:0.85rem; font-weight:700;">https://cms.signtral.info</code><br>
+                            3. The 6-digit code will appear on screen once connected
+                        </div>
                         <div class="form-group">
                             <label>Display Name *</label>
                             <input type="text" id="reg-xibo-name" placeholder="E.g., Office-Entrance" class="form-control">
                         </div>
                         <div class="form-group">
-                            <label>Activation Code (Hardware Key) *</label>
-                            <input type="text" id="reg-xibo-code" placeholder="Enter key from player screen" class="form-control">
+                            <label>Activation Code (shown on player screen) *</label>
+                            <input type="text" id="reg-xibo-code" placeholder="E.g., 2399CC" class="form-control" style="text-transform: uppercase; font-size: 1.1rem; letter-spacing: 0.15em; font-weight: 700;">
                         </div>
+                        <div id="reg-pending-list" style="display:none; margin-top:10px;"></div>
                     </div>
-                    <div class="modal-footer">
+                    <div class="modal-footer" style="flex-direction: column; gap: 8px; align-items: stretch;">
+                        <div style="display:flex; gap:8px;">
+                            <button class="btn btn-secondary" style="flex:1; font-size:0.8rem;" id="btn-scan-pending">🔍 Scan for Pending Displays</button>
+                            <button class="btn btn-primary" style="flex:1;" id="btn-submit-registration">Authorize Player</button>
+                        </div>
                         <button class="btn btn-secondary" onclick="document.getElementById('register-xibo-modal').classList.remove('active')">Cancel</button>
-                        <button class="btn btn-primary" id="btn-submit-registration">Authorize Player</button>
                     </div>
                 </div>
             </div>
@@ -451,31 +461,72 @@ App.registerView('screens', {
             btnOpenReg.onclick = () => {
                 document.getElementById('reg-xibo-name').value = '';
                 document.getElementById('reg-xibo-code').value = '';
+                document.getElementById('reg-pending-list').style.display = 'none';
                 document.getElementById('register-xibo-modal').classList.add('active');
+            };
+        }
+
+        // Scan for pending (unauthorized) displays
+        const btnScanPending = document.getElementById('btn-scan-pending');
+        if (btnScanPending) {
+            btnScanPending.onclick = async () => {
+                btnScanPending.disabled = true;
+                btnScanPending.textContent = 'Scanning...';
+                try {
+                    const result = await window.Api.get('/screens/pending-displays');
+                    const container = document.getElementById('reg-pending-list');
+                    if (result && result.length > 0) {
+                        container.style.display = 'block';
+                        container.innerHTML = `
+                            <div style="font-size:0.78rem; font-weight:600; margin-bottom:6px; color:#1e40af;">
+                                🟡 ${result.length} pending display(s) waiting for authorization:
+                            </div>
+                            ${result.map(d => `
+                                <div style="border:1px solid #e2e8f0; border-radius:8px; padding:8px 10px; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center; background:#f8fafc; cursor:pointer;"
+                                     onclick="document.getElementById('reg-xibo-code').value='${(d.license||'').slice(0,8)}'; document.getElementById('reg-xibo-name').value='${d.display}';">
+                                    <div>
+                                        <div style="font-size:0.85rem; font-weight:600;">${d.display}</div>
+                                        <div style="font-size:0.7rem; color:#64748b;">ID: ${d.displayId} · Last seen: ${d.lastAccessed || 'Unknown'}</div>
+                                    </div>
+                                    <span style="font-size:0.7rem; background:#fef9c3; color:#854d0e; padding:2px 8px; border-radius:999px; font-weight:700;">Pending</span>
+                                </div>
+                            `).join('')}
+                            <div style="font-size:0.72rem; color:#64748b;">Click a display above to auto-fill the code field, then click Authorize Player.</div>
+                        `;
+                    } else {
+                        container.style.display = 'block';
+                        container.innerHTML = '<div style="font-size:0.8rem; color:#64748b; padding:8px; background:#f8fafc; border-radius:8px;">No pending displays found. Make sure the player is connected to the CMS and showing the activation code.</div>';
+                    }
+                } catch(e) {
+                    App.showToast('Scan failed: ' + e.message, 'error');
+                }
+                btnScanPending.disabled = false;
+                btnScanPending.textContent = '🔍 Scan for Pending Displays';
             };
         }
 
         const btnSubmitReg = document.getElementById('btn-submit-registration');
         if (btnSubmitReg) {
             btnSubmitReg.onclick = async () => {
-                const name = document.getElementById('reg-xibo-name').value;
-                const code = document.getElementById('reg-xibo-code').value;
-                if (!name || !code) return App.showToast('Please enter both name and code', 'error');
+                const name = document.getElementById('reg-xibo-name').value.trim();
+                const code = document.getElementById('reg-xibo-code').value.trim();
+                if (!name || !code) return App.showToast('Please enter both display name and activation code', 'error');
 
                 btnSubmitReg.disabled = true;
                 btnSubmitReg.innerText = 'Authorizing...';
 
                 try {
                     const res = await window.Api.post('/screens/register-xibo', { name, code });
-                    if (res.success) {
-                        App.showToast('Display registered successfully!', 'success');
+                    if (res && res.success) {
+                        App.showToast('✅ Display registered successfully!', 'success');
                         document.getElementById('register-xibo-modal').classList.remove('active');
                         this.mount(container);
                     } else {
-                        App.showToast('Registration failed: ' + (res.error || 'Unknown error'), 'error');
+                        const errMsg = (res && res.error) || 'Unknown error';
+                        App.showToast('❌ ' + errMsg, 'error');
                     }
                 } catch (err) {
-                    App.showToast('Error connecting to CMS: ' + err.message, 'error');
+                    App.showToast('Error: ' + err.message, 'error');
                 } finally {
                     btnSubmitReg.disabled = false;
                     btnSubmitReg.innerText = 'Authorize Player';

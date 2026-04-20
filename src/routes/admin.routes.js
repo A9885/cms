@@ -931,6 +931,32 @@ router.get('/screens', async (req, res) => {
 });
 
 /**
+ * GET /api/admin/screens/pending-displays
+ * Returns Xibo displays that are connected but not yet authorized (licensed=0).
+ */
+router.get('/screens/pending-displays', async (req, res) => {
+    try {
+        const axios = require('axios');
+        const headers = await xiboService.getHeaders();
+        const resp = await axios.get(`${xiboService.baseUrl}${xiboService._apiPrefix}/display`, {
+            headers,
+            params: { licensed: 0, length: 200 },
+            timeout: 10000
+        });
+        const pending = Array.isArray(resp.data) ? resp.data : [];
+        res.json(pending.map(d => ({
+            displayId: d.displayId,
+            display: d.display,
+            license: d.license || '',
+            activationCode: d.activationCode || '',
+            lastAccessed: d.lastAccessed || null
+        })));
+    } catch(err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
  * POST /api/admin/screens/register-xibo
  * Authorizes a brand new Xibo display using an activation code (hardware key).
  */
@@ -1138,8 +1164,8 @@ router.post('/slots/assign', async (req, res) => {
         const sub = subscription_id
             ? await dbGet('SELECT * FROM subscriptions WHERE id = ? AND brand_id = ?', [subscription_id, brand_id])
             : await dbGet(
-                `SELECT * FROM subscriptions WHERE brand_id = ? AND status = 'Active' AND start_date <= ? AND end_date >= ? ORDER BY id DESC LIMIT 1`,
-                [brand_id, today, today]
+                `SELECT * FROM subscriptions WHERE brand_id = ? AND status = 'Active' AND DATE(start_date) <= CURDATE() AND DATE(end_date) >= CURDATE() ORDER BY id DESC LIMIT 1`,
+                [brand_id]
               );
 
         if (!sub) {
@@ -1190,6 +1216,27 @@ router.post('/slots/assign', async (req, res) => {
             );
         }
 
+        // ─── AUTO-LINK: sync media_brands whenever a slot is assigned/unassigned ───
+        if (brand_id && mId) {
+            // Slot assigned to brand WITH a media file → auto-link in media_brands
+            await dbRun(
+                'REPLACE INTO media_brands (mediaId, brand_id, status) VALUES (?, ?, "Approved")',
+                [mId, brand_id]
+            );
+            console.log(`[AutoLink] Media ${mId} auto-linked to Brand ${brand_id} via slot assign`);
+        } else if (!brand_id && mId) {
+            // Slot unassigned → remove media_brands entry ONLY if no other active slot references it
+            const otherSlot = await dbGet(
+                'SELECT id FROM slots WHERE mediaId = ? AND brand_id IS NOT NULL AND NOT (displayId = ? AND slot_number = ?) LIMIT 1',
+                [mId, displayId, slot_number]
+            );
+            if (!otherSlot) {
+                await dbRun('DELETE FROM media_brands WHERE mediaId = ?', [mId]);
+                console.log(`[AutoLink] Media ${mId} unlinked from all brands (no active slots remain)`);
+            }
+        }
+        // ─────────────────────────────────────────────────────────────────────────
+
         const io = req.app.get('io');
         if (io) {
             let brandName = 'Unassigned';
@@ -1211,6 +1258,32 @@ router.post('/slots/assign', async (req, res) => {
 
         res.json({ success: true });
     } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
+/**
+ * POST /api/admin/slots/sync-brands
+ * Backfill: auto-link all existing slots that have a mediaId and brand_id
+ * but are missing a corresponding media_brands record (one-time repair).
+ */
+router.post('/slots/sync-brands', async (req, res) => {
+    try {
+        const activeSlotsWithMedia = await dbAll(
+            'SELECT mediaId, brand_id FROM slots WHERE mediaId IS NOT NULL AND brand_id IS NOT NULL AND status = "Active"'
+        );
+        let linked = 0;
+        for (const slot of activeSlotsWithMedia) {
+            await dbRun(
+                'REPLACE INTO media_brands (mediaId, brand_id, status) VALUES (?, ?, "Approved")',
+                [slot.mediaId, slot.brand_id]
+            );
+            linked++;
+        }
+        console.log(`[SyncBrands] Backfilled ${linked} media-to-brand links from slots.`);
+        statsService.invalidateCache();
+        res.json({ success: true, linked });
+    } catch(err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 /** GET /api/admin/slots/screen/:displayId - Get all 20 predefined slots for a specific screen. */

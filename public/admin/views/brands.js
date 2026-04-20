@@ -687,7 +687,14 @@ App.registerView('brands', {
         // Check for active subscription before assigning
         const today = new Date().toISOString().slice(0, 10);
         const subs = await Api.get(`/subscriptions/brand/${brandId}`);
-        const activeSub = (subs || []).find(s => s.status === 'Active' && s.start_date <= today && s.end_date >= today);
+        // Normalize dates: MySQL DATE fields serialize as ISO strings ("2026-04-20T00:00:00.000Z")
+        // Extract just YYYY-MM-DD for safe string comparison
+        const normDate = (d) => d ? String(d).split('T')[0] : '';
+        const activeSub = (subs || []).find(s => 
+            s.status === 'Active' && 
+            normDate(s.start_date) <= today && 
+            normDate(s.end_date) >= today
+        );
 
         if (!activeSub) {
             App.showToast('This brand has no active subscription. Create and activate one first (Subscriptions tab).', 'error');
@@ -731,7 +738,7 @@ App.registerView('brands', {
                     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
                         <div>
                             <strong style="font-size:0.95rem;">${s.plan_name}</strong>
-                            <div style="font-size:0.75rem;color:var(--text-muted);margin-top:2px;">${s.start_date} to ${s.end_date} &nbsp;·&nbsp; ${s.cities || 'All locations'}</div>
+                            <div style="font-size:0.75rem;color:var(--text-muted);margin-top:2px;">${String(s.start_date).split('T')[0]} to ${String(s.end_date).split('T')[0]} &nbsp;·&nbsp; ${s.cities || 'All locations'}</div>
                         </div>
                         <div style="display:flex;gap:6px;align-items:center;">
                             <span style="font-size:0.72rem;font-weight:700;padding:3px 8px;border-radius:999px;${st}">${s.status}</span>

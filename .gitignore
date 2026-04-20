@@ -23,3 +23,13 @@ upload_log.json
 .vscode/
 *.txt
 *.bak
+*.sqlite
+*.bak
+*.txt
+pipeline-report.json
+admin_cookies.txt
+brand_cookies.txt
+cookies.txt
+brands_error.txt
+.vscode/
+tmp/

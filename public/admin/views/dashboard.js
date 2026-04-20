@@ -72,6 +72,11 @@ App.registerView('dashboard', {
         const header = document.getElementById('dynamic-header-title');
         if (header) header.innerText = 'Admin Command Center';
         if (this.map) { this.map.remove(); this.map = null; }
+        
+        // Ensure Campaigns tab is hidden natively
+        const campaignTab = document.querySelector('a[data-view="campaigns"]');
+        if (campaignTab) campaignTab.style.display = 'none';
+
         await this.refreshData();
         this.initMap();
         lucide.createIcons();
@@ -136,13 +141,23 @@ App.registerView('dashboard', {
     async loadWeeklyStats() {
         try {
             const res = await fetch('/xibo/stats/weekly');
-            if (res.ok) {
-                const result = await res.json();
-                if (result.success && result.data) {
-                    this.renderDailyChart(result.data);
+            const result = await res.json();
+            console.log('[Dashboard] Weekly stats response:', result);
+            if (result.success && result.data && result.data.length > 0) {
+                this.renderDailyChart(result.data);
+            } else {
+                // Render empty chart with 7-day labels so chart is not blank
+                const emptyData = [];
+                for (let i = 6; i >= 0; i--) {
+                    const d = new Date();
+                    d.setDate(d.getDate() - i);
+                    emptyData.push({ date: d.toISOString().split('T')[0], total: 0 });
                 }
+                this.renderDailyChart(emptyData);
             }
-        } catch (e) { console.error('Failed to load weekly stats:', e); }
+        } catch (e) {
+            console.error('Failed to load weekly stats:', e);
+        }
     },
 
     async loadLiveSnapshot() {
@@ -266,13 +281,17 @@ App.registerView('dashboard', {
 
         const ctx = canvas.getContext('2d');
 
-        // Map array of { date: 'YYYY-MM-DD', total: number } mappings onto separate X/Y layout vectors
+        // Map array of { date: 'YYYY-MM-DD', total: number } onto chart vectors
+        // IMPORTANT: Parse date parts directly to avoid UTC midnight timezone shift
         const labels = weeklyData.map(d => {
-            const date = new Date(d.date);
+            const parts = String(d.date).split('T')[0].split('-');
+            // Build date using local parts (year, month-1, day) to avoid TZ shifts
+            const date = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
             const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
             return days[date.getDay()];
         });
-        const dataVals = weeklyData.map(d => d.total);
+        const dataVals = weeklyData.map(d => parseInt(d.total) || 0);
+        console.log('[Dashboard] Chart labels:', labels, 'Values:', dataVals);
 
         this.dailyChartInst = new Chart(ctx, {
             type: 'bar',

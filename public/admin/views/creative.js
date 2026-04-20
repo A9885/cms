@@ -5,8 +5,11 @@ App.registerView('creative', {
             <div class="card">
                 <div class="table-header">
                     <h3 style="font-size: 1rem; font-weight: 600;">Media Assets</h3>
-                    <div style="display: flex; gap: 10px;">
-                        <input type="text" class="form-control" placeholder="Search by name..." style="width: 200px;">
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <input type="text" id="creative-search" class="form-control" placeholder="Search by name..." style="width: 200px;" oninput="Views.creative.filterTable(this.value)">
+                        <button class="btn btn-secondary" style="font-size: 0.8rem; display: flex; align-items: center; gap: 6px;" onclick="Views.creative.syncFromSlots(this)" title="Auto-link all slot-assigned media to brands">
+                            <i data-lucide="refresh-cw" style="width:14px;"></i> Sync from Slots
+                        </button>
                         <button class="btn btn-primary" onclick="window.location.href='/'">+ Upload Media</button>
                     </div>
                 </div>
@@ -17,13 +20,13 @@ App.registerView('creative', {
                                 <th>Creative Name</th>
                                 <th>Type</th>
                                 <th>Assigned Brand</th>
-                                <th>Status</th>
+                                <th>Source</th>
                                 <th>Size</th>
                                 <th style="text-align: right;">Action</th>
                             </tr>
                         </thead>
                         <tbody id="creative-table-body">
-                            <tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 40px;">Syncing with Xibo Cloud Library...</td></tr>
+                            <tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 40px;">Syncing with Xibo Cloud Library...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -103,10 +106,23 @@ App.registerView('creative', {
     },
 
     async loadLibrary() {
-        const library = await Api.getXiboLibrary();
-        const mapping = await Api.get('/media/brands') || [];
+        const [library, mapping, slotsRes] = await Promise.all([
+            Api.getXiboLibrary(),
+            Api.get('/media/brands').then(r => r || []),
+            Api.get('/inventory').catch(() => ({}))
+        ]);
         this.libraryData = library;
         this.mappingData = mapping;
+
+        // Build a set of mediaIds that are assigned via slots
+        const slotLinkedMediaIds = new Set();
+        if (slotsRes && typeof slotsRes === 'object') {
+            Object.values(slotsRes).forEach(screenSlots => {
+                (screenSlots || []).forEach(slot => {
+                    if (slot.mediaId && slot.brand_id) slotLinkedMediaIds.add(String(slot.mediaId));
+                });
+            });
+        }
 
         const tbody = document.getElementById('creative-table-body');
         if (!tbody) return;
@@ -118,29 +134,22 @@ App.registerView('creative', {
                 const sizeStr = (m.size / 1024 / 1024).toFixed(2) + ' MB';
                 
                 // Find brand mapping
-                const map = mapping.find(map => map.mediaId === m.mediaId);
-                const brand = map ? this.brands.find(b => b.id === map.brand_id) : null;
+                const map = mapping.find(mp => String(mp.mediaId) === String(m.mediaId));
+                const brand = map ? this.brands.find(b => String(b.id) === String(map.brand_id)) : null;
+                const isAutoLinked = slotLinkedMediaIds.has(String(m.mediaId));
 
                 const tr = document.createElement('tr');
+                tr.dataset.name = (m.name || '').toLowerCase();
                 
                 const tdCreative = document.createElement('td');
                 const creativeWrap = document.createElement('div');
-                creativeWrap.style.display = 'flex';
-                creativeWrap.style.alignItems = 'center';
-                creativeWrap.style.gap = '8px';
+                creativeWrap.style.cssText = 'display:flex; align-items:center; gap:8px;';
                 
                 const iconBox = document.createElement('div');
-                iconBox.style.width = '40px';
-                iconBox.style.height = '30px';
-                iconBox.style.background = '#f1f5f9';
-                iconBox.style.borderRadius = '4px';
-                iconBox.style.display = 'flex';
-                iconBox.style.alignItems = 'center';
-                iconBox.style.justifyContent = 'center';
+                iconBox.style.cssText = 'width:40px; height:30px; background:#f1f5f9; border-radius:4px; display:flex; align-items:center; justify-content:center;';
                 const i = document.createElement('i');
                 i.setAttribute('data-lucide', icon);
-                i.style.color = 'var(--text-muted)';
-                i.style.width = '14px';
+                i.style.cssText = 'color:var(--text-muted); width:14px;';
                 iconBox.appendChild(i);
                 creativeWrap.appendChild(iconBox);
                 
@@ -155,26 +164,27 @@ App.registerView('creative', {
                 tdType.style.textTransform = 'capitalize';
                 tdType.textContent = m.type;
                 tr.appendChild(tdType);
+
+                // Brand column
                 const tdBrand = document.createElement('td');
                 tdBrand.style.fontSize = '0.85rem';
                 if (brand) {
-                    tdBrand.textContent = brand.name;
+                    tdBrand.innerHTML = `<span style="font-weight:600; color:var(--text);">${brand.name}</span>`;
                 } else {
-                    const unassigned = document.createElement('span');
-                    unassigned.style.color = '#cbd5e1';
-                    unassigned.style.fontStyle = 'italic';
-                    unassigned.textContent = 'Unassigned';
-                    tdBrand.appendChild(unassigned);
+                    tdBrand.innerHTML = `<span style="color:#cbd5e1; font-style:italic;">Unassigned</span>`;
                 }
                 tr.appendChild(tdBrand);
 
-                const tdStatus = document.createElement('td');
-                const status = map ? (map.status || 'Pending') : 'Pending';
-                const statusPill = document.createElement('span');
-                statusPill.className = `badge ${status.toLowerCase()}`;
-                statusPill.textContent = status;
-                tdStatus.appendChild(statusPill);
-                tr.appendChild(tdStatus);
+                // Source column — Auto (from slot) vs Manual vs None
+                const tdSource = document.createElement('td');
+                if (isAutoLinked && brand) {
+                    tdSource.innerHTML = `<span class="badge" style="background:#d1fae5; color:#065f46; font-size:0.7rem;">⚡ Auto (Slot)</span>`;
+                } else if (map && brand) {
+                    tdSource.innerHTML = `<span class="badge" style="background:#e0e7ff; color:#3730a3; font-size:0.7rem;">✎ Manual</span>`;
+                } else {
+                    tdSource.innerHTML = `<span style="color:#94a3b8; font-size:0.75rem;">—</span>`;
+                }
+                tr.appendChild(tdSource);
 
                 const tdSize = document.createElement('td');
                 tdSize.style.color = 'var(--text-muted)';
@@ -182,23 +192,19 @@ App.registerView('creative', {
                 tr.appendChild(tdSize);
 
                 const tdActions = document.createElement('td');
-                tdActions.style.textAlign = 'right';
-                tdActions.style.display = 'flex';
-                tdActions.style.gap = '4px';
-                tdActions.style.justifyContent = 'flex-end';
+                tdActions.style.cssText = 'text-align:right; display:flex; gap:4px; justify-content:flex-end;';
                 
+                // Show "Change Brand" or "Link Brand" — always allow override
                 const linkBtn = document.createElement('button');
                 linkBtn.className = 'btn btn-secondary';
-                linkBtn.style.padding = '4px 10px';
-                linkBtn.style.fontSize = '0.7rem';
-                linkBtn.textContent = 'Link Brand';
+                linkBtn.style.cssText = 'padding:4px 10px; font-size:0.7rem;';
+                linkBtn.textContent = map ? 'Change Brand' : 'Link Brand';
                 linkBtn.onclick = () => this.openAssignModal(m.mediaId, map ? map.brand_id : '');
                 tdActions.appendChild(linkBtn);
 
                 const prevBtn = document.createElement('button');
                 prevBtn.className = 'btn btn-secondary';
-                prevBtn.style.padding = '4px 10px';
-                prevBtn.style.fontSize = '0.7rem';
+                prevBtn.style.cssText = 'padding:4px 10px; font-size:0.7rem;';
                 prevBtn.textContent = 'Preview';
                 prevBtn.onclick = () => this.previewMedia(m.mediaId);
                 tdActions.appendChild(prevBtn);
@@ -210,14 +216,37 @@ App.registerView('creative', {
             const tr = document.createElement('tr');
             const td = document.createElement('td');
             td.colSpan = 6;
-            td.style.textAlign = 'center';
-            td.style.color = 'var(--text-muted)';
-            td.style.padding = '40px';
+            td.style.cssText = 'text-align:center; color:var(--text-muted); padding:40px;';
             td.textContent = 'Your media library is empty.';
             tr.appendChild(td);
             tbody.appendChild(tr);
         }
         lucide.createIcons();
+    },
+
+    filterTable(query) {
+        const tbody = document.getElementById('creative-table-body');
+        if (!tbody) return;
+        const q = (query || '').toLowerCase();
+        tbody.querySelectorAll('tr').forEach(tr => {
+            tr.style.display = (!q || (tr.dataset.name || '').includes(q)) ? '' : 'none';
+        });
+    },
+
+    async syncFromSlots(btn) {
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i data-lucide="loader" style="width:14px; animation:spin 1s linear infinite;"></i> Syncing...'; lucide.createIcons(); }
+        try {
+            const res = await Api.post('/slots/sync-brands', {});
+            if (res && res.success) {
+                App.showToast(`✅ Auto-linked ${res.linked} media files from slots`, 'success');
+                await this.loadLibrary();
+            } else {
+                App.showToast('Sync failed', 'error');
+            }
+        } catch(e) {
+            App.showToast('Sync error: ' + e.message, 'error');
+        }
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="refresh-cw" style="width:14px;"></i> Sync from Slots'; lucide.createIcons(); }
     },
 
     openAssignModal(mediaId, currentBrandId) {

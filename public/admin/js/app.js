@@ -33,6 +33,11 @@ const App = {
             window.location.href = '/admin/login.html';
             return;
         }
+
+        // Globally hide Campaigns tab — feature not in use
+        const hiddenStyle = document.createElement('style');
+        hiddenStyle.textContent = `a[data-view="campaigns"] { display: none !important; }`;
+        document.head.appendChild(hiddenStyle);
         
         // Mobile Sidebar Toggle
         const menuBtn = document.querySelector('.icon-btn');

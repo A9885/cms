@@ -339,7 +339,16 @@ class StatsService {
         const dateStr = d.toISOString().split('T')[0];
         
         // Find if this date exists in the query result
-        const existing = rawRecords.find(r => r.day === dateStr);
+        const existing = rawRecords.find(r => {
+          let rDate = r.day;
+          if (typeof rDate !== 'string') {
+            try { rDate = new Date(r.day).toISOString().split('T')[0]; } 
+            catch(e) {}
+          } else {
+             rDate = rDate.split(' ')[0];
+          }
+          return rDate === dateStr;
+        });
         
         // Push the mapped item
         mappedStats.push({

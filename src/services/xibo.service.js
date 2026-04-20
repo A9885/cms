@@ -439,47 +439,70 @@ class XiboService {
    */
   async addDisplay(name, code) {
     console.log(`[XiboService] Registering display "${name}" with code: ${code}`);
-    
-    // 1. First, try to find an existing unauthorized display (Standard Hardware Key match)
-    const displays = await this.getDisplays();
+    const headers = await this.getHeaders();
     const codeLower = (code || '').trim().toLowerCase();
-    
-    let matching = displays.find(d => {
-      if (!d.license) return false;
-      const licLower = d.license.toLowerCase();
-      // Match by exact license or contains logic
-      return licLower === codeLower || licLower.includes(codeLower) || codeLower.includes(licLower);
+    const codeUpper = codeLower.toUpperCase();
+
+    // Step 1: Fetch BOTH authorized and unauthorized displays
+    const [authorizedDisplays, unauthorizedDisplays] = await Promise.all([
+      this.getDisplays().catch(() => []),
+      (async () => {
+        try {
+          const resp = await axios.get(`${this.baseUrl}${this._apiPrefix}/display`, {
+            headers,
+            params: { licensed: 0, length: 200 },
+            timeout: 10000
+          });
+          return Array.isArray(resp.data) ? resp.data : [];
+        } catch { return []; }
+      })()
+    ]);
+
+    const allDisplays = [...authorizedDisplays, ...unauthorizedDisplays];
+    console.log(`[XiboService] Scanning ${allDisplays.length} total displays (${unauthorizedDisplays.length} pending)...`);
+
+    // Match by license UUID partial match OR activationCode field
+    const matching = allDisplays.find(d => {
+      const licLower = (d.license || '').toLowerCase();
+      const actCode  = (d.activationCode || '').toLowerCase();
+      return licLower === codeLower ||
+             licLower.startsWith(codeLower) ||
+             codeLower.startsWith(licLower.slice(0, 6)) ||
+             actCode === codeLower ||
+             actCode.includes(codeLower);
     });
 
     if (matching) {
-      console.log(`[XiboService] Found matching existing display (ID: ${matching.displayId}). Authorizing...`);
+      console.log(`[XiboService] Found display ID ${matching.displayId} (licensed: ${matching.licensed}). Authorizing as "${name}"...`);
+
+      if (matching.licensed !== 1) {
+        // Unauthorized display — try /display/authorise first (Xibo v4)
+        try {
+          const ap = new URLSearchParams();
+          ap.append('displayId', matching.displayId);
+          ap.append('code', codeUpper);
+          await axios.put(`${this.baseUrl}${this._apiPrefix}/display/authorise`, ap, {
+            headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' },
+            timeout: 10000
+          });
+          console.log(`[XiboService] ✅ Authorized via /display/authorise`);
+        } catch (authErr) {
+          console.warn(`[XiboService] /display/authorise: ${authErr.response?.data?.message || authErr.message} — falling back to licensed update`);
+        }
+      }
+      // Rename + set licensed=1 via PUT
       return await this.registerDisplay(matching.displayId, name);
     }
 
-    // 2. If no match, try Xibo v4 "Register with Code" flow
-    // This uses POST /display with activationCode parameter
-    console.log(`[XiboService] No existing match found for "${code}". Attempting v4 Registration...`);
-    
-    return await this.xiboRequest(async () => {
-        const headers = await this.getHeaders();
-        try {
-            const resp = await axios.post(`${this.baseUrl}${this._apiPrefix}/display`, {
-                display: name,
-                activationCode: code
-            }, { headers, timeout: 10000 });
-            
-            console.log(`[XiboService] ✅ Display registered successfully via Activation Code!`);
-            return resp.data;
-        } catch (err) {
-            const detail = err.response?.data?.error || err.response?.data?.message || err.message;
-            console.error(`[XiboService] Registration FAILED:`, detail);
-            
-            throw new Error(
-                `Registration failed: ${detail}. ` +
-                `Please ensure the 6-digit code is correct and the player is online.`
-            );
-        }
-    });
+    // Step 2: Player not yet connected — give a clear actionable error
+    const cmsUrl = this.baseUrl.replace(/\/$/, '');
+    throw new Error(
+      `No pending display found for code "${codeUpper}". ` +
+      `Make sure the Xibo player is: ` +
+      `(1) Online, ` +
+      `(2) Pointing to this CMS server: ${cmsUrl}, ` +
+      `(3) Showing the activation code on screen — then try again.`
+    );
   }
 
 
