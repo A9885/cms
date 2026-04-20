@@ -135,7 +135,7 @@ App.registerView('dashboard', {
 
     async loadWeeklyStats() {
         try {
-            const res = await fetch('/admin/api/xibo/stats/weekly');
+            const res = await fetch('/xibo/stats/weekly');
             if (res.ok) {
                 const result = await res.json();
                 if (result.success && result.data) {
@@ -225,7 +225,6 @@ App.registerView('dashboard', {
         };
         kpiContainer.appendChild(createKpi('kpi-blue', 'monitor', 'Total Screens', data.totalScreens));
         kpiContainer.appendChild(createKpi('kpi-darkblue', 'play-circle', 'Total PoP Plays', (data.totalImpressions || 0).toLocaleString(), 'Total verified plays'));
-        kpiContainer.appendChild(createKpi('kpi-orange', 'layers', 'Campaigns', data.activeCampaigns));
         kpiContainer.appendChild(createKpi('kpi-lightblue', 'indian-rupee', 'Revenue', `₹${(data.monthlyRevenue || 0).toLocaleString()}`));
 
         // Add Pending Payouts alert if any
