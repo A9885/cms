@@ -20,7 +20,6 @@ router.get('/dashboard', hasPermission('audit:view'), async (req, res) => {
             totalPartnersObj,
             monthlyRevenueObj,
             rawDisplays,
-            campaignsRes,
             totalSlotsObj,
             assignedSlotsObj,
             revenueTrend
@@ -32,7 +31,6 @@ router.get('/dashboard', hasPermission('audit:view'), async (req, res) => {
                 console.warn('[Admin API] Xibo Displays unreachable:', e.message);
                 return [];
             }),
-            dbGet('SELECT COUNT(*) as count FROM campaigns WHERE status = "Active"'),
             dbGet('SELECT COUNT(*) as count FROM slots'),
             dbGet('SELECT COUNT(*) as count FROM slots WHERE brand_id IS NOT NULL'),
             dbAll(`
@@ -50,7 +48,6 @@ router.get('/dashboard', hasPermission('audit:view'), async (req, res) => {
         
         const totalScreens = displays.length;
         const onlineScreens = displays.filter(d => xiboService.getDisplayHealth(d).status === 'Online').length;
-        const activeCampaigns = campaignsRes?.count || 0;
         const availableSlotsCount = (totalSlotsObj && totalSlotsObj.count > 0) ? (totalSlotsObj.count - assignedSlotsObj.count) : (totalScreens * 20);
 
         let totalImpressions = 0;
@@ -64,7 +61,6 @@ router.get('/dashboard', hasPermission('audit:view'), async (req, res) => {
             totalScreens,
             totalImpressions,
             onlineScreens,
-            activeCampaigns,
             availableSlots: availableSlotsCount,
             totalBrands: totalBrandsObj.count,
             totalPartners: totalPartnersObj.count,

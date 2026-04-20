@@ -657,9 +657,33 @@ Object.defineProperty(global, 'XIBO_CLIENT_SECRET',{ get: getXiboSecret,  config
 
 
 
-// helmet sets 14 security-related HTTP headers in one call.
+// helmet sets security-related HTTP headers in one call.
+// We configure a Content Security Policy (CSP) to harden against XSS attacks.
 app.use(helmet({
-    contentSecurityPolicy: false
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: [
+                "'self'", 
+                "'unsafe-inline'", 
+                "https://unpkg.com", 
+                "https://cdn.socket.io", 
+                "https://cdn.jsdelivr.net",
+                "https://www.google-analytics.com"
+            ],
+            styleSrc: [
+                "'self'", 
+                "'unsafe-inline'", 
+                "https://fonts.googleapis.com", 
+                "https://unpkg.com"
+            ],
+            fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
+            imgSrc: ["'self'", "data:", "https:", "http:"],
+            connectSrc: ["'self'", "https://cms.signtral.info", "https://api.signtral.info", "wss://signtral.info", "ws://localhost:3000"],
+            frameSrc: ["'none'"],
+            objectSrc: ["'none'"]
+        }
+    }
 }));
 
 
