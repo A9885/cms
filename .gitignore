@@ -20,3 +20,6 @@ sched_debug.log
 # Runtime outputs (not source code)
 pipeline-report.json
 upload_log.json
+.vscode/
+*.txt
+*.bak
