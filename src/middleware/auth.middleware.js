@@ -19,8 +19,6 @@ const authMiddleware = async (req, res, next) => {
             headers: fromNodeHeaders(req.headers)
         });
         
-        console.log(`[Auth Middleware] Path: ${req.path}, Session Found: ${!!session}`);
-        
         if (!session || !session.user) {
             return res.status(401).json({ error: 'Unauthorized. Please login.' });
         }

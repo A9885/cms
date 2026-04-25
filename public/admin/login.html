@@ -45,6 +45,22 @@
 
     <script>
         lucide.createIcons();
+        
+        // Auto-redirect if already logged in
+        (async () => {
+            try {
+                const res = await fetch('/auth/me');
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.user) {
+                        if (data.user.role === 'Brand') window.location.href = '/brandportal/index.html';
+                        else if (data.user.role === 'Partner') window.location.href = '/partnerportal/index.html';
+                        else window.location.href = '/admin/index.html';
+                    }
+                }
+            } catch (e) {}
+        })();
+
         document.getElementById('login-form').addEventListener('submit', async (e) => {
             e.preventDefault();
             const btn = document.getElementById('login-btn');

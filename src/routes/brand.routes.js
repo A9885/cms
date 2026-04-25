@@ -353,7 +353,7 @@ router.get('/screens', async (req, res) => {
  */
 router.get('/screens/available', async (req, res) => {
     try {
-        const allScreens = await dbAll(`SELECT * FROM screens WHERE xibo_display_id IS NOT NULL`);
+        const allScreens = await dbAll(`SELECT xibo_display_id, name, city, address, resolution FROM screens WHERE xibo_display_id IS NOT NULL`);
         const result = await Promise.all(allScreens.map(async (screen) => {
             const takenSlots = await dbAll(
                 'SELECT slot_number FROM slots WHERE displayId = ? AND brand_id IS NOT NULL',
@@ -367,6 +367,7 @@ router.get('/screens/available', async (req, res) => {
                     name: screen.name,
                     city: screen.city || '-',
                     address: screen.address || '-',
+                    resolution: screen.resolution || '-',
                     availableCount,
                     takenSlots: takenNumbers,
                     availableSlots: Array.from({ length: 20 }, (_, i) => i + 1)

@@ -219,11 +219,22 @@ app.get('/xibo/force_sync', async (req, res) => {
         layoutData = (lRes.data || [])[0];
         let campaignId = layoutData?.campaignId;
 
+        // Fetch Screen Orientation
+        const { dbGet } = require('./src/db/database');
+        const screenInfo = await dbGet('SELECT orientation FROM screens WHERE xibo_display_id = ?', [displayId]);
+        const resId = (screenInfo && screenInfo.orientation && screenInfo.orientation.toLowerCase() === 'portrait') ? 3 : 1;
+
+        if (layoutData && Number(layoutData.resolutionId) !== Number(resId)) {
+            logs.push(`Resolution mismatch (${layoutData.resolutionId} != ${resId}). Deleting old layout ${layoutData.layoutId}...`);
+            await axios.delete(`${xiboService.baseUrl}${xiboService._apiPrefix}/layout/${layoutData.layoutId}`, { headers }).catch(() => {});
+            layoutData = null; // Force recreation
+        }
+
         if (!layoutData) {
-            logs.push(`Creating fullscreen layout: ${layoutName}`);
+            logs.push(`Creating fullscreen layout: ${layoutName} (resId: ${resId})`);
             const fsParams = new URLSearchParams();
             fsParams.append('name', layoutName);
-            fsParams.append('resolutionId', 1);
+            fsParams.append('resolutionId', resId);
             fsParams.append('playlistId', mainLoop.playlistId);
             const fsRes = await axios.post(`${xiboService.baseUrl}${xiboService._apiPrefix}/layout/fullscreen`, fsParams.toString(), {
                 headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' }
@@ -232,6 +243,11 @@ app.get('/xibo/force_sync', async (req, res) => {
                 campaignId = fsRes.data.campaignId;
                 layoutData = fsRes.data;
                 logs.push(`Created layout ${fsRes.data.layoutId}, campaignId: ${campaignId}`);
+                
+                // Rename the layout so our future searches find it
+                await axios.put(`${xiboService.baseUrl}${xiboService._apiPrefix}/layout/${layoutData.layoutId}`, `name=${layoutName}`, {
+                    headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' }
+                }).catch(() => {});
             }
         } else {
             logs.push(`Found existing layout ${layoutData.layoutId}, campaignId: ${campaignId}`);
@@ -1757,6 +1773,9 @@ const SLOT_DURATION_LIMIT = 13;
  * @returns {Promise<Array>} Array of slot objects.
  */
 async function getSlotsForDisplay(displayId) {
+  if (!displayId || displayId === 'null' || displayId === 'undefined') {
+      return [];
+  }
   try {
     const headers = await authHeader();
     const slots = [];
@@ -1831,10 +1850,64 @@ async function getSlotsForDisplay(displayId) {
  * Proxy for Xibo Library thumbnails (requires auth)
  */
 app.get('/xibo/proxy/thumbnail/:mediaId', async (req, res) => {
+    const { mediaId } = req.params;
+    const headers = await authHeader();
+    
     try {
-        const { mediaId } = req.params;
-        const headers = await authHeader();
-        const response = await axios.get(`${xiboService.baseUrl}${xiboService._apiPrefix}/library/thumbnail/${mediaId}?w=200&h=150`, {
+        const library = await xiboService.getLibrary();
+        const media = library.find(m => String(m.mediaId) === String(mediaId));
+        
+        // INTERCEPT VIDEOS: Force local FFmpeg extraction to avoid Xibo's Red X placeholder
+        if (media && media.mediaType === 'video') {
+            const fs = require('fs');
+            const path = require('path');
+            const cacheDir = path.join(__dirname, 'thumbnail_cache');
+            if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir);
+            
+            const cacheFile = path.join(cacheDir, `${mediaId}.jpg`);
+            
+            // Serve from disk cache if available
+            if (fs.existsSync(cacheFile)) {
+                res.set('Content-Type', 'image/jpeg');
+                return res.sendFile(cacheFile);
+            }
+            
+            const videoUrl = `${xiboService.baseUrl}${xiboService._apiPrefix}/library/download/${mediaId}`;
+            const videoStream = await axios({
+                method: 'get',
+                url: videoUrl,
+                headers,
+                responseType: 'stream'
+            });
+            
+            const ffmpegPath = require('ffmpeg-static');
+            const ffmpeg = require('fluent-ffmpeg');
+            ffmpeg.setFfmpegPath(ffmpegPath);
+            
+            res.set('Content-Type', 'image/jpeg');
+            
+            const cmd = ffmpeg(videoStream.data)
+                .outputOptions(['-vframes 1', '-ss 00:00:00.100'])
+                .format('image2')
+                .on('end', () => {
+                    if (videoStream.data.destroy) videoStream.data.destroy();
+                })
+                .on('error', (ffmpegErr) => {
+                    console.error('[FFmpeg] Error generating thumbnail:', ffmpegErr.message);
+                    if (videoStream.data.destroy) videoStream.data.destroy();
+                    if (!res.headersSent) res.status(404).send('Not Found');
+                });
+                
+            cmd.pipe(res, { end: true });
+            return;
+        }
+    } catch (err) {
+        console.warn('[Thumbnail Proxy] Error intercepting video:', err.message);
+    }
+    
+    // Fallback for images / documents (pass through to Xibo)
+    try {
+        const response = await axios.get(`${xiboService.baseUrl}${xiboService._apiPrefix}/library/thumbnail/${mediaId}?w=300&h=300`, {
             headers,
             responseType: 'arraybuffer'
         });
@@ -1978,12 +2051,23 @@ async function synchronizeMainLoop(displayId, displayGroupId) {
     const lRes = await axios.get(`${xiboService.baseUrl}${xiboService._apiPrefix}/layout`, { headers, params: { name: layoutName } }).catch(() => ({data:[]}));
     let mainLayout = (lRes.data || []).find(l => l.layout === layoutName || l.name === layoutName);
 
+    const { dbGet } = require('./src/db/database');
+    const screenInfo = await dbGet('SELECT orientation FROM screens WHERE xibo_display_id = ?', [displayId]);
+    const resId = (screenInfo && screenInfo.orientation && screenInfo.orientation.toLowerCase() === 'portrait') ? 3 : 1;
+
+    if (mainLayout && Number(mainLayout.resolutionId) !== Number(resId)) {
+        console.log(`Resolution mismatch (${mainLayout.resolutionId} != ${resId}). Deleting old layout ${mainLayout.layoutId}...`);
+        await axios.delete(`${xiboService.baseUrl}${xiboService._apiPrefix}/layout/${mainLayout.layoutId}`, { headers }).catch(() => {});
+        mainLayout = null; // Force recreation
+    }
+
     if (!mainLayout) {
         console.log(`Creating wrapper layout: ${layoutName}...`);
         const fsParams = new URLSearchParams();
         fsParams.append('id', mainLoopId);
         fsParams.append('type', 'playlist');
         fsParams.append('backgroundColor', '#000000');
+        fsParams.append('resolutionId', resId);
 
         const fsRes = await axios.post(`${xiboService.baseUrl}${xiboService._apiPrefix}/layout/fullscreen`, fsParams.toString(), {
             headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' }

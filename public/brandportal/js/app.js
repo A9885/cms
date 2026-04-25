@@ -28,13 +28,31 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
     }
 
-    // 2. Initial View Detection
-    const activeNav = document.querySelector('.nav-item.active');
-    const target = activeNav ? activeNav.getAttribute('data-target') : 'dashboard';
-    if (target === 'account') loadAccount();
-    else loadDashboard();
+    // 2. Navigation Setup (History API support)
+    window.addEventListener('popstate', (e) => {
+        const target = (e.state && e.state.view) || window.location.hash.substring(1) || 'dashboard';
+        switchView(target, false);
+    });
 
-    // 3. Real-time Socket.io connection
+    // Handle initial load hash
+    const initialHash = window.location.hash.substring(1);
+    if (initialHash) {
+        switchView(initialHash, false);
+    } else {
+        const activeNav = document.querySelector('.nav-item.active');
+        const target = activeNav ? activeNav.getAttribute('data-target') : 'dashboard';
+        switchView(target, false);
+    }
+
+    // 3. Setup Nav Click Handlers
+    document.querySelectorAll('.nav-item').forEach(item => {
+        item.addEventListener('click', (e) => {
+            const target = item.getAttribute('data-target');
+            if (target) switchView(target);
+        });
+    });
+
+    // 4. Real-time Socket.io connection
     if (authed && window.io) {
         const socket = io();
         socket.on('slot_assigned', (event) => {
@@ -50,6 +68,47 @@ document.addEventListener('DOMContentLoaded', async () => {
         refreshActiveView(true);
     }, 300000);
 });
+
+/**
+ * Handles view transitions and browser history.
+ */
+function switchView(target, push = true) {
+    console.log(`[Brand Portal] Navigating to: ${target}`);
+    
+    // 1. Update UI
+    document.querySelectorAll('.nav-item').forEach(i => {
+        if (i.getAttribute('data-target') === target) i.classList.add('active');
+        else i.classList.remove('active');
+    });
+
+    document.querySelectorAll('.view-section').forEach(v => {
+        if (v.id === target) v.classList.add('active');
+        else v.classList.remove('active');
+    });
+
+    // 2. Update History
+    if (push) {
+        history.pushState({ view: target }, '', `#${target}`);
+    }
+
+    // 3. Trigger map resize if needed
+    if (target === 'dashboard' || target === 'screens') {
+        if (window.dashMap) setTimeout(() => dashMap.invalidateSize(), 100);
+        if (window.detailMap) setTimeout(() => detailMap.invalidateSize(), 100);
+    }
+
+    // 4. Load data for the selected tab
+    if (target === 'dashboard') loadDashboard();
+    else if (target === 'screens') loadScreens();
+    else if (target === 'reports') loadPoP();
+    else if (target === 'creatives') loadCreatives();
+    else if (target === 'market') loadMarket();
+    else if (target === 'billing') {
+        if (typeof loadBilling === 'function') loadBilling();
+        if (typeof loadSubscription === 'function') loadSubscription();
+    }
+    else if (target === 'account') loadAccount();
+}
 
 /**
  * Detects the active view and refreshes its data.
@@ -184,7 +243,11 @@ async function refreshDashboard() {
 }
 
 async function logout() {
-    await safeFetch('/auth/logout', { method: 'POST' });
+    try {
+        await fetch('/auth/logout', { method: 'POST' });
+    } catch (e) {
+        console.error('Logout request failed', e);
+    }
     window.location.href = '/admin/login.html';
 }
 
@@ -592,7 +655,7 @@ async function loadMarket() {
         btn.style.padding = '8px 14px';
         btn.style.fontSize = '0.8rem';
         btn.textContent = 'Select';
-        btn.onclick = () => openBuyModal(screen.displayId, screen.name, screen.availableSlots);
+        btn.onclick = () => openBuyModal(screen.displayId, screen.name, screen.availableSlots, screen.resolution);
         footer.appendChild(btn);
         
         panel.appendChild(footer);
@@ -602,18 +665,30 @@ async function loadMarket() {
 }
 
 let currentSelectedSlots = new Set();
-function openBuyModal(displayId, screenName, availableSlotsArray) {
+function openBuyModal(displayId, screenName, availableSlotsArray, resolution) {
     document.getElementById('modal-screen-name').innerText = screenName;
     document.getElementById('modal-display-id').value = displayId;
     currentSelectedSlots.clear();
 
+    const res = resolution || "";
+    const parts = res.toLowerCase().split('x');
+    const isPortrait = parts.length === 2 && parseInt(parts[1]) > parseInt(parts[0]);
+
     const grid = document.getElementById('modal-slots-grid');
+    if (grid) {
+        grid.style.gridTemplateColumns = isPortrait ? 'repeat(5, 1fr)' : 'repeat(5, 1fr)'; // keep 5 cols
+        // We can adjust the gap or item size if needed
+    }
+
     let html = '';
     for (let i = 1; i <= 20; i++) {
         const isAvailable = availableSlotsArray.includes(i);
+        const style = isPortrait ? 'aspect-ratio: 9/16; height: auto; min-height: 80px;' : 'aspect-ratio: 16/9;';
         html += `<div class="slot-item ${isAvailable ? '' : 'unavailable'}" 
+                 style="${style}"
                  onclick="${isAvailable ? `toggleSlotSelection(${i}, this)` : ''}">
-                 Slot ${i}
+                 <div style="font-size: 0.65rem; opacity: 0.7;">Slot</div>
+                 <div style="font-size: 1.1rem; font-weight: 800;">${i}</div>
                  </div>`;
     }
     grid.innerHTML = html;
@@ -630,7 +705,11 @@ function toggleSlotSelection(slotNum, element) {
     }
 }
 
-function closeModal() {
+function closeModal(e) {
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
     document.getElementById('buy-modal').classList.remove('active');
 }
 
@@ -839,7 +918,7 @@ async function showReportsDetail(mediaId, screenName, displayId, adName, slotNum
                 document.getElementById('report-stale-notice').innerHTML = `
                     <div class="stale-banner">
                         <div>⚠️ <strong>Data is ${days} day${days>1?'s':''} out of date.</strong> Last verified play was on ${lastPlay.toLocaleDateString()}.</div>
-                        <button class="btn btn-blue" style="background:#b91c1c; border:none; height:32px; font-size:0.75rem;" onclick="document.getElementById('report-sync-btn').click()">Fix Now</button>
+                        <button type="button" class="btn btn-blue" style="background:#b91c1c; border:none; height:32px; font-size:0.75rem;" onclick="document.getElementById('report-sync-btn').click()">Fix Now</button>
                     </div>`;
             } else {
                 document.getElementById('report-stale-notice').innerHTML = '';

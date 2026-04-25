@@ -7,10 +7,10 @@ App.registerView('creative', {
                     <h3 style="font-size: 1rem; font-weight: 600;">Media Assets</h3>
                     <div style="display: flex; gap: 10px; align-items: center;">
                         <input type="text" id="creative-search" class="form-control" placeholder="Search by name..." style="width: 200px;" oninput="Views.creative.filterTable(this.value)">
-                        <button class="btn btn-secondary" style="font-size: 0.8rem; display: flex; align-items: center; gap: 6px;" onclick="Views.creative.syncFromSlots(this)" title="Auto-link all slot-assigned media to brands">
+                        <button class="btn btn-secondary" style="font-size: 0.8rem; display: flex; align-items: center; gap: 6px;" data-onclick="Views.creative.syncFromSlots" title="Auto-link all slot-assigned media to brands">
                             <i data-lucide="refresh-cw" style="width:14px;"></i> Sync from Slots
                         </button>
-                        <button class="btn btn-primary" onclick="window.location.href='/'">+ Upload Media</button>
+                        <button class="btn btn-primary" data-onclick="window.location.href='/'">+ Upload Media</button>
                     </div>
                 </div>
                 <div class="table-wrap" style="border: none; border-radius: 0;">
@@ -37,7 +37,7 @@ App.registerView('creative', {
                 <div class="modal" style="width: 500px;">
                     <div class="modal-header">
                         <div class="modal-title" id="preview-title">Media Preview</div>
-                        <button class="modal-close" onclick="Views.creative.closeModal()"><i data-lucide="x"></i></button>
+                        <button type="button" class="modal-close" data-onclick="Views.creative.closeModal"><i data-lucide="x"></i></button>
                     </div>
                     <div class="modal-body" style="text-align: center; background: #000; display: flex; align-items: center; justify-content: center; min-height: 300px;">
                         <div id="preview-content" style="color: #666;">
@@ -47,7 +47,7 @@ App.registerView('creative', {
                     </div>
                     <div class="modal-footer">
                         <div id="preview-info" style="text-align: left; font-size: 0.8rem; color: var(--text-muted);"></div>
-                        <button class="btn btn-secondary" onclick="Views.creative.closeModal()">Close</button>
+                        <button type="button" class="btn btn-secondary" data-onclick="Views.creative.closeModal">Close</button>
                     </div>
                 </div>
             </div>
@@ -57,7 +57,7 @@ App.registerView('creative', {
                 <div class="modal" style="max-width: 400px;">
                     <div class="modal-header">
                         <div class="modal-title">Link to CRM Brand</div>
-                        <button class="modal-close" onclick="Views.creative.closeAssignModal()"><i data-lucide="x"></i></button>
+                        <button type="button" class="modal-close" data-onclick="Views.creative.closeAssignModal"><i data-lucide="x"></i></button>
                     </div>
                     <div class="modal-body">
                         <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 15px;">
@@ -71,7 +71,7 @@ App.registerView('creative', {
                         </div>
                     </div>
                     <div class="modal-footer">
-                        <button class="btn btn-secondary" onclick="Views.creative.closeAssignModal()">Cancel</button>
+                        <button type="button" class="btn btn-secondary" data-onclick="Views.creative.closeAssignModal">Cancel</button>
                         <button class="btn btn-primary" id="btn-save-media-brand">Save Link</button>
                     </div>
                 </div>
@@ -145,13 +145,22 @@ App.registerView('creative', {
                 const creativeWrap = document.createElement('div');
                 creativeWrap.style.cssText = 'display:flex; align-items:center; gap:8px;';
                 
-                const iconBox = document.createElement('div');
-                iconBox.style.cssText = 'width:40px; height:30px; background:#f1f5f9; border-radius:4px; display:flex; align-items:center; justify-content:center;';
-                const i = document.createElement('i');
-                i.setAttribute('data-lucide', icon);
-                i.style.cssText = 'color:var(--text-muted); width:14px;';
-                iconBox.appendChild(i);
-                creativeWrap.appendChild(iconBox);
+                const thumbUrl = `/xibo/proxy/thumbnail/${m.mediaId}`;
+                const thumbBox = document.createElement('div');
+                thumbBox.style.cssText = 'width:40px; height:40px; background:#f1f5f9; border-radius:6px; overflow:hidden; display:flex; align-items:center; justify-content:center; border: 1px solid #e2e8f0;';
+                const img = document.createElement('img');
+                img.src = thumbUrl;
+                img.style.cssText = 'width:100%; height:100%; object-fit:cover;';
+                img.onerror = () => {
+                    img.style.display = 'none';
+                    const i = document.createElement('i');
+                    i.setAttribute('data-lucide', icon);
+                    i.style.cssText = 'color:var(--text-muted); width:14px;';
+                    thumbBox.appendChild(i);
+                    lucide.createIcons();
+                };
+                thumbBox.appendChild(img);
+                creativeWrap.appendChild(thumbBox);
                 
                 const nameText = document.createElement('div');
                 nameText.style.fontWeight = '500';
@@ -208,6 +217,14 @@ App.registerView('creative', {
                 prevBtn.textContent = 'Preview';
                 prevBtn.onclick = () => this.previewMedia(m.mediaId);
                 tdActions.appendChild(prevBtn);
+
+                const delBtn = document.createElement('button');
+                delBtn.className = 'btn-icon';
+                delBtn.style.cssText = 'color:#ef4444; border:none; background:none; cursor:pointer; padding:4px; display:flex; align-items:center;';
+                delBtn.title = 'Delete Media';
+                delBtn.innerHTML = '<i data-lucide="trash-2" style="width:16px;"></i>';
+                delBtn.onclick = () => this.deleteMedia(m.mediaId, m.name);
+                tdActions.appendChild(delBtn);
 
                 tr.appendChild(tdActions);
                 tbody.appendChild(tr);
@@ -278,7 +295,11 @@ App.registerView('creative', {
         };
     },
 
-    closeAssignModal() {
+    closeAssignModal(e) {
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
         document.getElementById('assign-creative-modal').classList.remove('active');
     },
 
@@ -333,7 +354,26 @@ App.registerView('creative', {
         lucide.createIcons();
     },
 
-    closeModal() {
+    closeModal(e) {
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
         document.getElementById('preview-modal').classList.remove('active');
+    },
+
+    async deleteMedia(id, name) {
+        if (!await App.showConfirm('Permanent Delete?', `Delete "${name}" from the CMS and local database? This action cannot be undone.`)) return;
+        try {
+            const res = await Api.delete(`/creatives/${id}`);
+            if (res.error) {
+                App.showToast(res.error, 'error');
+            } else {
+                App.showToast('Media record deleted', 'success');
+                await this.loadLibrary();
+            }
+        } catch (err) {
+            App.showToast('Failed to delete: ' + err.message, 'error');
+        }
     }
 });

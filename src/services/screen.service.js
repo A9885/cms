@@ -102,8 +102,11 @@ class ScreenService {
         } else {
           await dbRun(
             `UPDATE screens SET 
-              status = ?, orientation = ?, resolution = ?, client_address = ?, 
-              mac_address = ?, brand = ?, device_model = ?, updated_at = CURRENT_TIMESTAMP 
+              status = ?, 
+              orientation = COALESCE(NULLIF(orientation, ''), ?), 
+              resolution = COALESCE(NULLIF(resolution, ''), ?), 
+              client_address = ?, mac_address = ?, 
+              brand = ?, device_model = ?, updated_at = CURRENT_TIMESTAMP 
              WHERE id = ?`, 
             [status, orientation, resolution, clientAddress, macAddress, brand, model, existing.id]
           );

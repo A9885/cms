@@ -33,9 +33,20 @@ function setActiveNav(view) {
     document.getElementById('page-title').textContent = titles[view] || view;
 }
 
-async function navigate(view) {
+// ─── NAVIGATION SETUP ────────────────────────────────────────────────────────
+window.addEventListener('popstate', (e) => {
+    const view = (e.state && e.state.view) || window.location.hash.substring(1) || 'dashboard';
+    navigate(view, false);
+});
+
+async function navigate(view, push = true) {
     state.currentView = view;
     setActiveNav(view);
+    
+    if (push) {
+        history.pushState({ view }, '', `#${view}`);
+    }
+
     const wrap = document.getElementById('view-wrap');
     wrap.innerHTML = '<div class="loader-center"><div class="spinner"></div></div>';
     try {
@@ -56,9 +67,11 @@ async function navigate(view) {
     }
 }
 
-// ─── NAV BINDING ─────────────────────────────────────────────────────────────
 document.querySelectorAll('.nav-item[data-view]').forEach(el => {
-    el.addEventListener('click', e => { e.preventDefault(); navigate(el.dataset.view); });
+    el.addEventListener('click', e => { 
+        e.preventDefault(); 
+        navigate(el.dataset.view); 
+    });
 });
 
 // ═══ DASHBOARD VIEW ═════════════════════════════════════════════════════════
@@ -317,7 +330,7 @@ window.openScreenDetail = async function(id) {
             <div class="modal" style="width:520px;">
                 <div class="modal-header">
                     <span class="modal-title" id="sdm-title">Screen Detail</span>
-                    <button class="modal-close" onclick="document.getElementById('screen-detail-modal').classList.remove('active')">&times;</button>
+                    <button type="button" class="modal-close" onclick="document.getElementById('screen-detail-modal').classList.remove('active')">&times;</button>
                 </div>
                 <div class="modal-body" id="sdm-body"></div>
             </div>`;
@@ -512,7 +525,7 @@ registerView('earnings', async (wrap) => {
         <div class="modal" style="width:400px;">
             <div class="modal-header">
                 <span class="modal-title">Request Settlement</span>
-                <button class="modal-close" onclick="document.getElementById('payout-modal').classList.remove('active')">&times;</button>
+                <button type="button" class="modal-close" onclick="document.getElementById('payout-modal').classList.remove('active')">&times;</button>
             </div>
             <div class="modal-body">
                 <div class="form-group">
@@ -526,7 +539,7 @@ registerView('earnings', async (wrap) => {
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="document.getElementById('payout-modal').classList.remove('active')">Cancel</button>
+                <button type="button" class="btn btn-secondary" onclick="document.getElementById('payout-modal').classList.remove('active')">Cancel</button>
                 <button class="btn btn-primary" id="btn-submit-payout">Submit Request</button>
             </div>
         </div>`;
@@ -614,14 +627,14 @@ registerView('support', async (wrap) => {
         <div class="modal">
             <div class="modal-header">
                 <span class="modal-title">Raise a Support Ticket</span>
-                <button class="modal-close" onclick="document.getElementById('ticket-modal').classList.remove('active')">&times;</button>
+                <button type="button" class="modal-close" onclick="document.getElementById('ticket-modal').classList.remove('active')">&times;</button>
             </div>
             <div class="modal-body">
                 <div class="form-group"><label>Screen (Optional)</label><select id="ticket-screen" class="form-control"><option value="">— General Issue —</option></select></div>
                 <div class="form-group"><label>Issue Description *</label><textarea id="ticket-issue" class="form-control" placeholder="Describe the issue in detail…"></textarea></div>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="document.getElementById('ticket-modal').classList.remove('active')">Cancel</button>
+                <button type="button" class="btn btn-secondary" onclick="document.getElementById('ticket-modal').classList.remove('active')">Cancel</button>
                 <button class="btn btn-primary" id="btn-submit-ticket">Submit Ticket</button>
             </div>
         </div>`;
@@ -773,6 +786,15 @@ function showToast(message, type = 'info') {
 // ═══ INIT ════════════════════════════════════════════════════════════════════
 window.navigate = navigate;
 
+async function logout() {
+    try {
+        await fetch('/auth/logout', { method: 'POST' });
+    } catch (e) {
+        console.error('Logout request failed', e);
+    }
+    window.location.href = '/admin/login.html';
+}
+
 async function init() {
     // Proactive Session Check
     try {
@@ -789,11 +811,25 @@ async function init() {
         document.getElementById('partner-email-display').textContent = user.email || '';
         document.getElementById('partner-avatar').textContent = (user.username || 'P')[0].toUpperCase();
 
-        await navigate('dashboard');
+        const hash = window.location.hash.substring(1);
+        if (hash && views[hash]) {
+            await navigate(hash, false);
+        } else {
+            await navigate('dashboard', false);
+        }
     } catch (e) {
         window.location.href = '/admin/login.html';
     }
 }
+
+window.logout = async function() {
+    try {
+        await fetch('/auth/logout', { method: 'POST' });
+    } catch (e) {
+        console.error('Logout failed', e);
+    }
+    window.location.href = '/admin/login.html';
+};
 
 init();
 

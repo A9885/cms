@@ -58,8 +58,21 @@ const App = {
             });
         }
 
-        // Handle initial route
-        window.addEventListener('hashchange', this.handleRoute.bind(this));
+        // Handle initial route — hashchange fires if user edits URL bar manually
+        window.addEventListener('hashchange', () => {
+            const hash = window.location.hash.substring(1);
+            if (hash && this.views[hash]) {
+                this.navigate(hash, true); // true = replace (already in history)
+            }
+        });
+
+        // popstate fires when the user clicks back/forward
+        window.addEventListener('popstate', (e) => {
+            const hash = (e.state && e.state.view) || window.location.hash.substring(1) || 'dashboard';
+            if (this.views[hash]) {
+                this.navigate(hash, true); // true = replace (already in history)
+            }
+        });
 
         // Navigation Setup
         document.querySelectorAll('.sidebar-nav .nav-item').forEach(item => {
@@ -72,23 +85,79 @@ const App = {
             });
         });
 
-        // Handle initial load based on hash or default to dashboard
-        this.handleRoute();
+        // Handle initial load — use replaceState so the entry is in history but doesn't double-push
+        this.handleRoute(true);
+
+        // --- CSP-Safe Event Delegation ---
+        // This replaces inline onclick="..." and onsubmit="..." which are blocked by production CSP
+        const container = document.getElementById('view-container');
+        if (container) {
+            container.addEventListener('click', (e) => {
+                const target = e.target.closest('[data-onclick]');
+                if (!target) return;
+                
+                const action = target.getAttribute('data-onclick');
+                const parts = action.split('.');
+                let context = window;
+                let fn = window;
+                
+                for (let i = 0; i < parts.length; i++) {
+                    if (i < parts.length - 1) context = context[parts[i]];
+                    fn = fn ? fn[parts[i]] : null;
+                }
+                
+                if (typeof fn === 'function') {
+                    fn.call(context, e);
+                }
+            });
+
+            container.addEventListener('submit', (e) => {
+                const target = e.target.closest('[data-onsubmit]');
+                if (!target) return;
+                
+                const action = target.getAttribute('data-onsubmit');
+                const parts = action.split('.');
+                let context = window;
+                let fn = window;
+                
+                for (let i = 0; i < parts.length; i++) {
+                    if (i < parts.length - 1) context = context[parts[i]];
+                    fn = fn ? fn[parts[i]] : null;
+                }
+                
+                if (typeof fn === 'function') {
+                    fn.call(context, e);
+                }
+            });
+        }
     },
 
-    handleRoute() {
+    handleRoute(replace = false) {
         let hash = window.location.hash.substring(1);
         if (!hash || !this.views[hash]) {
             hash = 'dashboard';
         }
-        this.navigate(hash);
+        this.navigate(hash, replace);
     },
 
     registerView(name, viewObj) {
         this.views[name] = viewObj;
     },
 
-    async navigate(viewName) {
+    closeModal(e) {
+        const modal = e.target.closest('.modal-overlay');
+        if (modal) modal.classList.remove('active');
+    },
+
+    fillRegisterFields(e) {
+        const target = e.target.closest('[data-onclick]');
+        if (target) {
+            document.getElementById('reg-xibo-code').value = target.dataset.code;
+            document.getElementById('reg-xibo-name').value = target.dataset.name;
+        }
+    },
+
+    async navigate(viewName, replace = false) {
         if (!this.views[viewName]) {
             console.error(`View ${viewName} not found`);
             return;
@@ -107,8 +176,15 @@ const App = {
         const activeNav = document.querySelector(`.nav-item[data-view="${viewName}"]`);
         if (activeNav) activeNav.classList.add('active');
 
-        // Update URL hash without jumping
-        history.replaceState(undefined, undefined, `#${viewName}`);
+        // Push a real history entry so back/forward works within the SPA.
+        // replaceState is used on initial load or when handling popstate/hashchange
+        // (the entry already exists in history in those cases).
+        const stateObj = { view: viewName };
+        if (replace) {
+            history.replaceState(stateObj, '', `#${viewName}`);
+        } else {
+            history.pushState(stateObj, '', `#${viewName}`);
+        }
 
         const container = document.getElementById('view-container');
         
@@ -216,16 +292,22 @@ const App = {
         }, 10000);
     },
 
-    showConfirm(message) {
+    showConfirm(title, message) {
+        // Handle case where only one argument is passed
+        if (!message) {
+            message = title;
+            title = 'Confirmation Required';
+        }
+
         return new Promise((resolve) => {
             const overlay = document.createElement('div');
             overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:20000;display:flex;align-items:center;justify-content:center;font-family:Inter,sans-serif;';
             const modal = document.createElement('div');
             modal.style.cssText = 'background:#1e293b; color:#fff; padding:24px; border-radius:16px; width:400px; box-shadow:0 20px 50px rgba(0,0,0,0.3); border:1px solid #334155;';
             
-            const title = document.createElement('div');
-            title.style.cssText = 'font-weight:600; font-size:16px; margin-bottom:12px;';
-            title.textContent = 'Confirmation Required';
+            const titleEl = document.createElement('div');
+            titleEl.style.cssText = 'font-weight:600; font-size:16px; margin-bottom:12px;';
+            titleEl.textContent = title;
             
             const msg = document.createElement('div');
             msg.style.cssText = 'font-size:14px; color:#94a3b8; margin-bottom:24px; line-height:1.5;';
@@ -247,7 +329,7 @@ const App = {
             btnConfirm.onclick = () => { overlay.remove(); resolve(true); };
             
             footer.append(btnCancel, btnConfirm);
-            modal.append(title, msg, footer);
+            modal.append(titleEl, msg, footer);
             overlay.appendChild(modal);
             document.body.appendChild(overlay);
         });

@@ -10,7 +10,7 @@ App.registerView('brands', {
                     <div class="table-header-actions">
                         <input type="text" id="brand-search" placeholder="🔍 Search brands..." style="width: 250px;">
                         <select id="brand-filter-industry"><option value="">All Industries</option></select>
-                        <button class="btn btn-primary" onclick="Views.brands.showModal()">+ Add Brand</button>
+                        <button class="btn btn-primary" data-onclick="Views.brands.showModal">+ Add Brand</button>
                     </div>
                 </div>
             </div>
@@ -39,10 +39,10 @@ App.registerView('brands', {
                 <div class="modal">
                     <div class="modal-header">
                         <div class="modal-title" id="modal-title">Add Brand</div>
-                        <button class="modal-close" onclick="Views.brands.closeModal()"><i data-lucide="x"></i></button>
+                        <button type="button" class="modal-close" data-onclick="Views.brands.closeModal"><i data-lucide="x"></i></button>
                     </div>
                     <div class="modal-body">
-                        <form id="brand-form">
+                        <form id="brand-form" data-onsubmit="Views.brands.submitBrand">
                             <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
                                 <div class="form-group">
                                     <label>Brand Name</label>
@@ -86,7 +86,7 @@ App.registerView('brands', {
                             <div style="margin-top: 1.5rem; border-top: 1px solid var(--border); padding-top: 1rem;">
                                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
                                     <label style="font-weight: 600;">Custom Fields</label>
-                                    <button type="button" class="btn btn-secondary" style="padding: 2px 8px; font-size: 0.75rem;" onclick="Views.brands.addCustomFieldRow()">+ Add Field</button>
+                                    <button type="button" class="btn btn-secondary" style="padding: 2px 8px; font-size: 0.75rem;" data-onclick="Views.brands.addCustomFieldRow">+ Add Field</button>
                                 </div>
                                 <div id="custom-fields-container" style="display: flex; flex-direction: column; gap: 0.5rem;">
                                     <!-- Dynamic rows injected here -->
@@ -95,8 +95,8 @@ App.registerView('brands', {
                         </form>
                     </div>
                     <div class="modal-footer">
-                        <button class="btn btn-secondary" onclick="Views.brands.closeModal()">Cancel</button>
-                        <button class="btn btn-primary" id="btn-save-brand" onclick="Views.brands.submitBrand()">Save Brand</button>
+                        <button type="button" class="btn btn-secondary" data-onclick="Views.brands.closeModal">Cancel</button>
+                        <button type="submit" form="brand-form" class="btn btn-primary" id="btn-save-brand">Save Brand</button>
                     </div>
                 </div>
             </div>
@@ -106,10 +106,10 @@ App.registerView('brands', {
                 <div class="modal" style="max-width: 540px;">
                     <div class="modal-header">
                         <div class="modal-title" id="sub-modal-title">Create Subscription</div>
-                        <button class="modal-close" onclick="Views.brands.closeSubModal()"><i data-lucide="x"></i></button>
+                        <button type="button" class="modal-close" data-onclick="Views.brands.closeSubModal"><i data-lucide="x"></i></button>
                     </div>
                     <div class="modal-body">
-                        <form id="subscription-form">
+                        <form id="subscription-form" data-onsubmit="Views.brands.submitSubscription">
                             <div class="form-group">
                                 <label>Plan Name</label>
                                 <input type="text" class="form-control" id="sub-plan-name" placeholder="e.g. Premium 5 Screens" required>
@@ -166,8 +166,8 @@ App.registerView('brands', {
                         </form>
                     </div>
                     <div class="modal-footer">
-                        <button class="btn btn-secondary" onclick="Views.brands.closeSubModal()">Cancel</button>
-                        <button class="btn btn-primary" onclick="Views.brands.submitSubscription()">Save Subscription</button>
+                        <button type="button" class="btn btn-secondary" data-onclick="Views.brands.closeSubModal">Cancel</button>
+                        <button type="submit" form="subscription-form" class="btn btn-primary">Save Subscription</button>
                     </div>
                 </div>
             </div>
@@ -177,7 +177,7 @@ App.registerView('brands', {
                 <div class="modal" style="width: 800px; max-width: 95%;">
                     <div class="modal-header">
                         <div class="modal-title" id="profile-modal-title">Brand Profile</div>
-                        <button class="modal-close" onclick="document.getElementById('brand-profile-modal').classList.remove('active')"><i data-lucide="x"></i></button>
+                        <button type="button" class="modal-close" data-onclick="Views.brands.closeProfileModal"><i data-lucide="x"></i></button>
                     </div>
                     <div class="modal-body" id="brand-profile-content">
                         <!-- Profile content injected here -->
@@ -742,8 +742,8 @@ App.registerView('brands', {
                         </div>
                         <div style="display:flex;gap:6px;align-items:center;">
                             <span style="font-size:0.72rem;font-weight:700;padding:3px 8px;border-radius:999px;${st}">${s.status}</span>
-                            <button class="icon-btn" title="Edit" onclick="Views.brands.showSubModal(${brandId},${s.id})"><i data-lucide="edit-2" style="width:13px;"></i></button>
-                            <button class="icon-btn" title="Delete" style="color:#ef4444" onclick="Views.brands.deleteSub(${s.id},${brandId})"><i data-lucide="trash-2" style="width:13px;"></i></button>
+                            <button class="icon-btn" title="Edit" data-onclick="Views.brands.showSubModal"><i data-lucide="edit-2" style="width:13px;"></i></button>
+                            <button class="icon-btn" title="Delete" style="color:#ef4444" data-onclick="Views.brands.deleteSub"><i data-lucide="trash-2" style="width:13px;"></i></button>
                         </div>
                     </div>
                     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;font-size:0.78rem;">
@@ -800,11 +800,32 @@ App.registerView('brands', {
         document.getElementById('subscription-modal').classList.add('active');
     },
 
-    closeSubModal() {
+    closeSubModal(e) {
+        if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
         document.getElementById('subscription-modal').classList.remove('active');
+        if (this._activeProfileBrandId) {
+            document.getElementById('brand-profile-modal').classList.add('active');
+            this.loadSubscriptions(this._activeProfileBrandId);
+        }
     },
 
-    async submitSubscription() {
+    closeProfileModal(e) {
+        if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        document.getElementById('brand-profile-modal').classList.remove('active');
+        this._activeProfileBrandId = null;
+    },
+
+    async submitSubscription(e) {
+        if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
         const payload = {
             brand_id: this._subBrandId,
             plan_name: document.getElementById('sub-plan-name').value,
@@ -841,6 +862,8 @@ App.registerView('brands', {
 
 
     showModal(id = null) {
+        if (id && typeof id === 'object' && id.target) id = null; // ignore event objects
+
         // UX Improvement: Prevent complex nested modal overlapping by directly closing 
         // the background profile modal if it is active. This replaces stacking with 
         // a much cleaner "modal swap" approach.
@@ -913,7 +936,7 @@ App.registerView('brands', {
         row.innerHTML = `
             <input type="text" class="form-control field-key" placeholder="Key (e.g. GST)" value="${key}">
             <input type="text" class="form-control field-value" placeholder="Value" value="${value}">
-            <button type="button" class="icon-btn" style="color: var(--danger); display: flex; align-items: center; justify-content: center;" onclick="this.parentElement.remove()">
+            <button type="button" class="icon-btn" style="color: var(--danger); display: flex; align-items: center; justify-content: center;" data-onclick="this.parentElement.remove">
                 <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>
             </button>
         `;
@@ -926,12 +949,24 @@ App.registerView('brands', {
         }
     },
 
-    closeModal() {
+    closeModal(e) {
+        if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
         document.getElementById('brand-modal').classList.remove('active');
         this.editingId = null;
+        if (this._activeProfileBrandId) {
+            document.getElementById('brand-profile-modal').classList.add('active');
+            this.showProfile(this._activeProfileBrandId);
+        }
     },
 
-    async submitBrand() {
+    async submitBrand(e) {
+        if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
         const payload = {
             name: document.getElementById('brand-name').value,
             industry: document.getElementById('brand-industry').value,

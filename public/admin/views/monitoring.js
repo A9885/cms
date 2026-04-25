@@ -5,7 +5,7 @@ App.registerView('monitoring', {
             <div class="card">
                 <div class="table-header">
                     <h3 style="font-size: 1rem; font-weight: 600;">Screen Health Monitoring</h3>
-                    <button class="btn btn-secondary" onclick="App.navigate('monitoring')"><i data-lucide="refresh-cw" style="width: 14px; margin-right: 6px;"></i> Refresh</button>
+                    <button class="btn btn-secondary" data-onclick="App.navigate"><i data-lucide="refresh-cw" style="width: 14px; margin-right: 6px;"></i> Refresh</button>
                 </div>
                 <div class="table-wrap" style="border: none; border-radius: 0;">
                     <table>

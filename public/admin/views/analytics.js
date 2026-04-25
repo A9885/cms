@@ -14,10 +14,10 @@ const AnalyticsView = {
                     <p class="subtitle">System-wide playback counts across all screens</p>
                 </div>
                 <div class="header-actions">
-                    <button class="btn btn-secondary" onclick="App.views.analytics.fetchData()">
+                    <button class="btn btn-secondary" data-onclick="App.views.analytics.fetchData">
                         <i data-lucide="refresh-cw"></i> Refresh Data
                     </button>
-                    <button class="btn btn-primary" onclick="App.views.analytics.forceSyncAll()">
+                    <button class="btn btn-primary" data-onclick="App.views.analytics.forceSyncAll">
                         <i data-lucide="zap"></i> Force Sync All
                     </button>
                 </div>
@@ -72,7 +72,7 @@ const AnalyticsView = {
 
             <div id="analytics-view-pop" style="display:none;">
                 <div class="analytics-nav">
-                    <button class="btn-back" onclick="App.views.analytics.showMain()">← Back to Overview</button>
+                    <button class="btn-back" data-onclick="App.views.analytics.showMain">← Back to Overview</button>
                     <h3 id="pop-media-title" style="margin:0; font-size:1.1rem;">Media Analytics</h3>
                 </div>
                 

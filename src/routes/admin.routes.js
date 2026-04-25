@@ -8,6 +8,15 @@ const { hasPermission } = require('../middleware/access.middleware');
 const { generateId } = require('../utils/id.utils.js');
 const { getAuth } = require('../auth.js');
 
+// ─── ID VALIDATION MIDDLEWARE ────────────────────────────────────────────────
+// System-wide protection against 'null', 'undefined' or non-numeric IDs in routes
+router.param('id', (req, res, next, id) => {
+    if (id === 'null' || id === 'undefined' || isNaN(parseInt(id, 10))) {
+        return res.status(400).json({ error: `Invalid ID parameter: ${id}` });
+    }
+    next();
+});
+
 // ─── DASHBOARD OVERVIEW ───
 
 /**
@@ -845,8 +854,10 @@ router.delete('/partners/:id', async (req, res) => {
 
 /** POST /api/admin/partners/:id/assign-screens - Bulk assign screens to a partner. */
 router.post('/partners/:id/assign-screens', async (req, res) => {
-    const partnerId = req.params.id;
-    const { screenIds } = req.body; // Array of local screen IDs
+    const partnerId = parseInt(req.params.id, 10);
+    const { screenIds } = req.body; 
+    
+    if (isNaN(partnerId)) return res.status(400).json({ error: 'Invalid partner ID' });
     if (!Array.isArray(screenIds)) return res.status(400).json({ error: 'screenIds must be an array' });
     
     try {
@@ -914,7 +925,8 @@ router.post('/partners/:id/assign-screens', async (req, res) => {
 router.get('/screens', async (req, res) => {
     try {
         const screenService = require('../services/screen.service');
-        await screenService.syncDisplays();
+        // Non-blocking background sync so the UI doesn't hang waiting for the external API
+        screenService.syncDisplays().catch(e => console.error('[Background Sync]', e.message));
 
         const screens = await dbAll(`
             SELECT s.*, p.name as partner_name 
@@ -995,30 +1007,38 @@ router.post('/screens', async (req, res) => {
 
 /** PUT /api/admin/screens/:id - Update screen details. */
 router.put('/screens/:id', async (req, res) => {
-    let { 
-        name, city, address, latitude, longitude, timezone, partner_id, notes, 
-        xibo_display_id, status, is_fixed_location, location_source, 
-        orientation, resolution 
-    } = req.body;
-    
-    // Sanitize coordinates to handle empty strings or UI nulls
-    if (latitude === '' || latitude === undefined) latitude = null;
-    if (longitude === '' || longitude === undefined) longitude = null;
-    if (latitude !== null) latitude = parseFloat(latitude);
-    if (longitude !== null) longitude = parseFloat(longitude);
-
-    // Sanitize boolean fields
-    const fixedLocation = (is_fixed_location !== undefined) ? (is_fixed_location ? 1 : 0) : null;
-
     try {
-        let query, params;
-        if (fixedLocation !== null || location_source) {
-            query = `UPDATE screens SET name=?, city=?, address=?, latitude=?, longitude=?, timezone=?, partner_id=?, notes=?, xibo_display_id=?, status=?, is_fixed_location=COALESCE(?,is_fixed_location), location_source=COALESCE(?,location_source), orientation=COALESCE(?,orientation), resolution=COALESCE(?,resolution), updated_at=CURRENT_TIMESTAMP WHERE id=?`;
-            params = [name, city, address, latitude, longitude, timezone, partner_id, notes, xibo_display_id, status, fixedLocation, location_source || null, orientation || null, resolution || null, req.params.id];
-        } else {
-            query = `UPDATE screens SET name=?, city=?, address=?, latitude=?, longitude=?, timezone=?, partner_id=?, notes=?, xibo_display_id=?, status=?, orientation=COALESCE(?,orientation), resolution=COALESCE(?,resolution), updated_at=CURRENT_TIMESTAMP WHERE id=?`;
-            params = [name, city, address, latitude, longitude, timezone, partner_id, notes, xibo_display_id, status, orientation || null, resolution || null, req.params.id];
-        }
+        const existing = await dbGet('SELECT * FROM screens WHERE id = ?', [req.params.id]);
+        if (!existing) return res.status(404).json({ error: 'Screen not found' });
+
+        let { 
+            name, city, address, latitude, longitude, timezone, partner_id, notes, 
+            xibo_display_id, status, orientation, resolution 
+        } = req.body;
+        
+        // Merge with existing data to prevent unintentional wiping of fields not in the request
+        name = name !== undefined ? name : existing.name;
+        city = city !== undefined ? city : existing.city;
+        address = address !== undefined ? address : existing.address;
+        latitude = latitude !== undefined ? latitude : existing.latitude;
+        longitude = longitude !== undefined ? longitude : existing.longitude;
+        timezone = timezone !== undefined ? timezone : existing.timezone;
+        partner_id = partner_id !== undefined ? partner_id : existing.partner_id;
+        notes = notes !== undefined ? notes : existing.notes;
+        xibo_display_id = xibo_display_id !== undefined ? xibo_display_id : existing.xibo_display_id;
+        status = status !== undefined ? status : existing.status;
+        orientation = orientation !== undefined ? orientation : existing.orientation;
+        resolution = resolution !== undefined ? resolution : existing.resolution;
+        
+        // Sanitize coordinates to handle empty strings or UI nulls
+        if (latitude === '' || latitude === undefined) latitude = null;
+        if (longitude === '' || longitude === undefined) longitude = null;
+        if (latitude !== null) latitude = parseFloat(latitude);
+        if (longitude !== null) longitude = parseFloat(longitude);
+
+        const query = `UPDATE screens SET name=?, city=?, address=?, latitude=?, longitude=?, timezone=?, partner_id=?, notes=?, xibo_display_id=?, status=?, orientation=?, resolution=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`;
+        const params = [name, city, address, latitude, longitude, timezone, partner_id, notes, xibo_display_id, status, orientation, resolution, req.params.id];
+
         await dbRun(query, params);
         
         // Push updates to Xibo in the background if linked
@@ -1027,7 +1047,9 @@ router.put('/screens/:id', async (req, res) => {
 
         logActivity({ action: ACTION.UPDATE, module: MODULE.SCREEN, description: `Screen ID ${req.params.id} updated`, req });
         res.json({ success: true });
-    } catch(err) { res.status(500).json({ error: err.message }); }
+    } catch(err) { 
+        res.status(500).json({ error: err.message }); 
+    }
 });
 
 router.post('/screens/:id/sync-location', async (req, res) => {
@@ -1544,6 +1566,38 @@ router.patch('/creatives/:id/reject', async (req, res) => {
         res.json({ success: true, message: 'Creative rejected.' });
     } catch (err) {
         logActivity({ action: ACTION.ERROR, module: MODULE.CREATIVE, description: `Failed to reject creative mediaId ${req.params.id}: ${err.message}`, req });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+
+/** DELETE /api/admin/creatives/:id - Delete a creative. */
+router.delete('/creatives/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        // 1. Check if media is assigned to any slots
+        const assignments = await dbGet('SELECT COUNT(*) as count FROM slots WHERE mediaId = ?', [id]);
+        if (assignments && assignments.count > 0) {
+            return res.status(400).json({ error: 'Cannot delete media that is currently assigned to slots. Unassign it first.' });
+        }
+
+        // 2. Delete from local database (media_brands) - we don't care if it fails (changes === 0) since it might just be unassigned
+        await dbRun('DELETE FROM media_brands WHERE mediaId = ?', [id]);
+        
+        // 3. Delete from Xibo
+        try {
+            const xiboService = require('../services/xibo.service');
+            await xiboService.deleteMedia(id);
+        } catch (e) {
+            console.error(`[Admin API] Failed to delete media ${id} from Xibo:`, e.message);
+            // We still proceed since we deleted it locally, or it was already gone.
+        }
+
+        logActivity({ action: ACTION.DELETE, module: MODULE.CREATIVE, description: `Creative (mediaId: ${id}) deleted`, req });
+        res.json({ success: true, message: 'Creative deleted successfully.' });
+    } catch (err) {
+        logActivity({ action: ACTION.ERROR, module: MODULE.CREATIVE, description: `Failed to delete creative mediaId ${req.params.id}: ${err.message}`, req });
         res.status(500).json({ error: err.message });
     }
 });
