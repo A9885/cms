@@ -5,7 +5,7 @@ App.registerView('campaigns', {
             <div class="card">
                 <div class="table-header">
                     <h3 style="font-size: 1rem; font-weight: 600;">Active Campaigns</h3>
-                    <button class="btn btn-primary" onclick="App.showToast('Create campaign maps to Xibo Scheduling UI for MVP')">+ Create Campaign</button>
+                    <button class="btn btn-primary" data-onclick="App.showToast">+ Create Campaign</button>
                 </div>
                 <div class="table-wrap" style="border: none; border-radius: 0;">
                     <table>

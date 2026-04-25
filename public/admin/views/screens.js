@@ -126,7 +126,7 @@ App.registerView('screens', {
                                 <div style="flex:1;">
                                     <div style="font-size:0.85rem; font-weight:700; color:#9a3412;">Not Linked to Xibo</div>
                                     <div style="font-size:0.75rem; color:#c2410c; margin-top:4px; line-height:1.4;">This local record is not connected to a live Xibo player. Linking is required for content delivery.</div>
-                                    <button class="btn btn-primary" style="margin-top:10px; background:#ea580c; width:100%;" id="btn-open-link-modal">Link Xibo Player Now</button>
+                                    <button type="button" class="btn btn-primary" style="margin-top:10px; background:#ea580c; width:100%;" id="btn-open-link-modal">Link Xibo Player Now</button>
                                 </div>
                             </div>
                         </div>
@@ -163,7 +163,7 @@ App.registerView('screens', {
                 <div class="modal">
                     <div class="modal-header">
                         <span class="modal-title">Add New Local Screen</span>
-                        <button onclick="document.getElementById('create-screen-modal').classList.remove('active')" class="modal-close">&times;</button>
+                        <button type="button" data-onclick="App.closeModal" class="modal-close">&times;</button>
                     </div>
                     <div class="modal-body">
                         <div class="form-group">
@@ -198,7 +198,7 @@ App.registerView('screens', {
                         </div>
                     </div>
                     <div class="modal-footer">
-                        <button class="btn btn-secondary" onclick="document.getElementById('create-screen-modal').classList.remove('active')">Cancel</button>
+                        <button type="button" class="btn btn-secondary" data-onclick="App.closeModal">Cancel</button>
                         <button class="btn btn-primary" id="btn-submit-create">Create Screen</button>
                     </div>
                 </div>
@@ -209,7 +209,7 @@ App.registerView('screens', {
                 <div class="modal">
                     <div class="modal-header">
                         <span class="modal-title">Edit Screen: <span id="edit-modal-title"></span></span>
-                        <button onclick="document.getElementById('edit-screen-modal').classList.remove('active')" class="modal-close">&times;</button>
+                        <button type="button" data-onclick="App.closeModal" class="modal-close">&times;</button>
                     </div>
                     <div class="modal-body">
                          <div class="form-group">
@@ -261,8 +261,8 @@ App.registerView('screens', {
                         </div>
                     </div>
                     <div class="modal-footer">
-                        <button class="btn btn-secondary" style="background:#fee2e2; color:#b91c1c; margin-right:auto;" id="btn-delete-screen">Delete Screen</button>
-                        <button class="btn btn-secondary" onclick="document.getElementById('edit-screen-modal').classList.remove('active')">Cancel</button>
+                        <button type="button" class="btn btn-secondary" style="background:#fee2e2; color:#b91c1c; margin-right:auto;" id="btn-delete-screen">Delete Screen</button>
+                        <button type="button" class="btn btn-secondary" data-onclick="App.closeModal">Cancel</button>
                         <button class="btn btn-primary" id="btn-submit-edit">Save Changes</button>
                     </div>
                 </div>
@@ -273,7 +273,7 @@ App.registerView('screens', {
                 <div class="modal">
                     <div class="modal-header">
                         <span class="modal-title">Link Xibo Player</span>
-                        <button onclick="document.getElementById('link-xibo-modal').classList.remove('active')" class="modal-close">&times;</button>
+                        <button type="button" data-onclick="App.closeModal" class="modal-close">&times;</button>
                     </div>
                     <div class="modal-body">
                         <div class="form-group">
@@ -285,7 +285,7 @@ App.registerView('screens', {
                         <p style="font-size:0.75rem; color:var(--text-muted); line-height:1.4;">Connecting this local record to a live player allows real-time monitoring and analytics sync.</p>
                     </div>
                     <div class="modal-footer">
-                        <button class="btn btn-secondary" onclick="document.getElementById('link-xibo-modal').classList.remove('active')">Cancel</button>
+                        <button type="button" class="btn btn-secondary" data-onclick="App.closeModal">Cancel</button>
                         <button class="btn btn-primary" id="btn-submit-link">Confirm Connection</button>
                     </div>
                 </div>
@@ -296,7 +296,7 @@ App.registerView('screens', {
                 <div class="modal" style="max-width: 560px; width:90%;">
                     <div class="modal-header">
                         <span class="modal-title">📍 Fix Screen Location</span>
-                        <button onclick="document.getElementById('location-modal').classList.remove('active')" class="modal-close">&times;</button>
+                        <button type="button" data-onclick="App.closeModal" class="modal-close">&times;</button>
                     </div>
                     <div class="modal-body" style="padding:0;">
                         <!-- Map picker -->
@@ -339,7 +339,7 @@ App.registerView('screens', {
                         </div>
                     </div>
                     <div class="modal-footer">
-                        <button class="btn btn-secondary" onclick="document.getElementById('location-modal').classList.remove('active')">Cancel</button>
+                        <button type="button" class="btn btn-secondary" data-onclick="App.closeModal">Cancel</button>
                         <button class="btn btn-primary" id="btn-save-location">💾 Save Location</button>
                     </div>
                 </div>
@@ -350,7 +350,7 @@ App.registerView('screens', {
                 <div class="modal">
                     <div class="modal-header">
                         <span class="modal-title">🔗 Register New Xibo Display</span>
-                        <button onclick="document.getElementById('register-xibo-modal').classList.remove('active')" class="modal-close">&times;</button>
+                        <button type="button" data-onclick="App.closeModal" class="modal-close">&times;</button>
                     </div>
                     <div class="modal-body">
                         <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:10px; padding:12px; margin-bottom:16px; font-size:0.8rem; line-height:1.6;">
@@ -375,7 +375,7 @@ App.registerView('screens', {
                             <button class="btn btn-secondary" style="flex:1; font-size:0.8rem;" id="btn-scan-pending">🔍 Scan for Pending Displays</button>
                             <button class="btn btn-primary" style="flex:1;" id="btn-submit-registration">Authorize Player</button>
                         </div>
-                        <button class="btn btn-secondary" onclick="document.getElementById('register-xibo-modal').classList.remove('active')">Cancel</button>
+                        <button type="button" class="btn btn-secondary" data-onclick="App.closeModal">Cancel</button>
                     </div>
                 </div>
             </div>
@@ -483,7 +483,7 @@ App.registerView('screens', {
                             </div>
                             ${result.map(d => `
                                 <div style="border:1px solid #e2e8f0; border-radius:8px; padding:8px 10px; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center; background:#f8fafc; cursor:pointer;"
-                                     onclick="document.getElementById('reg-xibo-code').value='${(d.license||'').slice(0,8)}'; document.getElementById('reg-xibo-name').value='${d.display}';">
+                                     data-onclick="App.fillRegisterFields" data-code="${(d.license||'').slice(0,8)}" data-name="${d.display}">
                                     <div>
                                         <div style="font-size:0.85rem; font-weight:600;">${d.display}</div>
                                         <div style="font-size:0.7rem; color:#64748b;">ID: ${d.displayId} · Last seen: ${d.lastAccessed || 'Unknown'}</div>
@@ -676,10 +676,10 @@ App.registerView('screens', {
         try {
             await window.Api.delete(`/screens/${id}`);
             App.showToast('Screen deleted', 'success');
-            // Refresh the view
-            this.mount(document.getElementById('app'));
+            // Refresh view
+            this.mount(document.getElementById('view-container'));
         } catch (err) {
-            App.showToast('Delete failed', 'error');
+            App.showToast('Failed to delete screen: ' + err.message, 'error');
         }
     },
 
@@ -1025,7 +1025,7 @@ App.registerView('screens', {
                     status: 'Linked'
                 });
                 modal.classList.remove('active');
-                this.mount(document.getElementById('app'));
+                this.mount(document.getElementById('view-container'));
                 App.showToast('Screen linked successfully!', 'success');
             } catch (err) { App.showToast('Link fail: ' + err.message, 'error'); }
         };
@@ -1046,6 +1046,7 @@ App.registerView('screens', {
 
         document.getElementById('btn-submit-edit').onclick = async () => {
             const body = {
+                ...screen,
                 name: document.getElementById('edit-screen-name').value,
                 city: document.getElementById('edit-screen-city').value,
                 address: document.getElementById('edit-screen-address').value,
@@ -1059,7 +1060,7 @@ App.registerView('screens', {
             try {
                 await window.Api.put(`/screens/${screen.id}`, body);
                 document.getElementById('edit-screen-modal').classList.remove('active');
-                this.mount(document.getElementById('app'));
+                this.mount(document.getElementById('view-container'));
             } catch (err) { App.showToast('Save failed', 'error'); }
         };
 
@@ -1068,7 +1069,7 @@ App.registerView('screens', {
             try {
                 await window.Api.delete(`/screens/${screen.id}`);
                 document.getElementById('edit-screen-modal').classList.remove('active');
-                this.mount(document.getElementById('app'));
+                this.mount(document.getElementById('view-container'));
             } catch (err) { App.showToast('Delete failed', 'error'); }
         };
     },
@@ -1096,7 +1097,7 @@ App.registerView('screens', {
                 <i class="fas fa-exclamation-triangle me-2"></i>
                 ${diagnosticMsg}
             </span>
-            <button class="btn btn-sm btn-outline-dark" onclick="window.location.reload()">Retry</button>
+            <button class="btn btn-sm btn-outline-dark" data-onclick="window.location.reload">Retry</button>
         `;
     }
 });

@@ -114,7 +114,7 @@ router.get('/list', async (req, res) => {
         duration: media.duration,
         status: mappingMap.get(String(media.mediaId)) || 'Pending',
         assignedSlots: campaignMap[String(media.mediaId)] || [],
-        thumbnailUrl: `/xibo/library/download/${media.mediaId}?thumbnail=1`,
+        thumbnailUrl: `/xibo/proxy/thumbnail/${media.mediaId}`,
         previewUrl: `/xibo/library/download/${media.mediaId}`
       }));
 

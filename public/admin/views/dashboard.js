@@ -33,7 +33,7 @@ App.registerView('dashboard', {
                         </div>
                     </div>
                     <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #f1f5f9;">
-                        <button class="btn btn-secondary" style="width: 100%; font-size: 0.8rem;" onclick="Views.dashboard.triggerSync()">
+                        <button class="btn btn-secondary" style="width: 100%; font-size: 0.8rem;" data-onclick="Views.dashboard.triggerSync">
                             <i data-lucide="refresh-cw" style="width: 14px; margin-right: 6px;"></i> System Refresh
                         </button>
                     </div>
@@ -256,16 +256,6 @@ App.registerView('dashboard', {
         }
 
         kpiContainer.appendChild(createKpi('kpi-white', 'briefcase', 'Brands', data.totalBrands));
-
-        // Add Creative Moderation alert if any
-        try {
-            const pendingCreatives = await Api.get('/admin/creatives/pending');
-            if (pendingCreatives && pendingCreatives.length > 0) {
-                kpiContainer.appendChild(createKpi('kpi-orange', 'check-square', 'Mod Queue', `${pendingCreatives.length}`, 'Pending approval'));
-            }
-        } catch (e) {
-            console.warn('[Dashboard] Failed to fetch moderation count');
-        }
 
         lucide.createIcons();
     },

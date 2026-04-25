@@ -28,6 +28,22 @@ class XiboService {
     this.threshold = 3;
     this.resetTimeout = 60000; // 60 seconds
     this.clockOffset = 0;      // ms: XiboTime - LocalTime
+    this._apiCache = new Map(); // Simple in-memory cache for GET requests
+  }
+
+  async _getCached(key, fn, ttlMs = 5000) {
+    if (this._apiCache.has(key)) {
+        const cached = this._apiCache.get(key);
+        if (Date.now() < cached.expires) {
+            return cached.data;
+        }
+    }
+    const data = await fn();
+    // Cache array responses or valid objects
+    if (data && !data.error) {
+        this._apiCache.set(key, { data, expires: Date.now() + ttlMs });
+    }
+    return data;
   }
 
   /**
@@ -229,9 +245,11 @@ class XiboService {
    * @returns {Promise<Array>} List of displays.
    */
   async getDisplays(params = {}) {
-    return await this.xiboRequest(async () => {
-        const doRequest = async () => {
-          const headers = await this.getHeaders();
+    const cacheKey = 'displays_' + JSON.stringify(params);
+    return await this._getCached(cacheKey, async () => {
+        return await this.xiboRequest(async () => {
+            const doRequest = async () => {
+                const headers = await this.getHeaders();
           const finalParams = { ...params };
           const currentEmbed = (finalParams.embed || '').split(',').filter(Boolean);
           if (!currentEmbed.includes('statsEnabled')) currentEmbed.push('statsEnabled');
@@ -256,7 +274,8 @@ class XiboService {
             }
             throw err;
         }
-    });
+      });
+    }, 10000); // 10 seconds cache
   }
 
   /**
@@ -370,14 +389,33 @@ class XiboService {
    * @returns {Promise<Array>}
    */
   async getLibrary(params = { start: 0, length: 150 }) {
+    const cacheKey = 'library_' + JSON.stringify(params);
+    return await this._getCached(cacheKey, async () => {
+        return await this.xiboRequest(async () => {
+            const headers = await this.getHeaders();
+            const resp = await axios.get(`${this.baseUrl}${this._apiPrefix}/library`, { 
+                headers, 
+                params, 
+                timeout: 8000 
+            });
+            return resp.data;
+        });
+    }, 10000); // 10 second cache
+  }
+
+  /**
+   * Delete media from the Xibo Library.
+   * @param {number|string} mediaId - The ID of the media to delete.
+   * @returns {Promise<boolean>}
+   */
+  async deleteMedia(mediaId) {
     return await this.xiboRequest(async () => {
         const headers = await this.getHeaders();
-        const resp = await axios.get(`${this.baseUrl}${this._apiPrefix}/library`, { 
+        await axios.delete(`${this.baseUrl}${this._apiPrefix}/library/${mediaId}`, { 
             headers, 
-            params, 
             timeout: 8000 
         });
-        return resp.data;
+        return true;
     });
   }
 
@@ -419,15 +457,18 @@ class XiboService {
    * @returns {Promise<Array>}
    */
   async getPlaylists(params = {}) {
-    return await this.xiboRequest(async () => {
-        const headers = await this.getHeaders();
-        const resp = await axios.get(`${this.baseUrl}${this._apiPrefix}/playlist`, { 
-            headers, 
-            params, 
-            timeout: 8000 
+    const cacheKey = 'playlists_' + JSON.stringify(params);
+    return await this._getCached(cacheKey, async () => {
+        return await this.xiboRequest(async () => {
+            const headers = await this.getHeaders();
+            const resp = await axios.get(`${this.baseUrl}${this._apiPrefix}/playlist`, { 
+                headers, 
+                params, 
+                timeout: 8000 
+            });
+            return resp.data;
         });
-        return resp.data;
-    });
+    }, 10000);
   }
 
   /**
@@ -543,15 +584,18 @@ class XiboService {
    * @returns {Promise<Array>}
    */
   async getCampaigns(params = {}) {
-    return await this.xiboRequest(async () => {
-        const headers = await this.getHeaders();
-        const resp = await axios.get(`${this.baseUrl}${this._apiPrefix}/campaign`, { 
-            headers, 
-            params, 
-            timeout: 8000 
+    const cacheKey = 'campaigns_' + JSON.stringify(params);
+    return await this._getCached(cacheKey, async () => {
+        return await this.xiboRequest(async () => {
+            const headers = await this.getHeaders();
+            const resp = await axios.get(`${this.baseUrl}${this._apiPrefix}/campaign`, { 
+                headers, 
+                params, 
+                timeout: 8000 
+            });
+            return resp.data;
         });
-        return resp.data;
-    });
+    }, 10000);
   }
 
   /**
@@ -560,15 +604,18 @@ class XiboService {
    * @returns {Promise<Array>}
    */
   async getLayouts(params = {}) {
-    return await this.xiboRequest(async () => {
-        const headers = await this.getHeaders();
-        const resp = await axios.get(`${this.baseUrl}${this._apiPrefix}/layout`, { 
-            headers, 
-            params, 
-            timeout: 8000 
+    const cacheKey = 'layouts_' + JSON.stringify(params);
+    return await this._getCached(cacheKey, async () => {
+        return await this.xiboRequest(async () => {
+            const headers = await this.getHeaders();
+            const resp = await axios.get(`${this.baseUrl}${this._apiPrefix}/layout`, { 
+                headers, 
+                params, 
+                timeout: 8000 
+            });
+            return resp.data;
         });
-        return resp.data;
-    });
+    }, 10000);
   }
 
   /**
@@ -577,15 +624,18 @@ class XiboService {
    * @returns {Promise<Array>}
    */
   async getSchedules(params = {}) {
-    return await this.xiboRequest(async () => {
-        const headers = await this.getHeaders();
-        const resp = await axios.get(`${this.baseUrl}${this._apiPrefix}/schedule`, { 
-            headers, 
-            params, 
-            timeout: 8000 
+    const cacheKey = 'schedules_' + JSON.stringify(params);
+    return await this._getCached(cacheKey, async () => {
+        return await this.xiboRequest(async () => {
+            const headers = await this.getHeaders();
+            const resp = await axios.get(`${this.baseUrl}${this._apiPrefix}/schedule`, { 
+                headers, 
+                params, 
+                timeout: 8000 
+            });
+            return resp.data;
         });
-        return resp.data;
-    });
+    }, 10000);
   }
 
   /**

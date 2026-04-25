@@ -533,7 +533,7 @@
         <div class="modal" style="background:#fff; padding:2rem; border-radius:var(--radius-lg);">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
                 <h2 class="panel-title">Select Slots</h2>
-                <i data-lucide="x" class="modal-close" onclick="closeModal()" style="cursor:pointer;"></i>
+                <i data-lucide="x" class="modal-close" onclick="closeModal(event)" style="cursor:pointer;"></i>
             </div>
             <p style="color:var(--text-muted); margin-bottom: 15px;">Choosing slots on <strong id="modal-screen-name" style="color:var(--text-primary)"></strong></p>
             
@@ -543,7 +543,7 @@
             </div>
 
             <div style="margin-top: 2rem; display: flex; justify-content: flex-end; gap: 10px;">
-                <button class="btn btn-glass" onclick="closeModal()">Cancel</button>
+                <button type="button" class="btn btn-glass" onclick="closeModal(event)">Cancel</button>
                 <button class="btn btn-blue" id="confirm-buy-btn" onclick="confirmPurchase()">
                     Launch Campaign
                 </button>
@@ -587,7 +587,7 @@
                 <!-- Content injected by JS -->
             </div>
             <div style="margin-top: 1.5rem; display: flex; justify-content: flex-end; gap: 10px;">
-                <button class="btn btn-blue" onclick="document.getElementById('creative-preview-modal').classList.remove('active')">Close</button>
+                <button type="button" class="btn btn-blue" onclick="document.getElementById('creative-preview-modal').classList.remove('active')">Close</button>
             </div>
         </div>
     </div>
@@ -610,34 +610,5 @@
 
     <script src="/socket.io/socket.io.js"></script>
     <script src="/brandportal/js/app.js"></script>
-    <script>
-        // Tab switching logic
-        document.querySelectorAll('.nav-item').forEach(item => {
-            item.addEventListener('click', () => {
-                document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
-                document.querySelectorAll('.view-section').forEach(v => v.classList.remove('active'));
-                
-                item.classList.add('active');
-                const target = item.getAttribute('data-target');
-                document.getElementById(target).classList.add('active');
-                
-                // Trigger map resize if needed
-                if (target === 'dashboard' || target === 'screens') {
-                    if (window.dashMap) dashMap.invalidateSize();
-                    if (window.detailMap) detailMap.invalidateSize();
-                }
-
-                // Load data for the selected tab
-                if (target === 'dashboard' && typeof loadDashboard === 'function') loadDashboard();
-                if (target === 'screens' && typeof loadScreens === 'function') loadScreens();
-                if (target === 'reports' && typeof loadPoP === 'function') loadPoP();
-                if (target === 'creatives' && typeof loadCreatives === 'function') loadCreatives();
-                if (target === 'market' && typeof loadMarket === 'function') loadMarket();
-                if (target === 'billing' && typeof loadBilling === 'function') loadBilling();
-                if (target === 'billing' && typeof loadSubscription === 'function') loadSubscription();
-                if (target === 'account' && typeof loadAccount === 'function') loadAccount();
-            });
-        });
-    </script>
 </body>
 </html>

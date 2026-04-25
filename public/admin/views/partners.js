@@ -1,74 +1,106 @@
 App.registerView('partners', {
     editingId: null,
+    partnersData: [],
+    
     render() {
         return `
             <div class="page-title">Partners & Payouts</div>
             
-            <div id="partner-kpis" style="display:grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem;">
-                <div class="kpi accent">
-                    <div class="kpi-label">Active Partners</div>
-                    <div class="kpi-value" id="kpi-total-partners">-</div>
-                    <div class="kpi-icon"><i data-lucide="users"></i></div>
+            <!-- KPI Section -->
+            <div class="dash-kpi-row" id="partner-kpis">
+                <div class="kpi-card kpi-blue">
+                    <div class="kpi-header"><i data-lucide="users"></i> Active Partners</div>
+                    <h2 id="kpi-total-partners">-</h2>
+                    <div style="font-size:0.7rem; opacity:0.8; margin-top:4px;">Revenue generating partners</div>
                 </div>
-                <div class="kpi kpi-warn">
-                    <div class="kpi-label">Pending Payouts</div>
-                    <div class="kpi-value" id="kpi-pending-payouts">-</div>
-                    <div class="kpi-icon"><i data-lucide="clock"></i></div>
+                <div class="kpi-card kpi-orange">
+                    <div class="kpi-header"><i data-lucide="clock"></i> Pending Payouts</div>
+                    <h2 id="kpi-pending-payouts">-</h2>
+                    <div style="font-size:0.7rem; opacity:0.8; margin-top:4px;">Awaiting settlement</div>
                 </div>
-                <div class="kpi kpi-success">
-                    <div class="kpi-label">Total Paid</div>
-                    <div class="kpi-value" id="kpi-total-paid">-</div>
-                    <div class="kpi-icon"><i data-lucide="check-circle"></i></div>
+                <div class="kpi-card kpi-lightblue">
+                    <div class="kpi-header"><i data-lucide="check-circle"></i> Total Paid</div>
+                    <h2 id="kpi-total-paid">-</h2>
+                    <div style="font-size:0.7rem; opacity:0.8; margin-top:4px;">Lifetime settlements</div>
                 </div>
-                <div class="kpi kpi-info">
-                    <div class="kpi-label">Total Screens</div>
-                    <div class="kpi-value" id="kpi-total-screens">-</div>
-                    <div class="kpi-icon"><i data-lucide="monitor"></i></div>
-                </div>
-            </div>
-
-            <div class="card" style="margin-bottom: 2rem;">
-                <div class="table-header">
-                    <h3 style="font-size: 1rem; font-weight: 600;"><i data-lucide="clock" style="width:16px; vertical-align:middle; margin-right:5px;"></i> Payout Requests Queue</h3>
-                </div>
-                <div class="table-wrap">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Partner</th>
-                                <th>Month</th>
-                                <th>Amount</th>
-                                <th>Requested</th>
-                                <th style="text-align: right;">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody id="payouts-table-body">
-                            <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">No pending requests.</td></tr>
-                        </tbody>
-                    </table>
+                <div class="kpi-card kpi-darkblue">
+                    <div class="kpi-header"><i data-lucide="monitor"></i> Total Screens</div>
+                    <h2 id="kpi-total-screens">-</h2>
+                    <div style="font-size:0.7rem; opacity:0.8; margin-top:4px;">Partner-owned displays</div>
                 </div>
             </div>
 
-            <div class="card">
-                <div class="table-header">
-                    <h3 style="font-size: 1rem; font-weight: 600;">Registered Partners</h3>
-                    <button class="btn btn-primary" onclick="Views.partners.showModal()">+ Add Partner</button>
+            <div class="dash-table-row">
+                <!-- Payout Queue -->
+                <div class="card">
+                    <div class="card-title">
+                        <span><i data-lucide="wallet" style="width:18px; vertical-align:middle; margin-right:8px; color:var(--warning);"></i> Payout Requests Queue</span>
+                    </div>
+                    <div class="table-wrap" style="border:none;">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Partner</th>
+                                    <th>Period</th>
+                                    <th>Amount</th>
+                                    <th style="text-align: right;">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="payouts-table-body">
+                                <tr><td colspan="4" style="text-align: center; color: var(--text-muted); padding:30px;">No pending requests.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Fast Actions / Stats -->
+                <div class="card" style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); color: #fff; border:none;">
+                    <div class="card-title" style="color:#fff;">Partner Growth</div>
+                    <div style="padding:10px 0;">
+                        <div style="margin-bottom:20px;">
+                            <div style="display:flex; justify-content:space-between; font-size:0.8rem; margin-bottom:8px;">
+                                <span style="opacity:0.8;">Onboarding Completion</span>
+                                <span style="font-weight:700; color:#34d399;">85%</span>
+                            </div>
+                            <div style="height:6px; background:rgba(255,255,255,0.1); border-radius:3px; overflow:hidden;">
+                                <div style="width:85%; height:100%; background:#34d399;"></div>
+                            </div>
+                        </div>
+                        <div style="display:flex; gap:12px; margin-top:20px;">
+                            <button class="btn btn-primary" style="flex:1; background:#6366f1;" data-onclick="Views.partners.showModal">
+                                <i data-lucide="user-plus" style="width:14px;"></i> New Partner
+                            </button>
+                            <button class="btn btn-secondary" style="flex:1; background:rgba(255,255,255,0.1); color:#fff; border:none;">
+                                <i data-lucide="download" style="width:14px;"></i> Export Report
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Partner List -->
+            <div class="card" style="margin-top: 1.5rem;">
+                <div class="table-header" style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: flex-end;">
+                    <div>
+                        <h3 style="font-size: 1.1rem; font-weight: 800; color:var(--text-primary);">Registered Partners</h3>
+                        <p style="font-size: 0.75rem; color: var(--text-muted);">Manage partner accounts, revenue share, and screen assignments.</p>
+                    </div>
                 </div>
                 <div class="table-wrap" style="border: none; border-radius: 0;">
-                    <table>
+                    <table style="min-width: 900px;">
                         <thead>
                             <tr>
-                                <th>Partner Name</th>
-                                <th>Screens</th>
+                                <th style="width: 250px;">Partner Details</th>
+                                <th>Displays</th>
                                 <th>Rev. Share</th>
-                                <th>Total Paid</th>
+                                <th>Settled</th>
                                 <th>Balance</th>
                                 <th>Status</th>
-                                <th style="text-align: right;">Actions</th>
+                                <th style="text-align: right; padding-right: 24px;">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="partners-table-body">
-                            <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Loading partners...</td></tr>
+                            <tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 50px;">Loading partners...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -76,13 +108,13 @@ App.registerView('partners', {
 
             <!-- Partner Modal (Add/Edit) -->
             <div class="modal-overlay" id="partner-modal">
-                <div class="modal">
+                <div class="modal" style="width: 600px;">
                     <div class="modal-header">
                         <div class="modal-title" id="partner-modal-title">Add Partner</div>
-                        <button class="modal-close" onclick="Views.partners.closeModal()"><i data-lucide="x"></i></button>
+                        <button type="button" class="modal-close" data-onclick="Views.partners.closeModal"><i data-lucide="x"></i></button>
                     </div>
                     <div class="modal-body">
-                        <form id="partner-form">
+                        <form id="partner-form" data-onsubmit="Views.partners.submitPartner">
                             <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
                                 <div class="form-group">
                                     <label>Contact Name</label>
@@ -120,8 +152,8 @@ App.registerView('partners', {
                             <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
                                 <div class="form-group">
                                     <label>Login Password</label>
-                                    <input type="password" class="form-control" id="partner-password" placeholder="Leave empty for default (Partner@123)">
-                                    <small style="color:var(--text-muted); font-size:0.7rem;">Defaults to Partner@123 if creating new.</small>
+                                    <input type="password" class="form-control" id="partner-password" placeholder="Leave empty for default">
+                                    <small style="color:var(--text-muted); font-size:0.7rem;">Defaults to Partner@123 for new partners.</small>
                                 </div>
                                 <div class="form-group">
                                     <label>Status</label>
@@ -135,18 +167,18 @@ App.registerView('partners', {
                         </form>
                     </div>
                     <div class="modal-footer">
-                        <button class="btn btn-secondary" onclick="Views.partners.closeModal()">Cancel</button>
-                        <button class="btn btn-primary" onclick="Views.partners.submitPartner()">Save Partner</button>
+                        <button type="button" class="btn btn-secondary" data-onclick="Views.partners.closeModal">Cancel</button>
+                        <button type="submit" form="partner-form" class="btn btn-primary">Save Partner</button>
                     </div>
                 </div>
             </div>
 
-            <!-- Assign Screens Modal (Remains the same) -->
+            <!-- Assign Screens Modal -->
             <div class="modal-overlay" id="assign-screens-modal">
                 <div class="modal" style="width: 500px;">
                     <div class="modal-header">
                         <div class="modal-title">Assign Screens to <span id="assign-partner-name" style="color:var(--accent);"></span></div>
-                        <button class="modal-close" onclick="Views.partners.closeAssignModal()"><i data-lucide="x"></i></button>
+                        <button type="button" class="modal-close" data-onclick="Views.partners.closeAssignModal"><i data-lucide="x"></i></button>
                     </div>
                     <div class="modal-body">
                         <div id="available-screens-list" style="max-height: 350px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc;">
@@ -154,13 +186,13 @@ App.registerView('partners', {
                         </div>
                     </div>
                     <div class="modal-footer">
-                        <button class="btn btn-secondary" onclick="Views.partners.closeAssignModal()">Cancel</button>
-                        <button class="btn btn-primary" id="btn-confirm-assignment" onclick="Views.partners.submitAssignment()">Confirm Assignment</button>
+                        <button type="button" class="btn btn-secondary" data-onclick="Views.partners.closeAssignModal">Cancel</button>
+                        <button type="button" class="btn btn-primary" id="btn-confirm-assignment" data-onclick="Views.partners.submitAssignment">Confirm Assignment</button>
                     </div>
                 </div>
             </div>
 
-            <!-- ═══ XIBO INTEGRATION MODAL ═══════════════════════════════════════ -->
+            <!-- XIBO INTEGRATION MODAL -->
             <div class="modal-overlay" id="xibo-setup-modal">
                 <div class="modal" style="width: 640px; max-width: 95vw;">
                     <div class="modal-header" style="background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%); border-radius: 12px 12px 0 0; padding: 20px 24px;">
@@ -173,94 +205,68 @@ App.registerView('partners', {
                                 <div style="font-size:0.72rem; color:#94a3b8; margin-top:2px;">Auto-provision partner's Xibo account</div>
                             </div>
                         </div>
-                        <button class="modal-close" style="color:#94a3b8;" onclick="Views.partners.closeXiboModal()"><i data-lucide="x"></i></button>
+                        <button type="button" class="modal-close" style="color:#94a3b8;" data-onclick="Views.partners.closeXiboModal"><i data-lucide="x"></i></button>
                     </div>
 
                     <div class="modal-body" style="padding: 0;">
-
-                        <!-- Status Banner -->
                         <div id="xibo-status-banner" style="display:none; padding: 10px 20px; font-size:0.8rem; font-weight:600; border-bottom: 1px solid #e2e8f0;"></div>
 
-                        <!-- Credential Form -->
                         <div id="xibo-cred-section" style="padding: 20px 24px; border-bottom: 1px solid #f0f4f8;">
                             <div style="font-size:0.8rem; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:14px;">
                                 Xibo API Credentials
                             </div>
                             <div class="form-group" style="margin-bottom:12px;">
-                                <label style="font-size:0.78rem; font-weight:600; color:#374151; display:block; margin-bottom:4px;">
-                                    Xibo CMS Base URL
-                                </label>
-                                <input type="url" class="form-control" id="xibo-base-url" 
-                                    placeholder="https://your-xibo-cms.com" 
-                                    style="font-size:0.85rem; font-family: monospace;">
-                                <small style="color:#94a3b8; font-size:0.7rem;">Include https://, no trailing slash needed</small>
+                                <label style="font-size:0.78rem; font-weight:600; color:#374151; display:block; margin-bottom:4px;">Xibo CMS Base URL</label>
+                                <input type="url" class="form-control" id="xibo-base-url" placeholder="https://your-xibo-cms.com">
+                                <small style="color:#94a3b8; font-size:0.7rem;">Include https://, no trailing slash</small>
                             </div>
                             <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
                                 <div class="form-group">
                                     <label style="font-size:0.78rem; font-weight:600; color:#374151; display:block; margin-bottom:4px;">Client ID</label>
-                                    <input type="text" class="form-control" id="xibo-client-id" 
-                                        placeholder="OAuth2 Client ID" style="font-family:monospace; font-size:0.82rem;">
+                                    <input type="text" class="form-control" id="xibo-client-id" placeholder="OAuth2 Client ID">
                                 </div>
                                 <div class="form-group">
                                     <label style="font-size:0.78rem; font-weight:600; color:#374151; display:block; margin-bottom:4px;">Client Secret</label>
-                                    <input type="password" class="form-control" id="xibo-client-secret" 
-                                        placeholder="••••••••••••" style="font-family:monospace; font-size:0.82rem;">
+                                    <input type="password" class="form-control" id="xibo-client-secret" placeholder="••••••••••••">
                                 </div>
                             </div>
-                            <button id="btn-xibo-connect" class="btn btn-primary" style="width:100%; margin-top:8px; font-weight:600;" 
-                                onclick="Views.partners.connectXibo()">
+                            <button id="btn-xibo-connect" class="btn btn-primary" style="width:100%; margin-top:8px; font-weight:600;" data-onclick="Views.partners.connectXibo">
                                 <i data-lucide="zap" style="width:14px; height:14px; margin-right:6px; vertical-align:middle;"></i>
                                 Connect &amp; Auto-Provision Xibo
                             </button>
                         </div>
 
-                        <!-- Live Provisioning Progress -->
                         <div id="xibo-progress-section" style="padding: 20px 24px; border-bottom: 1px solid #f0f4f8;">
-                            <div style="font-size:0.8rem; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:14px;">
-                                Provisioning Progress
-                            </div>
+                            <div style="font-size:0.8rem; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:14px;">Provisioning Progress</div>
                             <div id="xibo-steps-list" style="display:flex; flex-direction:column; gap:8px;">
-                                <!-- Steps rendered dynamically -->
-                                <div style="text-align:center; color:#94a3b8; font-size:0.8rem; padding:20px 0;">
-                                    Connect your Xibo account above to start provisioning.
-                                </div>
+                                <div style="text-align:center; color:#94a3b8; font-size:0.8rem; padding:20px 0;">Connect account to start provisioning.</div>
                             </div>
                         </div>
 
-                        <!-- Resource Summary -->
                         <div id="xibo-resources-section" style="padding: 20px 24px; display:none;">
-                            <div style="font-size:0.8rem; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:14px;">
-                                Provisioned Resources
-                            </div>
-                            <div id="xibo-resources-grid" style="display:grid; grid-template-columns: repeat(3, 1fr); gap:10px;">
-                                <!-- Resource cards rendered dynamically -->
-                            </div>
+                            <div style="font-size:0.8rem; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:14px;">Provisioned Resources</div>
+                            <div id="xibo-resources-grid" style="display:grid; grid-template-columns: repeat(3, 1fr); gap:10px;"></div>
                         </div>
-
                     </div>
 
                     <div class="modal-footer" style="justify-content:space-between; flex-wrap:wrap; gap:8px;">
                         <div style="display:flex; gap:8px;">
-                            <button class="btn btn-secondary btn-sm" id="btn-xibo-reprovision" style="display:none; font-size:0.75rem;" 
-                                onclick="Views.partners.reprovisionXibo(false)">
+                            <button class="btn btn-secondary btn-sm" id="btn-xibo-reprovision" style="display:none; font-size:0.75rem;" data-onclick="Views.partners.reprovisionXibo">
                                 <i data-lucide="refresh-cw" style="width:12px;"></i> Re-Provision
                             </button>
-                            <button class="btn btn-sm" id="btn-xibo-reset" style="display:none; background:#fee2e2; color:#b91c1c; border:none; font-size:0.75rem;" 
-                                onclick="Views.partners.reprovisionXibo(true)">
+                            <button class="btn btn-sm" id="btn-xibo-reset" style="display:none; background:#fee2e2; color:#b91c1c; border:none; font-size:0.75rem;" data-onclick="Views.partners.reprovisionXibo">
                                 <i data-lucide="alert-triangle" style="width:12px;"></i> Full Reset
                             </button>
-                            <button class="btn btn-sm" id="btn-xibo-disconnect" style="display:none; background:#fef2f2; color:#dc2626; border:1px solid #fecaca; font-size:0.75rem;" 
-                                onclick="Views.partners.disconnectXibo()">
+                            <button class="btn btn-sm" id="btn-xibo-disconnect" style="display:none; background:#fef2f2; color:#dc2626; border:1px solid #fecaca; font-size:0.75rem;" data-onclick="Views.partners.disconnectXibo">
                                 <i data-lucide="unlink" style="width:12px;"></i> Disconnect
                             </button>
                         </div>
-                        <button class="btn btn-secondary" onclick="Views.partners.closeXiboModal()">Close</button>
+                        <button type="button" class="btn btn-secondary" data-onclick="Views.partners.closeXiboModal">Close</button>
                     </div>
                 </div>
             </div>
         `;
     },
-
 
     async mount(container) {
         window.Views = window.Views || {};
@@ -271,118 +277,146 @@ App.registerView('partners', {
     },
 
     async loadPartners() {
-        const partners = await Api.get('/partners');
-        this.partnersData = partners;
-        const tbody = document.getElementById('partners-table-body');
-        if (!tbody) return;
-        tbody.innerHTML = '';
+        try {
+            const partners = await Api.get('/partners');
+            this.partnersData = partners || [];
+            const tbody = document.getElementById('partners-table-body');
+            if (!tbody) return;
+            tbody.innerHTML = '';
 
-        let totalScreens = 0;
-        let totalPaid = 0;
-        let pendingBal = 0;
+            let totalScreens = 0;
+            let totalPaid = 0;
+            let pendingBal = 0;
 
-        if (partners && partners.length > 0) {
-            partners.forEach(p => {
-                totalScreens += (p.screen_count || 0);
-                totalPaid += (p.total_paid || 0);
-                pendingBal += (p.pending_balance || 0);
+            if (this.partnersData.length > 0) {
+                this.partnersData.forEach(p => {
+                    totalScreens += (p.screen_count || 0);
+                    totalPaid += (p.total_paid || 0);
+                    pendingBal += (p.pending_balance || 0);
 
-                const tr = document.createElement('tr');
-                
-                const tdName = document.createElement('td');
-                tdName.style.fontWeight = '500';
-                tdName.innerHTML = `<div>${p.name}</div><div style="font-size:0.75rem; color:var(--text-muted);">${p.company || '-'}</div>`;
-                tr.appendChild(tdName);
+                    const tr = document.createElement('tr');
+                    tr.style.borderBottom = '1px solid #f1f5f9';
+                    
+                    // Details
+                    const tdName = document.createElement('td');
+                    tdName.innerHTML = `
+                        <div style="display:flex; align-items:center; gap:12px;">
+                            <div style="width:36px; height:36px; background:#f1f5f9; border-radius:10px; display:flex; align-items:center; justify-content:center; color:var(--accent); font-weight:800; font-size:0.9rem;">
+                                ${(p.name || 'P').charAt(0).toUpperCase()}
+                            </div>
+                            <div>
+                                <div style="font-weight:700; font-size:0.875rem; color:var(--text-primary);">${p.name}</div>
+                                <div style="font-size:0.72rem; color:var(--text-muted);">${p.company || 'No Company'}</div>
+                            </div>
+                        </div>
+                    `;
+                    tr.appendChild(tdName);
 
-                const tdScreens = document.createElement('td');
-                tdScreens.innerHTML = `
-                    <div style="display:flex; align-items:center; gap:8px;">
-                        <span style="font-weight:700; color:var(--accent);">${p.screen_count || 0}</span>
-                        <button class="btn-text" style="font-size:0.65rem;" onclick="Views.partners.showAssignModal(${p.id})">Manage</button>
-                    </div>
-                `;
-                tr.appendChild(tdScreens);
+                    // Screens
+                    const tdScreens = document.createElement('td');
+                    const screenCount = p.screen_count || 0;
+                    const screenWrap = document.createElement('div');
+                    screenWrap.style.display = 'flex';
+                    screenWrap.style.alignItems = 'center';
+                    screenWrap.style.gap = '10px';
+                    screenWrap.innerHTML = `<span style="background:rgba(37, 99, 235, 0.1); color:var(--accent); width:24px; height:24px; display:flex; align-items:center; justify-content:center; border-radius:6px; font-weight:800; font-size:0.75rem;">${screenCount}</span>`;
+                    
+                    const manageBtn = document.createElement('button');
+                    manageBtn.className = 'btn-text';
+                    manageBtn.style.cssText = 'font-size:0.7rem; font-weight:700; color:var(--accent); background:none; border:none; cursor:pointer; padding:4px 8px; border-radius:4px;';
+                    manageBtn.textContent = 'Manage';
+                    manageBtn.onclick = () => this.showAssignModal(p.id);
+                    screenWrap.appendChild(manageBtn);
+                    tdScreens.appendChild(screenWrap);
+                    tr.appendChild(tdScreens);
 
-                const tdRev = document.createElement('td');
-                tdRev.textContent = `${p.revenue_share_percentage}%`;
-                tr.appendChild(tdRev);
+                    // Rev Share
+                    const tdRev = document.createElement('td');
+                    tdRev.innerHTML = `<span style="font-weight:600; font-size:0.85rem;">${p.revenue_share_percentage}%</span>`;
+                    tr.appendChild(tdRev);
 
-                const tdPaid = document.createElement('td');
-                tdPaid.style.fontWeight = '600';
-                tdPaid.textContent = `₹${(p.total_paid || 0).toLocaleString()}`;
-                tr.appendChild(tdPaid);
+                    // Paid
+                    const tdPaid = document.createElement('td');
+                    tdPaid.style.fontWeight = '600';
+                    tdPaid.textContent = `₹${(p.total_paid || 0).toLocaleString()}`;
+                    tr.appendChild(tdPaid);
 
-                const tdBal = document.createElement('td');
-                tdBal.style.fontWeight = '700';
-                tdBal.style.color = (p.pending_balance > 0) ? 'var(--warning-dark)' : 'inherit';
-                tdBal.textContent = `₹${(p.pending_balance || 0).toLocaleString()}`;
-                tr.appendChild(tdBal);
+                    // Balance
+                    const tdBal = document.createElement('td');
+                    tdBal.style.fontWeight = '700';
+                    tdBal.style.color = (p.pending_balance > 0) ? '#ea580c' : 'var(--text-primary)';
+                    tdBal.textContent = `₹${(p.pending_balance || 0).toLocaleString()}`;
+                    tr.appendChild(tdBal);
 
-                const tdStatus = document.createElement('td');
-                const badgeClass = p.status.toLowerCase() === 'active' ? 'paid' : (p.status.toLowerCase() === 'pending' ? 'pending' : 'cancelled');
-                tdStatus.innerHTML = `<span class="badge ${badgeClass}">${p.status}</span>`;
-                tr.appendChild(tdStatus);
+                    // Status
+                    const tdStatus = document.createElement('td');
+                    const status = (p.status || 'Active').toLowerCase();
+                    const badgeStyle = status === 'active' ? 'background:#dcfce7; color:#15803d;' : (status === 'pending' ? 'background:#fef9c3; color:#854d0e;' : 'background:#fee2e2; color:#991b1b;');
+                    tdStatus.innerHTML = `<span style="${badgeStyle} padding:4px 10px; border-radius:20px; font-size:0.65rem; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">${p.status}</span>`;
+                    tr.appendChild(tdStatus);
 
-                const tdActions = document.createElement('td');
-                tdActions.style.textAlign = 'right';
-                
-                // Status Toggle Buttons
-                if (p.status === 'Pending' || p.status === 'Disabled') {
-                    const appBtn = document.createElement('button');
-                    appBtn.className = 'icon-btn';
-                    appBtn.style.color = '#10b981';
-                    appBtn.title = 'Approve Partner';
-                    appBtn.onclick = () => this.updateStatus(p.id, 'approve');
-                    appBtn.innerHTML = '<i data-lucide="check"></i>';
-                    tdActions.appendChild(appBtn);
-                }
-                if (p.status === 'Active') {
-                    const disBtn = document.createElement('button');
-                    disBtn.className = 'icon-btn';
-                    disBtn.style.color = '#f59e0b';
-                    disBtn.title = 'Disable Partner';
-                    disBtn.onclick = () => this.updateStatus(p.id, 'disable');
-                    disBtn.innerHTML = '<i data-lucide="slash"></i>';
-                    tdActions.appendChild(disBtn);
-                }
+                    // Actions
+                    const tdActions = document.createElement('td');
+                    tdActions.style.textAlign = 'right';
+                    tdActions.style.paddingRight = '20px';
+                    
+                    const actionWrap = document.createElement('div');
+                    actionWrap.style.display = 'flex';
+                    actionWrap.style.justifyContent = 'flex-end';
+                    actionWrap.style.gap = '6px';
 
-                const editBtn = document.createElement('button');
-                editBtn.className = 'icon-btn';
-                editBtn.title = 'Edit Partner';
-                editBtn.onclick = () => this.showModal(p.id);
-                editBtn.innerHTML = '<i data-lucide="edit-2"></i>';
-                tdActions.appendChild(editBtn);
+                    if (p.status === 'Pending' || p.status === 'Disabled') {
+                        actionWrap.appendChild(this._createActionBtn('check', '#10b981', 'Approve', () => this.updateStatus(p.id, 'approve')));
+                    } else {
+                        actionWrap.appendChild(this._createActionBtn('slash', '#f59e0b', 'Disable', () => this.updateStatus(p.id, 'disable')));
+                    }
 
-                const xiboBtn = document.createElement('button');
-                xiboBtn.className = 'icon-btn';
-                xiboBtn.title = 'Xibo Integration';
-                const isProvisioned = p.xibo_provision_status === 'active';
-                const hasError = p.xibo_provision_status === 'error';
-                xiboBtn.style.color = isProvisioned ? '#10b981' : (hasError ? '#ef4444' : '#6366f1');
-                xiboBtn.onclick = () => this.showXiboModal(p.id);
-                xiboBtn.innerHTML = '<i data-lucide="zap"></i>';
-                tdActions.appendChild(xiboBtn);
+                    actionWrap.appendChild(this._createActionBtn('edit-2', 'var(--accent)', 'Edit', () => this.showModal(p.id)));
+                    
+                    const isProvisioned = p.xibo_provision_status === 'active';
+                    const hasError = p.xibo_provision_status === 'error';
+                    actionWrap.appendChild(this._createActionBtn('zap', isProvisioned ? '#10b981' : (hasError ? '#ef4444' : '#6366f1'), 'Xibo Integration', () => this.showXiboModal(p.id)));
+                    
+                    actionWrap.appendChild(this._createActionBtn('trash-2', '#ef4444', 'Delete', () => this.deletePartner(p.id)));
 
-                const deleteBtn = document.createElement('button');
-                deleteBtn.className = 'icon-btn';
-                deleteBtn.style.color = '#ef4444';
-                deleteBtn.title = 'Delete Partner';
-                deleteBtn.onclick = () => this.deletePartner(p.id);
-                deleteBtn.innerHTML = '<i data-lucide="trash-2"></i>';
-                tdActions.appendChild(deleteBtn);
+                    tdActions.appendChild(actionWrap);
+                    tr.appendChild(tdActions);
+                    tbody.appendChild(tr);
+                });
+            } else {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 50px;">No partners found.</td></tr>';
+            }
 
-                tr.appendChild(tdActions);
-                tbody.appendChild(tr);
-            });
+            // Update KPIs
+            document.getElementById('kpi-total-partners').textContent = this.partnersData.length;
+            document.getElementById('kpi-total-paid').textContent = `₹${totalPaid.toLocaleString()}`;
+            document.getElementById('kpi-pending-payouts').textContent = `₹${pendingBal.toLocaleString()}`;
+            document.getElementById('kpi-total-screens').textContent = totalScreens;
+            lucide.createIcons();
+        } catch (err) {
+            console.error('[Partners] Load failed:', err);
         }
-
-        // Update KPIs
-        document.getElementById('kpi-total-partners').textContent = partners.length;
-        document.getElementById('kpi-total-paid').textContent = `₹${totalPaid.toLocaleString()}`;
-        document.getElementById('kpi-pending-payouts').textContent = `₹${pendingBal.toLocaleString()}`;
-        document.getElementById('kpi-total-screens').textContent = totalScreens;
     },
 
+    _createActionBtn(icon, color, title, callback) {
+        const btn = document.createElement('button');
+        btn.className = 'icon-btn';
+        btn.style.width = '30px';
+        btn.style.height = '30px';
+        btn.style.display = 'flex';
+        btn.style.alignItems = 'center';
+        btn.style.justifyContent = 'center';
+        btn.style.borderRadius = '8px';
+        btn.style.color = color;
+        btn.title = title;
+        btn.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            callback();
+        };
+        btn.innerHTML = `<i data-lucide="${icon}" style="width:14px; height:14px;"></i>`;
+        return btn;
+    },
 
     async updateStatus(id, action) {
         const msg = action === 'approve' ? 'Approve and activate this partner?' : 'Disable this partner? They will lose access to the portal.';
@@ -398,27 +432,49 @@ App.registerView('partners', {
     },
 
     async loadPayouts() {
-        const payouts = await Api.get('/partners/payouts/pending');
-        const tbody = document.getElementById('payouts-table-body');
-        if (!tbody) return;
-        tbody.innerHTML = '';
+        try {
+            const payouts = await Api.get('/partners/payouts/pending');
+            const tbody = document.getElementById('payouts-table-body');
+            if (!tbody) return;
+            tbody.innerHTML = '';
 
-        if (payouts && payouts.length > 0) {
-            payouts.forEach(p => {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td style="font-weight:600;">${p.partner_name || 'Unknown'}</td>
-                    <td>${p.month}</td>
-                    <td style="font-weight:700; color:var(--accent);">₹${(p.amount || 0).toLocaleString()}</td>
-                    <td style="font-size:0.75rem; color:var(--text-muted);">${new Date(p.created_at).toLocaleDateString()}</td>
-                    <td style="text-align:right;">
-                        <button class="btn btn-primary btn-sm" style="padding:4px 12px; font-size:0.7rem;" onclick="Views.partners.approvePayout(${p.id})">Approve & Pay</button>
-                    </td>
-                `;
-                tbody.appendChild(tr);
-            });
-        } else {
-            tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding:30px;">No pending settlement requests.</td></tr>';
+            if (payouts && payouts.length > 0) {
+                payouts.forEach(p => {
+                    const tr = document.createElement('tr');
+                    
+                    const tdName = document.createElement('td');
+                    tdName.style.fontWeight = '600';
+                    tdName.textContent = p.partner_name || 'Unknown';
+                    tr.appendChild(tdName);
+
+                    const tdMonth = document.createElement('td');
+                    tdMonth.textContent = p.month;
+                    tr.appendChild(tdMonth);
+
+                    const tdAmt = document.createElement('td');
+                    tdAmt.style.fontWeight = '700';
+                    tdAmt.style.color = 'var(--accent)';
+                    tdAmt.textContent = `₹${(p.amount || 0).toLocaleString()}`;
+                    tr.appendChild(tdAmt);
+
+                    const tdAction = document.createElement('td');
+                    tdAction.style.textAlign = 'right';
+                    const btn = document.createElement('button');
+                    btn.className = 'btn btn-primary btn-sm';
+                    btn.style.padding = '4px 12px';
+                    btn.style.fontSize = '0.7rem';
+                    btn.textContent = 'Approve & Pay';
+                    btn.onclick = () => this.approvePayout(p.id);
+                    tdAction.appendChild(btn);
+                    tr.appendChild(tdAction);
+
+                    tbody.appendChild(tr);
+                });
+            } else {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-muted); padding:30px;">No pending settlement requests.</td></tr>';
+            }
+        } catch (err) {
+            console.error('[Payouts] Load failed:', err);
         }
     },
 
@@ -435,6 +491,7 @@ App.registerView('partners', {
     },
 
     showModal(id = null) {
+        if (id && typeof id === 'object' && id.target) id = null; // ignore event objects
         this.editingId = id;
         const modal = document.getElementById('partner-modal');
         const title = document.getElementById('partner-modal-title');
@@ -461,12 +518,20 @@ App.registerView('partners', {
         modal.classList.add('active');
     },
 
-    closeModal() {
+    closeModal(e) {
+        if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
         document.getElementById('partner-modal').classList.remove('active');
         this.editingId = null;
     },
 
-    async submitPartner() {
+    async submitPartner(e) {
+        if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
         const payload = {
             name: document.getElementById('partner-name').value,
             company: document.getElementById('partner-company').value,
@@ -506,9 +571,6 @@ App.registerView('partners', {
         }
     },
 
-
-    // ── Screen Assignment ───────────────────────────────────────────────────
-    
     async showAssignModal(partnerId) {
         this.assigningId = partnerId;
         const partner = this.partnersData.find(p => p.id === partnerId);
@@ -572,16 +634,31 @@ App.registerView('partners', {
         }
     },
 
-    closeAssignModal() {
+    closeAssignModal(e) {
+        if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
         document.getElementById('assign-screens-modal').classList.remove('active');
         this.assigningId = null;
     },
 
-    async submitAssignment() {
+    async submitAssignment(e) {
+        if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
         const btn = document.getElementById('btn-confirm-assignment');
         const checkboxes = document.querySelectorAll('.screen-checkbox:checked');
-        const screenIds = Array.from(checkboxes).map(cb => parseInt(cb.value, 10));
+        const screenIds = Array.from(checkboxes)
+            .map(cb => parseInt(cb.value, 10))
+            .filter(id => !isNaN(id));
         
+        if (!this.assigningId) {
+            App.showToast('No partner selected for assignment', 'error');
+            return;
+        }
+
         btn.disabled = true;
         btn.textContent = 'Saving...';
 
@@ -600,44 +677,36 @@ App.registerView('partners', {
         }
     },
 
-    // ─── XIBO INTEGRATION PANEL ──────────────────────────────────────────────
-
     _xiboPollingInterval: null,
     _xiboPartnerId: null,
 
-    /**
-     * Open the Xibo Integration modal for a specific partner.
-     */
     async showXiboModal(partnerId) {
         this._xiboPartnerId = partnerId;
         const modal = document.getElementById('xibo-setup-modal');
         modal.classList.add('active');
         lucide.createIcons();
-
-        // Pre-fill existing credentials and status
         await this._loadXiboStatus();
     },
 
-    closeXiboModal() {
+    closeXiboModal(e) {
+        if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
         document.getElementById('xibo-setup-modal').classList.remove('active');
         this._stopPolling();
         this._xiboPartnerId = null;
     },
 
-    /**
-     * Load current Xibo status and render the panel accordingly.
-     */
     async _loadXiboStatus() {
         if (!this._xiboPartnerId) return;
         try {
-            // Load status
             const status = await fetch(`/admin/api/partners/${this._xiboPartnerId}/xibo/status`, {
                 credentials: 'include'
             }).then(r => r.json());
 
             this._renderXiboStatus(status);
 
-            // Load resources if active
             if (status.status === 'active') {
                 const resources = await fetch(`/admin/api/partners/${this._xiboPartnerId}/xibo/resources`, {
                     credentials: 'include'
@@ -645,7 +714,6 @@ App.registerView('partners', {
                 this._renderResources(resources);
             }
 
-            // Auto-poll if provisioning is in progress
             if (status.status === 'provisioning') {
                 this._startPolling();
             }
@@ -654,29 +722,23 @@ App.registerView('partners', {
         }
     },
 
-    /**
-     * Render the modal UI based on current provisioning status.
-     */
     _renderXiboStatus(status) {
         const banner = document.getElementById('xibo-status-banner');
         const btnsReprovision = document.getElementById('btn-xibo-reprovision');
         const btnsReset = document.getElementById('btn-xibo-reset');
         const btnsDisconnect = document.getElementById('btn-xibo-disconnect');
-        const credSection = document.getElementById('xibo-cred-section');
         const resourceSection = document.getElementById('xibo-resources-section');
 
-        // Pre-fill URL if available
         if (status.xibo_base_url) {
             const urlInput = document.getElementById('xibo-base-url');
             if (urlInput && !urlInput.value) urlInput.value = status.xibo_base_url;
         }
 
-        // Status banner
         if (status.status === 'active') {
             banner.style.display = 'block';
             banner.style.background = '#dcfce7';
             banner.style.color = '#15803d';
-            banner.innerHTML = `✅ Xibo provisioned &amp; active — <span style="font-weight:400;">${status.xibo_base_url}</span>`;
+            banner.innerHTML = `✅ Xibo provisioned & active — <span style="font-weight:400;">${status.xibo_base_url}</span>`;
             [btnsReprovision, btnsReset, btnsDisconnect].forEach(b => b && (b.style.display = 'inline-flex'));
             resourceSection.style.display = 'block';
         } else if (status.status === 'provisioning') {
@@ -697,11 +759,9 @@ App.registerView('partners', {
             [btnsReprovision, btnsReset, btnsDisconnect].forEach(b => b && (b.style.display = 'none'));
         }
 
-        // Render steps
         if (status.steps && status.steps.length > 0) {
             this._renderSteps(status.steps);
         }
-
         lucide.createIcons();
     },
 
@@ -726,14 +786,9 @@ App.registerView('partners', {
         error: 'x-circle'
     },
 
-    /**
-     * Render provisioning step list with ✅/⏳/❌ icons.
-     */
     _renderSteps(steps) {
         const container = document.getElementById('xibo-steps-list');
         if (!container) return;
-
-        // Deduplicate: keep last entry per step name
         const stepMap = new Map();
         for (const s of steps) stepMap.set(s.step, s);
         const deduped = [...stepMap.values()];
@@ -742,10 +797,8 @@ App.registerView('partners', {
             const isOk = s.status === 'ok';
             const isErr = s.status === 'error';
             const isRunning = s.status === 'running';
-            const icon = this._STEP_ICONS[s.step] || 'circle';
             const label = this._STEP_LABELS[s.step] || s.step;
             const bg = isOk ? '#f0fdf4' : (isErr ? '#fef2f2' : (isRunning ? '#fffbeb' : '#f8fafc'));
-            const iconColor = isOk ? '#16a34a' : (isErr ? '#dc2626' : (isRunning ? '#d97706' : '#94a3b8'));
             const emoji = isOk ? '✅' : (isErr ? '❌' : (isRunning ? '⏳' : '○'));
             return `
                 <div style="display:flex; align-items:center; gap:12px; padding:10px 14px; background:${bg}; border-radius:8px; border:1px solid ${isOk ? '#bbf7d0' : (isErr ? '#fecaca' : '#f1f5f9')};">
@@ -760,14 +813,10 @@ App.registerView('partners', {
         }).join('');
     },
 
-    /**
-     * Render resource cards (Folder, Display Group, Layout, etc.)
-     */
     _renderResources(data) {
         const section = document.getElementById('xibo-resources-section');
         const grid = document.getElementById('xibo-resources-grid');
         if (!grid) return;
-
         const resources = data.resources || [];
         if (resources.length === 0) {
             section.style.display = 'none';
@@ -775,12 +824,9 @@ App.registerView('partners', {
         }
 
         const typeIcons = {
-            folder: 'folder', 
-            display_group: 'monitor',
-            layout: 'layout', 
-            playlist: 'list',
-            campaign: 'megaphone', 
-            schedule: 'calendar'
+            folder: 'folder', display_group: 'monitor',
+            layout: 'layout', playlist: 'list',
+            campaign: 'megaphone', schedule: 'calendar'
         };
         const typeColors = {
             folder: '#6366f1', display_group: '#0ea5e9',
@@ -803,21 +849,17 @@ App.registerView('partners', {
                 </div>
             `;
         }).join('');
-
         section.style.display = 'block';
         lucide.createIcons();
     },
 
-    /**
-     * Submit credentials and start provisioning.
-     */
     async connectXibo() {
         const url = document.getElementById('xibo-base-url')?.value?.trim();
         const id = document.getElementById('xibo-client-id')?.value?.trim();
         const secret = document.getElementById('xibo-client-secret')?.value?.trim();
 
         if (!url || !id || !secret) {
-            App.showToast('All three fields (URL, Client ID, Secret) are required.', 'error');
+            App.showToast('All fields are required.', 'error');
             return;
         }
 
@@ -830,18 +872,12 @@ App.registerView('partners', {
                 method: 'POST',
                 credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    xibo_base_url: url,
-                    client_id: id,
-                    client_secret: secret
-                })
+                body: JSON.stringify({ xibo_base_url: url, client_id: id, client_secret: secret })
             }).then(r => r.json());
 
             if (res.error) throw new Error(res.error);
-
-            App.showToast('Provisioning started! Monitoring progress...', 'success');
+            App.showToast('Provisioning started!', 'success');
             this._startPolling();
-            // Immediately refresh status display
             await this._loadXiboStatus();
         } catch (err) {
             App.showToast('Connection failed: ' + err.message, 'error');
@@ -852,9 +888,6 @@ App.registerView('partners', {
         }
     },
 
-    /**
-     * Start polling the provisioning status every 3 seconds.
-     */
     _startPolling() {
         this._stopPolling();
         this._xiboPollingInterval = setInterval(async () => {
@@ -868,11 +901,8 @@ App.registerView('partners', {
                     this._stopPolling();
                     if (status.status === 'active') {
                         App.showToast('🎉 Xibo successfully provisioned!', 'success');
-                        const resources = await fetch(`/admin/api/partners/${this._xiboPartnerId}/xibo/resources`, {
-                            credentials: 'include'
-                        }).then(r => r.json());
-                        this._renderResources(resources);
-                        await this.loadPartners(); // Refresh the table (update ⚡ icon color)
+                        await this._loadXiboStatus();
+                        await this.loadPartners();
                     }
                 }
             } catch (e) {
@@ -889,11 +919,8 @@ App.registerView('partners', {
     },
 
     async reprovisionXibo(reset = false) {
-        const msg = reset
-            ? 'Full reset will DELETE all stored Xibo resource IDs and re-create everything from scratch. Continue?'
-            : 'Re-provision will check for missing resources and create only what\'s needed. Continue?';
+        const msg = reset ? 'Full reset will re-create everything. Continue?' : 'Re-provision will check for missing resources. Continue?';
         if (!await App.showConfirm(msg)) return;
-
         try {
             await fetch(`/admin/api/partners/${this._xiboPartnerId}/xibo/reprovision`, {
                 method: 'POST',
@@ -902,8 +929,7 @@ App.registerView('partners', {
                 body: JSON.stringify({ reset })
             }).then(r => r.json());
 
-            App.showToast(reset ? 'Full reset provisioning started' : 'Re-provision started', 'success');
-            document.getElementById('xibo-resources-section').style.display = 'none';
+            App.showToast('Provisioning started', 'success');
             this._startPolling();
             await this._loadXiboStatus();
         } catch (err) {
@@ -912,7 +938,7 @@ App.registerView('partners', {
     },
 
     async disconnectXibo() {
-        if (!await App.showConfirm('Disconnect Xibo? This removes all stored credentials and resource IDs from this app (does NOT delete resources from Xibo itself).')) return;
+        if (!await App.showConfirm('Disconnect Xibo?')) return;
         try {
             await fetch(`/admin/api/partners/${this._xiboPartnerId}/xibo/disconnect`, {
                 method: 'DELETE',
@@ -927,4 +953,3 @@ App.registerView('partners', {
         }
     }
 });
-

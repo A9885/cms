@@ -444,7 +444,11 @@ async function openBrandModal(slot) {
     }
 }
 
-function closeBrandModal() {
+function closeBrandModal(e) {
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
     document.getElementById('brand-assign-modal').style.display = 'none';
     assignSlotId = null;
 }
@@ -581,7 +585,11 @@ async function openLinkModal(mediaId, slotId) {
     }
 }
 
-function closeLinkModal() {
+function closeLinkModal(e) {
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
     document.getElementById('brand-link-modal').style.display = 'none';
     uploadedMediaIdToLink = null;
 }

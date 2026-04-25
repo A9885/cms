@@ -82,6 +82,11 @@ App.registerView('inventory', {
         .inv-slot-plays { font-size: 0.68rem; color: var(--accent); font-weight: 700; margin-top: auto; padding-top: 4px; }
         .inv-slot-reserved { border-left: 3px solid var(--accent); }
 
+        /* Orientation variants */
+        .inv-slot-grid.portrait { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
+        .inv-slot-card.portrait { aspect-ratio: 9 / 16; min-height: 180px; }
+        .inv-slot-card.portrait .inv-thumb-wrap { height: 140px !important; }
+
         /* PoP stats strip */
         .inv-pop-stats {
             display: grid; grid-template-columns: repeat(3, 1fr);
@@ -201,7 +206,7 @@ App.registerView('inventory', {
 
         <!-- Breadcrumb -->
         <div class="inv-breadcrumb" id="inv-breadcrumb">
-            <a onclick="window.InvView.goTo('screens')">Inventory</a>
+            <a data-onclick="window.InvView.goTo">Inventory</a>
         </div>
 
         <!-- PANEL: Screens -->
@@ -215,8 +220,8 @@ App.registerView('inventory', {
                     <div class="inv-card-actions">
                         <span class="inv-sync-badge" id="inv-sync-badge">🔄 Auto-sync every 1 min</span>
                         <input type="text" id="inv-search" placeholder="🔍 Search screens..." style="padding:5px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:0.75rem;width:170px;outline:none;">
-                        <button class="btn btn-secondary" style="font-size:0.72rem;" onclick="window.InvView.loadScreens()">↻ Refresh</button>
-                        <button id="inv-sync-all-btn" class="btn btn-primary" style="background:linear-gradient(135deg,#2ea44f,#1a7f37);font-size:0.72rem;" onclick="window.InvView.forceSyncAll()">⚡ Force Sync All</button>
+                        <button class="btn btn-secondary" style="font-size:0.72rem;" data-action="refresh">↻ Refresh</button>
+                        <button id="inv-sync-all-btn" class="btn btn-primary" style="background:linear-gradient(135deg,#2ea44f,#1a7f37);font-size:0.72rem;" data-action="sync-all">⚡ Force Sync All</button>
                     </div>
                 </div>
                 <div id="inv-screens-wrap">
@@ -233,7 +238,7 @@ App.registerView('inventory', {
                         <h3 id="inv-slots-title">Slots</h3>
                         <div style="font-size:0.75rem;color:#718096;margin-top:3px;" id="inv-slots-subtitle">Click a slot to view Proof of Play</div>
                     </div>
-                    <button class="inv-btn-back" onclick="window.InvView.goTo('screens')">← Back</button>
+                    <button class="inv-btn-back" data-go="screens">← Back</button>
                 </div>
                 <div class="inv-slot-grid" id="inv-slot-grid">
                     <div class="inv-loading">Loading slots...</div>
@@ -260,6 +265,9 @@ App.registerView('inventory', {
 
     async mount(container) {
         window.InvView = this;
+        const header = document.getElementById('dynamic-header-title');
+        if (header) header.innerText = 'Admin Command Center';
+
         this._navStack = 'screens';
         this._selectedScreen = null;
         this._selectedMedia = null;
@@ -269,15 +277,75 @@ App.registerView('inventory', {
         ]);
         this._startAutoSync();
         lucide.createIcons();
+
+        // Use event delegation for better reliability
+        container.onclick = (e) => {
+            // Actions (Refresh, Sync All)
+            const actionBtn = e.target.closest('[data-action]');
+            if (actionBtn) {
+                e.preventDefault();
+                const action = actionBtn.getAttribute('data-action');
+                if (action === 'refresh') this.loadScreens();
+                if (action === 'sync-all') this.forceSyncAll();
+                return;
+            }
+
+            // Screen select
+            const selectBtn = e.target.closest('.btn-select-screen');
+            if (selectBtn) {
+                e.preventDefault();
+                const id = selectBtn.getAttribute('data-id');
+                if (id && id !== 'null' && id !== 'undefined') {
+                    this.selectScreen(id);
+                }
+                return;
+            }
+
+            // Back button
+            const backBtn = e.target.closest('[data-go]');
+            if (backBtn) {
+                e.preventDefault();
+                this.goTo(backBtn.getAttribute('data-go'));
+                return;
+            }
+
+            // Slot select
+            const slotCard = e.target.closest('.inv-slot-card');
+            if (slotCard && slotCard.getAttribute('data-slot')) {
+                e.preventDefault();
+                const slotIndex = parseInt(slotCard.getAttribute('data-slot'));
+                const mediaStr = slotCard.getAttribute('data-media');
+                if (mediaStr) {
+                    try {
+                        const media = JSON.parse(decodeURIComponent(mediaStr));
+                        this.selectMedia(slotIndex, media);
+                    } catch (err) { console.error('Failed to parse media data:', err); }
+                }
+                return;
+            }
+        };
     },
 
     // ── View Navigation ──────────────────────────────────────────────────────
     goTo(view) {
-        document.getElementById('inv-view-screens').style.display = (view === 'screens') ? '' : 'none';
-        document.getElementById('inv-view-slots').style.display   = (view === 'slots')   ? '' : 'none';
-        document.getElementById('inv-view-pop').style.display     = (view === 'pop')     ? '' : 'none';
-        this._navStack = view;
-        this._updateBreadcrumb();
+        try {
+            const screensEl = document.getElementById('inv-view-screens');
+            const slotsEl = document.getElementById('inv-view-slots');
+            const popEl = document.getElementById('inv-view-pop');
+
+            if (screensEl) screensEl.style.display = (view === 'screens') ? '' : 'none';
+            if (slotsEl)   slotsEl.style.display   = (view === 'slots')   ? '' : 'none';
+            if (popEl)     popEl.style.display     = (view === 'pop')     ? '' : 'none';
+
+            console.log('[InvView] Navigating to:', view);
+            this._navStack = view;
+            this._updateBreadcrumb();
+        } catch (err) {
+            console.error('[InvView] goTo error:', err);
+            App.showToast('Navigation error: ' + err.message, 'error');
+        }
+
+        // Start per-view auto-refresh
 
         // Start per-view auto-refresh
         clearInterval(this._popRefreshTimer);
@@ -291,15 +359,16 @@ App.registerView('inventory', {
     },
 
     _updateBreadcrumb() {
-        let html = '<a onclick="InvView.goTo(\'screens\')">Inventory</a>';
+        let html = '<a data-onclick="window.InvView.goTo">Inventory</a>';
         if (this._selectedScreen) {
-            html += ' <span class="sep">›</span> <a onclick="InvView.goTo(\'slots\')">' + this._esc(this._selectedScreen.name) + '</a>';
+            html += ' <span class="sep">›</span> <a data-onclick="window.InvView.goTo">' + this._esc(this._selectedScreen.name) + '</a>';
         }
         if (this._selectedMedia && this._navStack === 'pop') {
             const mName = (this._selectedMedia.name || 'Media').replace(/^Slot_\d+_\d+_/, '');
             html += ' <span class="sep">›</span> <span>' + this._esc(mName) + '</span>';
         }
-        document.getElementById('inv-breadcrumb').innerHTML = html;
+        const bc = document.getElementById('inv-breadcrumb');
+        if (bc) bc.innerHTML = html;
     },
 
     showTooltip(e, dId) {
@@ -429,7 +498,7 @@ App.registerView('inventory', {
                 let locHtml = '—';
                 if (d.lat && d.lng) {
                     const mUrl = 'https://maps.google.com/?q=' + d.lat + ',' + d.lng;
-                    locHtml = '<a class="inv-loc-link" href="' + mUrl + '" target="_blank" onclick="event.stopPropagation()">📍 ' + d.lat.toFixed(4) + ', ' + d.lng.toFixed(4) + '</a>';
+                    locHtml = '<a class="inv-loc-link" href="' + mUrl + '" target="_blank" data-onclick="event.stopPropagation">📍 ' + d.lat.toFixed(4) + ', ' + d.lng.toFixed(4) + '</a>';
                 } else if (d.address) {
                     locHtml = this._esc(d.address);
                 }
@@ -458,7 +527,7 @@ App.registerView('inventory', {
                         <div style="font-size:0.68rem;color:#94a3b8;margin-top:2px;">${pct}% used</div>
                     </td>
                     <td>
-                        <button class="btn btn-primary" style="font-size:0.72rem;" onclick="window.InvView.selectScreen('${dId}')">View Slots →</button>
+                        <button class="btn btn-primary btn-select-screen" style="font-size:0.72rem; position:relative; z-index:10;" data-id="${dId}">View Slots →</button>
                     </td>
                 </tr>`;
             }
@@ -491,14 +560,30 @@ App.registerView('inventory', {
 
     // ── Select Screen → Show Slots ────────────────────────────────────────────
     async selectScreen(displayId) {
+        console.log('[InvView] selectScreen triggered for ID:', displayId);
+        
+        if (!this._screens || !this._screens[displayId]) {
+            console.error('[InvView] Screen data missing for ID:', displayId);
+            App.showToast('Screen data not loaded. Please refresh.', 'error');
+            return;
+        }
+
         this._selectedScreen = { id: displayId, ...this._screens[displayId] };
         this.goTo('slots');
 
+        // Detect Portrait (e.g. 1080x1920)
+        const resolution = this._selectedScreen.resolution || "";
+        const parts = resolution.toLowerCase().split('x');
+        const isPortrait = parts.length === 2 && parseInt(parts[1]) > parseInt(parts[0]);
+
         const titleEl = document.getElementById('inv-slots-title');
-        if (titleEl) titleEl.textContent = this._selectedScreen.name + ' — Slots';
+        if (titleEl) titleEl.textContent = (this._selectedScreen.name || 'Screen') + ' — Slots';
 
         const grid = document.getElementById('inv-slot-grid');
-        if (grid) grid.innerHTML = '<div class="inv-loading">Loading slots...</div>';
+        if (grid) {
+            grid.innerHTML = '<div class="inv-loading">Loading slots...</div>';
+            grid.classList.toggle('portrait', isPortrait);
+        }
 
         try {
             const res = await fetch('/xibo/slots/display/' + displayId + '?t=' + Date.now());
@@ -516,11 +601,17 @@ App.registerView('inventory', {
                     const thumbUrl = `/xibo/proxy/thumbnail/${m.mediaId}`;
                     const durDisplay = m.duration ? m.duration + 's' : '—';
                     
+                    const mediaData = encodeURIComponent(JSON.stringify(m));
+                    const fallbackIcon = m.type === 'video' ? 'film' : 'image';
                     html += `
-                    <div class="inv-slot-card inv-slot-reserved" onclick="window.InvView.selectMedia(${i}, ${JSON.stringify(m).replace(/"/g, '&quot;')})" style="background: white; border-radius: 12px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);">
-                        <div style="position: relative; height: 80px; margin: -12px -12px 10px -12px; background: #e2e8f0; border-bottom: 1px solid #f1f5f9;">
-                            <img src="${thumbUrl}" style="width: 100%; height: 100%; object-fit: cover; border-radius: 10px 10px 0 0;">
-                            <div style="position: absolute; bottom: 4px; right: 4px; background: rgba(0,0,0,0.6); color: white; font-size: 0.6rem; padding: 1px 4px; border-radius: 4px;">${durDisplay}</div>
+                    <div class="inv-slot-card inv-slot-reserved ${isPortrait ? 'portrait' : ''}" 
+                         data-slot="${i}" 
+                         data-media="${mediaData}"
+                         style="background: white; border-radius: 12px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);">
+                        <div class="inv-thumb-wrap" style="position: relative; height: 80px; margin: -12px -12px 10px -12px; background: #f1f5f9; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 10px 10px 0 0;">
+                            <i data-lucide="${fallbackIcon}" style="color: #cbd5e1; width: 32px; height: 32px; position: absolute;"></i>
+                            <img src="${thumbUrl}" onerror="this.onerror=null; this.style.display='none';" style="position: relative; z-index: 2; width: 100%; height: 100%; object-fit: cover; border-radius: 10px 10px 0 0;">
+                            <div style="position: absolute; z-index: 3; bottom: 4px; right: 4px; background: rgba(0,0,0,0.6); color: white; font-size: 0.6rem; padding: 1px 4px; border-radius: 4px;">${durDisplay}</div>
                         </div>
                         <div class="inv-slot-num">Slot ${i}</div>
                         <div class="inv-slot-name" style="color: #1e293b; font-size: 0.8rem; margin-top: 4px;" title="${this._esc(name)}">${this._esc(name)}</div>
@@ -530,7 +621,7 @@ App.registerView('inventory', {
                     </div>`;
                 } else {
                     html += `
-                    <div class="inv-slot-card empty" style="border-style: dashed; background: #f8fafc; border-color: #cbd5e1;">
+                    <div class="inv-slot-card empty ${isPortrait ? 'portrait' : ''}" style="border-style: dashed; background: #f8fafc; border-color: #cbd5e1;">
                         <div class="inv-slot-num">Slot ${i}</div>
                         <div class="inv-slot-name" style="color:#94a3b8; font-size: 0.75rem; font-style: italic; margin-top: 4px;">Empty Slot</div>
                     </div>`;
@@ -541,7 +632,10 @@ App.registerView('inventory', {
             const sub = document.getElementById('inv-slots-subtitle');
             if (sub) sub.textContent = usedCount + ' of ' + this.MAX_SLOTS + ' slots in use · Total loop duration: ' + this._slots.reduce((acc, s) => acc + (s.totalDuration || 0), 0) + 's';
 
-            if (grid) grid.innerHTML = html;
+            if (grid) {
+                grid.innerHTML = html;
+                if (window.lucide) lucide.createIcons();
+            }
         } catch (e) {
             if (grid) grid.innerHTML = '<div class="inv-empty">⚠️ Failed to load slots: ' + this._esc(e.message) + '</div>';
         }
@@ -570,9 +664,9 @@ App.registerView('inventory', {
             </div>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                 <span style="font-size:0.7rem;color:#718096;" id="inv-pop-fetched-badge"></span>
-                <button class="inv-btn-back" onclick="window.InvView.goTo('slots')">← Back to Slots</button>
-                <button class="btn btn-primary" style="font-size:0.72rem;background:linear-gradient(135deg,#2ea44f,#1a7f37);" onclick="window.InvView.singleSync()">🔄 Force Sync Screen</button>
-                <button class="btn btn-secondary" style="font-size:0.72rem;" onclick="window.InvView._refreshPoP()">↻ Refresh Data</button>
+                <button class="inv-btn-back" data-go="slots">← Back to Slots</button>
+                <button class="btn btn-primary" style="font-size:0.72rem;background:linear-gradient(135deg,#2ea44f,#1a7f37);" data-onclick="window.InvView.singleSync">🔄 Force Sync Screen</button>
+                <button class="btn btn-secondary" style="font-size:0.72rem;" data-onclick="window.InvView._refreshPoP">↻ Refresh Data</button>
             </div>`;
         }
 
@@ -639,7 +733,7 @@ App.registerView('inventory', {
                         <span style="font-size:1rem;">⚠️</span>
                         <div style="flex:1"><strong>Data is ${daysAgo} day${daysAgo>1?'s':''} out of date.</strong><br>
                         Last verified play: <strong>${lastDate}</strong>. Auto-sync is running — new data will appear here within 1 minute.</div>
-                        <button class="btn btn-primary" style="font-size:0.72rem;background:#b91c1c;white-space:nowrap;" onclick="window.InvView.singleSync()">🔄 Fix Now</button>
+                        <button type="button" class="btn btn-primary" style="font-size:0.72rem;background:#b91c1c;white-space:nowrap;" data-onclick="window.InvView.singleSync">🔄 Fix Now</button>
                     </div>`;
                 } else if (lastPlayAge && lastPlayAge > 7200000) {
                     const hoursAgo = Math.floor(lastPlayAge / 3600000);

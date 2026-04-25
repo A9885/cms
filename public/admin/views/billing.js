@@ -5,7 +5,7 @@ App.registerView('billing', {
             <div class="card">
                 <div class="table-header">
                     <h3 style="font-size: 1rem; font-weight: 600;">Invoices</h3>
-                    <button class="btn btn-primary" onclick="App.showToast('Generate Invoice logic coming soon')">+ Generate Invoice</button>
+                    <button class="btn btn-primary" data-onclick="App.showToast">+ Generate Invoice</button>
                 </div>
                 <div class="table-wrap" style="border: none; border-radius: 0;">
                     <table>
