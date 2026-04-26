@@ -57,8 +57,8 @@ App.registerView('dashboard', {
                     <div class="card-title" style="margin-bottom: 10px;">Recent Activity</div>
                     <div class="table-wrap" style="height: 250px; overflow-y: auto;">
                         <table>
-                            <thead><tr><th>Campaign</th><th>Brand/Slot</th><th>Display</th><th>Time</th></tr></thead>
-                            <tbody id="dash-recent-plays-body"><tr><td colspan="4">Loading...</td></tr></tbody>
+                            <thead><tr><th>Display & Media</th><th>Brand / Slot</th><th>Time</th></tr></thead>
+                            <tbody id="dash-recent-plays-body"><tr><td colspan="3">Loading...</td></tr></tbody>
                         </table>
                     </div>
                 </div>
@@ -123,15 +123,43 @@ App.registerView('dashboard', {
             } else {
                 records.slice(0, 10).forEach(r => {
                     const tr = document.createElement('tr');
-                    const tdName = document.createElement('td');
-                    tdName.style.fontWeight = '600'; tdName.textContent = r.adName;
+                    
+                    // Display & Media Column
+                    const tdInfo = document.createElement('td');
+                    const cleanName = App.cleanFilename(r.adName);
+                    tdInfo.innerHTML = `
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <div style="width: 40px; height: 30px; border-radius: 4px; overflow: hidden; background: #f1f5f9; border: 1px solid var(--border); flex-shrink: 0;">
+                                <img src="/xibo/library/download/${r.mediaId}?thumbnail=1" 
+                                     style="width: 100%; height: 100%; object-fit: cover;" 
+                                     onerror="this.src='https://placehold.co/40x30/e2e8f0/64748b?text=🎞️'">
+                            </div>
+                            <div style="overflow: hidden; text-overflow: ellipsis;">
+                                <div style="font-weight: 700; color: var(--text); font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${r.displayName || 'Unknown Display'}</div>
+                                <div style="font-size: 0.75rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${cleanName}</div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    // Brand / Slot Column
                     const tdBrand = document.createElement('td');
-                    tdBrand.textContent = `${r.brandName || 'Local'} ${r.slot !== '-' ? `(S${r.slot})` : ''}`;
-                    const tdDisp = document.createElement('td');
-                    tdDisp.textContent = r.displayName;
+                    const slotText = r.slot !== '-' ? `Slot ${r.slot}` : '';
+                    tdBrand.innerHTML = `
+                        <div style="display: flex; flex-direction: column; gap: 2px;">
+                            <div style="font-weight: 600; font-size: 0.8rem;">${r.brandName || 'Local'}</div>
+                            ${slotText ? `<span style="font-size: 0.7rem; color: var(--primary); font-weight: 700; letter-spacing: 0.5px;">${slotText.toUpperCase()}</span>` : ''}
+                        </div>
+                    `;
+                    
+                    // Time Column
                     const tdTime = document.createElement('td');
-                    tdTime.textContent = new Date(r.playedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                    tr.append(tdName, tdBrand, tdDisp, tdTime);
+                    tdTime.innerHTML = `
+                        <div style="text-align: right; font-size: 0.8rem; color: var(--text-muted); font-weight: 500;">
+                            ${new Date(r.playedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </div>
+                    `;
+                    
+                    tr.append(tdInfo, tdBrand, tdTime);
                     tbody.appendChild(tr);
                 });
             }
@@ -208,7 +236,7 @@ App.registerView('dashboard', {
                     className: '', iconSize: [18, 18]
                 });
                 const live = this.liveSnapshot[s.id];
-                const nowPlaying = live ? `<div style="margin-top:5px; font-size:11px; color:#10b981;">▶ ${live.adName}</div>` : '';
+                const nowPlaying = live ? `<div style="margin-top:5px; font-size:11px; color:#10b981;">▶ ${App.cleanFilename(live.adName)}</div>` : '';
                 const popupHtml = `<div style="font-family:'Inter', sans-serif;"><strong style="color:#fff;">${s.name}</strong><div style="font-size:11px; color:#94a3b8;">${s.location || s.address || 'Unknown'}</div>${nowPlaying}</div>`;
                 L.marker([s.lat, s.lng], { icon: customIcon }).addTo(this.map).bindPopup(popupHtml);
                 bounds.push([s.lat, s.lng]);
@@ -343,15 +371,54 @@ App.registerView('dashboard', {
 
         if (online.length > 0) {
             online.forEach(s => {
-                const live = this.liveSnapshot[s.id];
+                const live = this.liveSnapshot[s.xibo_display_id];
                 const item = document.createElement('div');
-                item.className = 'alert-item'; item.style.borderLeft = '3px solid #10b981';
+                item.className = 'alert-item'; item.style.borderLeft = '4px solid #10b981';
+                item.style.padding = '12px';
+                
                 const content = document.createElement('div');
+                content.style.display = 'flex';
+                content.style.alignItems = 'center';
+                content.style.gap = '12px';
+                content.style.width = '100%';
+
+                const thumbnail = document.createElement('div');
+                thumbnail.style.width = '44px';
+                thumbnail.style.height = '33px';
+                thumbnail.style.borderRadius = '4px';
+                thumbnail.style.overflow = 'hidden';
+                thumbnail.style.background = '#f1f5f9';
+                thumbnail.style.flexShrink = '0';
+                
+                if (live && live.mediaId) {
+                    thumbnail.innerHTML = `<img src="/xibo/library/download/${live.mediaId}?thumbnail=1" style="width:100%; height:100%; object-fit:cover;" onerror="this.src='https://placehold.co/44x33/e2e8f0/64748b?text=🎞️'">`;
+                } else {
+                    thumbnail.innerHTML = `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; color:#94a3b8; font-size:1rem;">📡</div>`;
+                }
+
+                const textWrap = document.createElement('div');
+                textWrap.style.flex = '1';
+                textWrap.style.overflow = 'hidden';
+
                 const title = document.createElement('div');
-                title.style.fontWeight = '600'; title.textContent = s.name || s.display || s.id || s.displayId || 'Live Screen';
+                title.style.fontWeight = '700';
+                title.style.fontSize = '0.85rem';
+                title.style.color = 'var(--text)';
+                title.style.whiteSpace = 'nowrap';
+                title.style.overflow = 'hidden';
+                title.style.textOverflow = 'ellipsis';
+                title.textContent = s.name || s.display || 'Live Screen';
+
                 const playing = document.createElement('div');
-                playing.style.color = '#10b981'; playing.textContent = `▶ ${live ? live.adName : 'Syncing...'}`;
-                content.append(title, playing); item.append(content); container.appendChild(item);
+                playing.style.fontSize = '0.75rem';
+                playing.style.color = '#10b981';
+                playing.style.fontWeight = '600';
+                playing.innerHTML = `<span style="opacity:0.8;">▶</span> ${live ? App.cleanFilename(live.adName) : 'Syncing...'}`;
+                
+                textWrap.append(title, playing);
+                content.append(thumbnail, textWrap);
+                item.append(content);
+                container.appendChild(item);
             });
             liveBadge.textContent = `${online.length} Live`; liveBadge.style.display = 'inline-block';
         } else liveBadge.style.display = 'none';

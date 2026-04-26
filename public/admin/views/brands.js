@@ -340,6 +340,9 @@ App.registerView('brands', {
     },
 
     async showProfile(brandId) {
+        // Prevent event objects from leaking in
+        if (brandId && typeof brandId === 'object' && brandId.target) return;
+        
         const brand = this.brandsData.find(b => b.id === brandId);
         if (!brand) return;
 
@@ -722,6 +725,10 @@ App.registerView('brands', {
     },
 
     async loadSubscriptions(brandId) {
+        if (!brandId || isNaN(parseInt(brandId, 10))) {
+            console.error('[Brands View] Invalid brandId for loadSubscriptions:', brandId);
+            return;
+        }
         const el = document.getElementById('subscription-list');
         if (!el) return;
         try {
@@ -742,8 +749,8 @@ App.registerView('brands', {
                         </div>
                         <div style="display:flex;gap:6px;align-items:center;">
                             <span style="font-size:0.72rem;font-weight:700;padding:3px 8px;border-radius:999px;${st}">${s.status}</span>
-                            <button class="icon-btn" title="Edit" data-onclick="Views.brands.showSubModal"><i data-lucide="edit-2" style="width:13px;"></i></button>
-                            <button class="icon-btn" title="Delete" style="color:#ef4444" data-onclick="Views.brands.deleteSub"><i data-lucide="trash-2" style="width:13px;"></i></button>
+                            <button class="icon-btn" title="Edit" data-onclick="Views.brands.showSubModal" data-brand-id="${brandId}" data-sub-id="${s.id}"><i data-lucide="edit-2" style="width:13px;"></i></button>
+                            <button class="icon-btn" title="Delete" style="color:#ef4444" data-onclick="Views.brands.deleteSub" data-brand-id="${brandId}" data-sub-id="${s.id}"><i data-lucide="trash-2" style="width:13px;"></i></button>
                         </div>
                     </div>
                     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;font-size:0.78rem;">
@@ -761,6 +768,21 @@ App.registerView('brands', {
     },
 
     showSubModal(brandId, subId = null) {
+        // Handle PointerEvent if called via data-onclick
+        if (brandId && typeof brandId === 'object' && brandId.target) {
+            const target = brandId.target.closest('[data-onclick]');
+            subId = parseInt(target.dataset.subId, 10);
+            brandId = parseInt(target.dataset.brandId, 10);
+        } else {
+            brandId = parseInt(brandId, 10);
+            if (subId) subId = parseInt(subId, 10);
+        }
+
+        if (isNaN(brandId)) {
+            console.error('[Brands View] No valid brandId provided to showSubModal');
+            return;
+        }
+
         // UX Improvement: Prevent complex nested modal overlapping by directly closing 
         // the background profile modal if it is active. This replaces stacking with 
         // a much cleaner "modal swap" approach.
@@ -854,6 +876,21 @@ App.registerView('brands', {
     },
 
     async deleteSub(subId, brandId) {
+        // Handle PointerEvent if called via data-onclick
+        if (subId && typeof subId === 'object' && subId.target) {
+            const target = subId.target.closest('[data-onclick]');
+            brandId = parseInt(target.dataset.brandId, 10);
+            subId = parseInt(target.dataset.subId, 10);
+        } else {
+            subId = parseInt(subId, 10);
+            brandId = parseInt(brandId, 10);
+        }
+
+        if (isNaN(subId)) {
+            console.error('[Brands View] No valid subId provided to deleteSub');
+            return;
+        }
+
         if (!await App.showConfirm('Delete this subscription? This cannot be undone.')) return;
         const res = await Api.delete(`/subscriptions/${subId}`);
         if (res && res.error) App.showToast('Error: ' + res.error, 'error');
@@ -922,6 +959,11 @@ App.registerView('brands', {
     },
 
     addCustomFieldRow(key = '', value = '') {
+        // Handle PointerEvent if called via data-onclick
+        if (key && typeof key === 'object' && key.target) {
+            key = '';
+            value = '';
+        }
         console.log('[Brands View] Adding custom field row:', { key, value });
         const container = document.getElementById('custom-fields-container');
         if (!container) {
@@ -1024,6 +1066,16 @@ App.registerView('brands', {
     },
 
     async deleteBrand(id) {
+        // Handle PointerEvent if called via data-onclick
+        if (id && typeof id === 'object' && id.target) {
+            const target = id.target.closest('[data-onclick]');
+            // Extract ID from dataset if applicable, or from id parameter if it was passed via closure
+            // but for deleteBrand we usually use onclick with closure in renderTable.
+        }
+        
+        id = parseInt(id, 10);
+        if (isNaN(id)) return;
+
         const b = this.brandsData.find(x => x.id === id);
         if (!await App.showConfirm(`Are you sure you want to delete ${b ? b.name : 'this brand'}? This will also unassign all their slots.`)) return;
         const res = await Api.delete(`/brands/${id}`);

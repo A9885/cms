@@ -164,7 +164,7 @@ App.registerView('creative', {
                 
                 const nameText = document.createElement('div');
                 nameText.style.fontWeight = '500';
-                nameText.textContent = m.name;
+                nameText.textContent = App.cleanFilename(m.name);
                 creativeWrap.appendChild(nameText);
                 tdCreative.appendChild(creativeWrap);
                 tr.appendChild(tdCreative);
@@ -312,7 +312,7 @@ App.registerView('creative', {
         const media = this.libraryData.find(m => m.mediaId === mediaId);
         if (!media) return;
 
-        title.textContent = media.name;
+        title.textContent = App.cleanFilename(media.name);
         
         info.innerHTML = '';
         const typeStrong = document.createElement('strong');

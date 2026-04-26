@@ -1041,9 +1041,13 @@ router.put('/screens/:id', async (req, res) => {
 
         await dbRun(query, params);
         
-        // Push updates to Xibo in the background if linked
+        // Push updates to Xibo - await it to ensure consistency before UI refresh
         const screenService = require('../services/screen.service');
-        screenService.pushToXibo(req.params.id).catch(e => console.error('[Admin API] Background Xibo push error:', e.message));
+        try {
+            await screenService.pushToXibo(req.params.id);
+        } catch (e) {
+            console.error('[Admin API] Xibo push failed during update:', e.message);
+        }
 
         logActivity({ action: ACTION.UPDATE, module: MODULE.SCREEN, description: `Screen ID ${req.params.id} updated`, req });
         res.json({ success: true });

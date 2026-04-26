@@ -268,48 +268,64 @@ class StatsService {
 
   async getRecentStats() {
     const now = Date.now();
-    // Cache for 2 minutes — drastically reduces Xibo API calls and portal lag
-    if (this._recentStatsCache && (now - this._recentStatsCacheTime) < 120000) return this._recentStatsCache;
+    // Short cache for 15 seconds to keep it "live" but prevent hammering Xibo
+    if (this._recentStatsCache && (now - this._recentStatsCacheTime) < 15000) return this._recentStatsCache;
     
     try {
-      const [mediaMappings, brandsList] = await Promise.all([
+      const [mediaMappings, brandsList, localScreens, library] = await Promise.all([
           dbAll('SELECT * FROM media_brands'),
-          dbAll('SELECT id, name FROM brands')
+          dbAll('SELECT id, name FROM brands'),
+          dbAll('SELECT xibo_display_id, name FROM screens WHERE xibo_display_id IS NOT NULL'),
+          xiboService.getLibrary({ length: 1000 }).catch(() => [])
       ]);
 
-      // Optimization: Read daily counts from local DB for the last 30 days
-      const localStats = await dbAll(`
-        SELECT s.*, m.brand_id, sl.slot_number
-        FROM daily_media_stats s
-        JOIN media_brands m ON s.mediaId = m.mediaId
-        LEFT JOIN slots sl ON s.mediaId = sl.mediaId AND s.displayId = sl.displayId
-        WHERE s.date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
-      `);
+      // Fetch the last 100 raw hits from Xibo without a time window to ensure we always find the absolute last 10
+      const rawRes = await this._getStatsWithRetry('raw', { length: 100 }).catch(() => ({ data: [] }));
+      const rawHits = (rawRes.data || rawRes || []);
 
-    const results = localStats.map(s => {
-        const brand = brandsList.find(b => String(b.id) === String(s.brand_id));
-        let playedAt = new Date().toISOString(); // fallback
+      const results = [];
+      for (const hit of rawHits) {
+        // Skip noise: missing IDs, known noise names, or "Not Found" artifacts from Xibo
+        if (!hit.mediaId || !hit.displayId) continue;
+        const mediaName = hit.media || hit.layout || '';
+        if (this._isNoise(mediaName) || mediaName.toLowerCase().includes('deleted')) continue;
+        if (hit.display === 'Not Found') continue;
+
+        const brandMapping = mediaMappings.find(m => String(m.mediaId) === String(hit.mediaId));
+        const brand = brandMapping ? brandsList.find(b => String(b.id) === String(brandMapping.brand_id)) : null;
+        const screen = localScreens.find(scr => String(scr.xibo_display_id) === String(hit.displayId));
+        
+        // If the user only wants to see activity for managed screens, we could filter here.
+        // For now, we allow all but ensure a better fallback name.
+        const displayName = screen ? screen.name : (hit.display && hit.display !== 'Not Found' ? hit.display : `Display ${hit.displayId}`);
+
+        const media = Array.isArray(library) ? library.find(m => String(m.mediaId) === String(hit.mediaId)) : null;
+
+        // Slot lookup
+        const slot = await dbGet('SELECT slot_number FROM slots WHERE displayId = ? AND mediaId = ?', [hit.displayId, hit.mediaId]);
+
+        let playedAt = hit.start || hit.statDate || new Date().toISOString();
         try {
-          if (s.date) {
-            // Apply drift normalization if we have a measured offset
-            const baseTime = new Date(s.date).getTime();
-            playedAt = new Date(baseTime - xiboService.clockOffset).toISOString();
-          }
-        } catch (e) {}
+            const xiboTime = new Date(playedAt);
+            playedAt = new Date(xiboTime.getTime() + (xiboService.clockOffset || 0)).toISOString();
+        } catch(e) {}
 
-        return {
-          mediaId: s.mediaId,
-          adName: `Media #${s.mediaId}`, 
-          displayId: s.displayId,
+        results.push({
+          mediaId: hit.mediaId,
+          adName: media ? media.name : (hit.media || `Media #${hit.mediaId}`), 
+          displayId: hit.displayId,
+          displayName: displayName,
           playedAt,
-          count: s.count,
-          brandName: brand ? brand.name : 'Unknown',
-          slot: s.slot_number || '-',
-          source: 'Local DB'
-        };
-      });
+          count: 1,
+          brandName: brand ? brand.name : 'Local',
+          slot: slot ? slot.slot_number : '-',
+          source: 'Xibo Raw'
+        });
 
-      const finalResult = { data: results.sort((a,b) => b.playedAt.localeCompare(a.playedAt)).slice(0, 500), total: results.length };
+        if (results.length >= 10) break;
+      }
+
+      const finalResult = { data: results, total: results.length };
       this._recentStatsCache = finalResult;
       this._recentStatsCacheTime = Date.now();
       return finalResult;
@@ -469,17 +485,15 @@ class StatsService {
     // Cache live snapshot for 30 seconds
     if (this._liveSnapshotCache && (now - this._liveSnapshotCacheTime) < 30000) return this._liveSnapshotCache;
     try {
-      const fifteenMinsAgo = new Date(Date.now() - 900000).toISOString().split('.')[0].replace('T', ' ');
-      
-      // --- DRIFT BUFFER FIX: Fetch hits up to 2 hours in the future ---
-      const nowStr = this._formatLocal(new Date(Date.now() + 2 * 60 * 60 * 1000));
-      const params = { fromDt: fifteenMinsAgo, toDt: nowStr, length: 1500 };
+      // Fetch latest hits without a strict time window to ensure we show the LAST played ad
+      const params = { length: 1000 };
 
-      const [mediaRes, widgetRes, mediaMappings, brandsList] = await Promise.all([
+      const [mediaRes, widgetRes, mediaMappings, brandsList, localScreens] = await Promise.all([
         this._getStatsWithRetry('media', params),
         this._getStatsWithRetry('widget', params),
         dbAll('SELECT * FROM media_brands'),
-        dbAll('SELECT id, name FROM brands')
+        dbAll('SELECT id, name FROM brands'),
+        dbAll('SELECT xibo_display_id, name FROM screens WHERE xibo_display_id IS NOT NULL')
       ]);
       
       const allRaw = [...(mediaRes.data || mediaRes || []), ...(widgetRes.data || widgetRes || [])];
@@ -494,11 +508,19 @@ class StatsService {
             const b = brandsList.find(bb => String(bb.id) === String(m.brand_id));
             if (b) brandName = b.name;
           }
+          const screen = localScreens.find(scr => String(scr.xibo_display_id) === String(dId));
           const offsetRaw = isNaN(xiboService.clockOffset) ? 0 : xiboService.clockOffset;
           const nDate = new Date(new Date(start).getTime() + offsetRaw);
           const normalizedStart = nDate.toISOString();
 
-          snapshot[dId] = { displayId: dId, displayName: r.display || `Display ${dId}`, adName: r.media || r.layout || (r.widgetId ? `Widget ${r.widgetId}` : 'Unknown'), brandName, start: normalizedStart, isLive: true };
+          snapshot[dId] = { 
+            displayId: dId, 
+            displayName: screen ? screen.name : (r.display || `Display ${dId}`), 
+            adName: r.media || r.layout || (r.widgetId ? `Widget ${r.widgetId}` : 'Unknown'), 
+            brandName, 
+            start: normalizedStart, 
+            isLive: true 
+          };
         }
       });
       this._liveSnapshotCache = snapshot;

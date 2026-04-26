@@ -35,6 +35,7 @@ function setActiveNav(view) {
 
 // ─── NAVIGATION SETUP ────────────────────────────────────────────────────────
 window.addEventListener('popstate', (e) => {
+    // Load Initial View
     const view = (e.state && e.state.view) || window.location.hash.substring(1) || 'dashboard';
     navigate(view, false);
 });
@@ -796,6 +797,15 @@ async function logout() {
 }
 
 async function init() {
+    // 1. Setup Logout Trigger
+    const logoutBtn = document.getElementById('logout-trigger');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            logout();
+        });
+    }
+
     // Proactive Session Check
     try {
         const res = await fetch('/auth/me');
