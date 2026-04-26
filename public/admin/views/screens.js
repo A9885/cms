@@ -8,6 +8,7 @@ App.registerView('screens', {
                     </div>
                     <div class="table-header-actions">
                         <button class="btn btn-secondary" id="btn-view-map">Map View</button>
+                        <button class="btn btn-secondary" id="btn-view-all-logs"><i data-lucide="history" style="width:14px; margin-right:4px;"></i>Global Logs</button>
                         <button class="btn btn-success" style="background: #10b981; color: white;" id="btn-open-register-xibo"><i data-lucide="monitor" style="width:14px; margin-right:4px;"></i>Register Xibo Display</button>
                         <button class="btn btn-primary" id="btn-open-create-screen">+ Add Screen</button>
                     </div>
@@ -112,6 +113,10 @@ App.registerView('screens', {
                                     <label style="font-size:0.7rem; color:var(--text-muted);">Connection IP</label>
                                     <div id="det-ip-address" style="font-size:0.85rem; font-weight:600; color:var(--primary);">—</div>
                                 </div>
+                                <div>
+                                    <label style="font-size:0.7rem; color:var(--text-muted);">Date Created</label>
+                                    <div id="det-created-date" style="font-size:0.85rem; font-weight:600;">—</div>
+                                </div>
                             </div>
                             <div style="margin-top:10px;">
                                 <label style="font-size:0.7rem; color:var(--text-muted);">MAC Address</label>
@@ -140,6 +145,62 @@ App.registerView('screens', {
                                     </thead>
                                     <tbody id="det-pop-body">
                                         <tr><td colspan="3" style="text-align:center; padding:10px; color:var(--text-muted);">No recent plays</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- Offline Backfill & Sync Status Widget -->
+                        <div class="detail-section" id="sync-status-section" style="border-top: 1px solid var(--border); padding-top: 15px;">
+                            <div class="detail-section-title" style="display:flex; justify-content:space-between; align-items:center;">
+                                Sync & Connectivity
+                                <span id="sync-status-indicator" style="font-size:0.7rem; font-weight:700;"></span>
+                            </div>
+                            
+                            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                    <span style="font-size: 0.75rem; color: #64748b;">Stat Buffer Status:</span>
+                                    <span id="sync-pending-count" style="font-size: 0.75rem; font-weight: 600;"></span>
+                                </div>
+                                <div id="sync-offline-alert" style="display: none; color: #ef4444; font-size: 0.75rem; font-weight: 500; margin-top: 5px;">
+                                    <i data-lucide="clock" style="width: 12px; margin-right: 4px;"></i>
+                                    Offline since <span id="sync-offline-time"></span>
+                                </div>
+                            </div>
+
+                            <button type="button" class="btn btn-secondary" style="width: 100%; font-size: 0.75rem; padding: 6px; margin-bottom: 10px;" onclick="window.Views.screens.toggleOfflineHistory()">
+                                <i data-lucide="history" style="width: 12px; margin-right: 4px;"></i> 
+                                View Connection History
+                            </button>
+
+                            <div id="offline-history-container" style="display: none; max-height: 200px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 6px;">
+                                <table class="mini-table" style="font-size: 0.7rem;">
+                                    <thead>
+                                        <tr>
+                                            <th>Offline Start</th>
+                                            <th>Came Back</th>
+                                            <th>Flushed</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="offline-history-body"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- Screen Activity Log -->
+                        <div class="detail-section" id="activity-logs-section" style="border-top: 1px solid var(--border); padding-top: 15px;">
+                            <div class="detail-section-title">Screen Activity Log</div>
+                            <div class="table-wrap" style="max-height: 200px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px;">
+                                <table class="mini-table" style="font-size: 0.72rem;">
+                                    <thead>
+                                        <tr>
+                                            <th style="width: 130px;">Date & Time</th>
+                                            <th>Event</th>
+                                            <th>Details</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="det-event-logs-body">
+                                        <tr><td colspan="3" style="text-align:center; padding:10px; color:var(--text-muted);">Loading logs...</td></tr>
                                     </tbody>
                                 </table>
                             </div>
@@ -380,32 +441,36 @@ App.registerView('screens', {
                 </div>
             </div>
 
-            <!-- Global Map View Modal -->
-            <div id="screens-map-modal" class="modal-overlay" style="z-index: 1005;">
-                <div class="modal" style="max-width: 900px; width:95%; height: 85vh; display: flex; flex-direction: column;">
+            <!-- Global Activity Log Modal -->
+            <div id="global-screen-logs-modal" class="modal-overlay" style="z-index: 1006;">
+                <div class="modal" style="max-width: 800px; width:95%; height: 80vh; display: flex; flex-direction: column;">
                     <div class="modal-header">
-                        <span class="modal-title"><i data-lucide="map"></i> Network Map Overview</span>
+                        <span class="modal-title"><i data-lucide="history"></i> Global Screen Activity Logs</span>
                         <button type="button" data-onclick="App.closeModal" class="modal-close">&times;</button>
                     </div>
-                    <div class="modal-body" style="flex: 1; padding: 0; position: relative; overflow: hidden;">
-                        <div id="global-map-container" style="width: 100%; height: 100%;"></div>
-                        <div style="position: absolute; bottom: 20px; left: 20px; z-index: 1000; background: white; padding: 12px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); font-size: 0.75rem; display: flex; gap: 15px; border: 1px solid #e2e8f0;">
-                            <div style="display: flex; align-items: center; gap: 6px;">
-                                <div style="width: 12px; height: 12px; border-radius: 50%; background: #10b981; border: 2px solid #065f46;"></div>
-                                <strong>Online</strong>
-                            </div>
-                            <div style="display: flex; align-items: center; gap: 6px;">
-                                <div style="width: 12px; height: 12px; border-radius: 50%; background: #ef4444; border: 2px solid #7f1d1d;"></div>
-                                <strong>Offline</strong>
-                            </div>
-                            <div style="display: flex; align-items: center; gap: 6px;">
-                                <div style="width: 12px; height: 12px; border-radius: 50%; background: #f59e0b; border: 2px solid #92400e;"></div>
-                                <strong>Unlinked</strong>
-                            </div>
+                    <div class="modal-body" style="flex: 1; overflow: hidden; display: flex; flex-direction: column; padding: 20px;">
+                        <div style="margin-bottom: 15px; display: flex; gap: 10px;">
+                            <input type="text" id="log-search" placeholder="🔍 Search logs (screen name or event)..." class="form-control" style="flex: 1;">
+                            <button class="btn btn-secondary" id="btn-refresh-global-logs"><i data-lucide="refresh-cw" style="width: 14px;"></i></button>
+                        </div>
+                        <div class="table-wrap" style="flex: 1; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px;">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th style="width: 140px;">Time</th>
+                                        <th style="width: 150px;">Screen</th>
+                                        <th style="width: 120px;">Event</th>
+                                        <th>Details</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="global-logs-body">
+                                    <tr><td colspan="4" style="text-align: center; padding: 40px; color: var(--text-muted);">Loading global logs...</td></tr>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                     <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-onclick="App.closeModal">Close Map</button>
+                        <button type="button" class="btn btn-secondary" data-onclick="App.closeModal">Close</button>
                     </div>
                 </div>
             </div>
@@ -479,10 +544,33 @@ App.registerView('screens', {
             });
         }
 
-        // Setup Map View
         const btnViewMap = document.getElementById('btn-view-map');
         if (btnViewMap) {
             btnViewMap.onclick = () => this.showMapModal();
+        }
+
+        // Global Logs
+        const btnViewLogs = document.getElementById('btn-view-all-logs');
+        if (btnViewLogs) {
+            btnViewLogs.onclick = () => this.showGlobalLogs();
+        }
+        
+        const btnRefreshLogs = document.getElementById('btn-refresh-global-logs');
+        if (btnRefreshLogs) {
+            btnRefreshLogs.onclick = () => this.showGlobalLogs();
+        }
+
+        // Log Search
+        const logSearch = document.getElementById('log-search');
+        if (logSearch) {
+            logSearch.oninput = (e) => {
+                const term = e.target.value.toLowerCase();
+                const rows = document.querySelectorAll('#global-logs-body tr');
+                rows.forEach(row => {
+                    const text = row.textContent.toLowerCase();
+                    row.style.display = text.includes(term) ? '' : 'none';
+                });
+            };
         }
 
         // Setup Create Screen Form
@@ -774,6 +862,7 @@ App.registerView('screens', {
         document.getElementById('det-hardware-model').innerText = `${screen.brand || ''} ${screen.device_model || ''}`.trim() || '—';
         document.getElementById('det-ip-address').innerText = screen.client_address || '—';
         document.getElementById('det-mac-address').innerText = screen.mac_address || '—';
+        document.getElementById('det-created-date').innerText = screen.created_at ? new Date(screen.created_at).toLocaleDateString() : '—';
         
         lucide.createIcons();
 
@@ -863,6 +952,50 @@ App.registerView('screens', {
             pBody.appendChild(emptyTr);
         }
 
+        // --- NEW: Load Screen Event Logs ---
+        const logBody = document.getElementById('det-event-logs-body');
+        if (logBody) {
+            logBody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding:10px;">Loading...</td></tr>';
+            try {
+                const evLogs = await window.Api.get(`/screens/${id}/logs`);
+                logBody.innerHTML = '';
+                if (!evLogs || evLogs.length === 0) {
+                    logBody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding:10px; color:var(--text-muted);">No activity recorded.</td></tr>';
+                } else {
+                    evLogs.forEach(l => {
+                        const tr = document.createElement('tr');
+                        
+                        const tdTime = document.createElement('td');
+                        tdTime.style.whiteSpace = 'nowrap';
+                        tdTime.style.color = '#64748b';
+                        tdTime.textContent = new Date(l.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+                        
+                        const tdType = document.createElement('td');
+                        let typeHtml = `<span style="font-weight:600; color:#1e293b;">${l.event_type.replace('_', ' ').toUpperCase()}</span>`;
+                        if (l.event_type === 'status_change') {
+                            const isOnline = l.details.includes('ONLINE');
+                            typeHtml = `<span style="display:inline-flex; align-items:center; gap:4px; font-weight:700; color:${isOnline ? '#059669' : '#dc2626'};">
+                                <span style="width:6px; height:6px; border-radius:50%; background:currentColor;"></span>
+                                ${isOnline ? 'ONLINE' : 'OFFLINE'}
+                            </span>`;
+                        }
+                        tdType.innerHTML = typeHtml;
+
+                        const tdDetails = document.createElement('td');
+                        tdDetails.style.color = '#475569';
+                        tdDetails.textContent = l.details || '—';
+                        
+                        tr.appendChild(tdTime);
+                        tr.appendChild(tdType);
+                        tr.appendChild(tdDetails);
+                        logBody.appendChild(tr);
+                    });
+                }
+            } catch (e) {
+                logBody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding:10px; color:#ef4444;">Failed to load logs.</td></tr>';
+            }
+        }
+
         // Actions - use ID to always get the latest object from localScreens
         document.getElementById('btn-edit-screen').onclick = () => {
             const latest = this.localScreens.find(s => s.id === id);
@@ -905,6 +1038,56 @@ App.registerView('screens', {
         const btnLoc = document.getElementById('btn-open-location-modal');
         if (btnLoc) {
             btnLoc.onclick = () => this.openLocationModal(screen);
+        }
+    },
+
+    async showGlobalLogs() {
+        const modal = document.getElementById('global-screen-logs-modal');
+        const body = document.getElementById('global-logs-body');
+        modal.classList.add('active');
+        body.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:30px;">Loading global logs...</td></tr>';
+        
+        try {
+            const logs = await window.Api.get('/screens/logs');
+            body.innerHTML = '';
+            if (!logs || logs.length === 0) {
+                body.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:20px;">No logs found.</td></tr>';
+                return;
+            }
+
+            logs.forEach(l => {
+                const tr = document.createElement('tr');
+                
+                const tdTime = document.createElement('td');
+                tdTime.style.fontSize = '0.7rem';
+                tdTime.style.color = '#64748b';
+                tdTime.textContent = new Date(l.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+                
+                const tdScreen = document.createElement('td');
+                tdScreen.style.fontWeight = '600';
+                tdScreen.textContent = l.screen_name || 'Unknown';
+
+                const tdType = document.createElement('td');
+                let typeHtml = `<span style="font-size:0.65rem; font-weight:700; padding:2px 6px; border-radius:4px; background:#f1f5f9; color:#475569;">${l.event_type.toUpperCase()}</span>`;
+                if (l.event_type === 'status_change') {
+                    const isOnline = l.details.includes('ONLINE');
+                    typeHtml = `<span style="font-size:0.65rem; font-weight:700; color:${isOnline ? '#059669' : '#dc2626'}; border:1px solid currentColor; padding:1px 6px; border-radius:4px;">${isOnline ? 'ONLINE' : 'OFFLINE'}</span>`;
+                }
+                tdType.innerHTML = typeHtml;
+
+                const tdDetails = document.createElement('td');
+                tdDetails.style.fontSize = '0.75rem';
+                tdDetails.textContent = l.details || '—';
+
+                tr.appendChild(tdTime);
+                tr.appendChild(tdScreen);
+                tr.appendChild(tdType);
+                tr.appendChild(tdDetails);
+                body.appendChild(tr);
+            });
+            lucide.createIcons();
+        } catch (e) {
+            body.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:20px; color:#ef4444;">Error: ${e.message}</td></tr>`;
         }
     },
 

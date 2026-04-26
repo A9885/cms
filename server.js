@@ -914,8 +914,7 @@ app.get('/xibo/library/download/:mediaId', async (req, res) => {
     res.set('Content-Type', response.headers['content-type']);
     response.data.pipe(res);
   } catch (err) {
-    console.error('[GET /xibo/library/download]', err.message);
-    res.status(err.response?.status || 500).send(err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -938,7 +937,12 @@ app.get('/xibo/displays/locations', async (req, res) => {
     const isSyncing = rawDisplays.syncing || false;
 
     const { dbAll } = require('./src/db/database');
-    const localScreens = await dbAll('SELECT xibo_display_id, latitude, longitude, address FROM screens WHERE xibo_display_id IS NOT NULL');
+    const localScreens = await dbAll(`
+        SELECT s.xibo_display_id, s.latitude, s.longitude, s.address, s.orientation, p.name as partner_name 
+        FROM screens s 
+        LEFT JOIN partners p ON s.partner_id = p.id
+        WHERE s.xibo_display_id IS NOT NULL
+    `);
     
     const map = {};
     for (const d of displays) {
@@ -958,6 +962,7 @@ app.get('/xibo/displays/locations', async (req, res) => {
       if (!location && lat && lng) {
         location = lat.toFixed(4) + ', ' + lng.toFixed(4);
       }
+
       if (!location && d.timeZone) {
           location = d.timeZone.replace(/_/g, ' ');
       } else if (!location) {
@@ -977,7 +982,9 @@ app.get('/xibo/displays/locations', async (req, res) => {
         lastAccessed: d.lastAccessed || null,
         clientAddress: d.clientAddress || '',
         displayGroupId: d.displayGroupId || null,
-        resolution: d.resolution || ''
+        resolution: d.resolution || '',
+        orientation: local ? local.orientation : (d.orientation || 'Landscape'),
+        partner_name: local ? local.partner_name : 'No Partner'
       };
     }
     res.set('Cache-Control', 'no-store');
@@ -2361,6 +2368,14 @@ app.post('/xibo/slots/assign', async (req, res) => {
             if (targetBrandId) {
                 await dbRun('REPLACE INTO media_brands (mediaId, brand_id) VALUES (?, ?)', [mediaId, targetBrandId]);
                 console.log(`[Slots] Linked assigned mediaId ${mediaId} to brand ${targetBrandId}`);
+            }
+
+            // --- LOG SCREEN EVENT ---
+            const screenService = require('./src/services/screen.service');
+            const screen = await dbGet('SELECT id FROM screens WHERE xibo_display_id = ?', [displayId]);
+            if (screen) {
+                const srv = new screenService();
+                await srv.logEvent(screen.id, 'slot_update', `Updated Slot ${slotId} with Media ID ${mediaId} (Duration: ${requestedDuration}s)`);
             }
         } catch (statErr) {
             console.warn(`[Slots] Could not enable stat/brand for assigned mediaId=${mediaId}:`, statErr.message);

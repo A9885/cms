@@ -179,6 +179,15 @@ App.registerView('partners', {
                                 <label>Mailing Address</label>
                                 <textarea class="form-control" id="partner-address" rows="2"></textarea>
                             </div>
+                            <div style="margin-top: 1.5rem; border-top: 1px solid var(--border); padding-top: 1rem;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                                    <label style="font-weight: 600;">Custom Fields</label>
+                                    <button type="button" class="btn btn-secondary" style="padding: 2px 8px; font-size: 0.75rem;" data-onclick="Views.partners.addCustomFieldRow">+ Add Field</button>
+                                </div>
+                                <div id="custom-fields-container" style="display: flex; flex-direction: column; gap: 0.5rem;">
+                                    <!-- Dynamic rows injected here -->
+                                </div>
+                            </div>
                             <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
                                 <div class="form-group">
                                     <label>Login Password</label>
@@ -580,7 +589,55 @@ App.registerView('partners', {
             title.innerText = 'Add New Partner';
             form.reset();
         }
+
+        // Custom Fields
+        const customCont = document.getElementById('custom-fields-container');
+        if (customCont) {
+            customCont.innerHTML = '';
+            if (id) {
+                const partner = this.partnersData.find(x => x.id === id);
+                if (partner && partner.custom_fields) {
+                    try {
+                        let fields = partner.custom_fields;
+                        if (typeof fields === 'string') fields = JSON.parse(fields);
+                        
+                        if (Array.isArray(fields)) {
+                            fields.forEach(f => {
+                                if(f && f.key) this.addCustomFieldRow(f.key, f.value);
+                            });
+                        }
+                    } catch (e) {
+                        console.error('[Partners View] Failed to parse custom_fields', e);
+                    }
+                }
+            }
+        }
+
         modal.classList.add('active');
+    },
+
+    addCustomFieldRow(key = '', value = '') {
+        // Handle PointerEvent if called via data-onclick
+        if (key && typeof key === 'object' && key.target) {
+            key = '';
+            value = '';
+        }
+        const container = document.getElementById('custom-fields-container');
+        if (!container) return;
+
+        const row = document.createElement('div');
+        row.className = 'custom-field-row';
+        row.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr 32px; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem;';
+
+        row.innerHTML = `
+            <input type="text" class="form-control field-key" placeholder="Key (e.g. GST)" value="${key}">
+            <input type="text" class="form-control field-value" placeholder="Value" value="${value}">
+            <button type="button" class="icon-btn" style="color: var(--danger); display: flex; align-items: center; justify-content: center;" data-onclick="this.parentElement.remove">
+                <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>
+            </button>
+        `;
+        container.appendChild(row);
+        if (window.lucide) lucide.createIcons();
     },
 
     closeModal(e) {
@@ -606,8 +663,26 @@ App.registerView('partners', {
             address: document.getElementById('partner-address').value,
             revenue_share_percentage: document.getElementById('partner-revshare').value,
             status: document.getElementById('partner-status').value,
-            password: document.getElementById('partner-password').value
+            password: document.getElementById('partner-password').value,
+            customFields: []
         };
+
+        // Collect Custom Fields
+        const container = document.getElementById('custom-fields-container');
+        if (container) {
+            const rows = container.querySelectorAll('.custom-field-row');
+            rows.forEach(row => {
+                const keyElem = row.querySelector('.field-key');
+                const valElem = row.querySelector('.field-value');
+                if (keyElem && valElem) {
+                    const key = keyElem.value.trim();
+                    const val = valElem.value.trim();
+                    if (key) {
+                        payload.customFields.push({ key, value: val });
+                    }
+                }
+            });
+        }
 
         if(!payload.name || !payload.email) return App.showToast('Name and Email are required', 'error');
 

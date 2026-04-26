@@ -56,6 +56,7 @@ const AnalyticsView = {
                                 <tr>
                                     <th>Media Item</th>
                                     <th>Type</th>
+                                    <th>Brand</th>
                                     <th class="text-center">Total Plays</th>
                                     <th class="text-center">Unique Screens</th>
                                     <th>Last Verified Play</th>
@@ -165,9 +166,23 @@ const AnalyticsView = {
             wrapper.className = 'media-info';
             const iconBox = document.createElement('div');
             iconBox.className = 'media-icon';
-            const i = document.createElement('i');
-            i.setAttribute('data-lucide', item.type === 'video' ? 'video' : 'image');
-            iconBox.appendChild(i);
+            
+            // Preview Image
+            const img = document.createElement('img');
+            img.src = `/xibo/library/download/${item.mediaId}?thumbnail=1`;
+            img.style.width = '40px';
+            img.style.height = '40px';
+            img.style.objectFit = 'cover';
+            img.style.borderRadius = '4px';
+            img.onerror = () => {
+                img.style.display = 'none';
+                const i = document.createElement('i');
+                i.setAttribute('data-lucide', item.type === 'video' ? 'video' : 'image');
+                iconBox.appendChild(i);
+                lucide.createIcons();
+            };
+            iconBox.appendChild(img);
+
             const textWrap = document.createElement('div');
             const name = document.createElement('div');
             name.className = 'font-bold';
@@ -185,6 +200,12 @@ const AnalyticsView = {
             typeBadge.className = 'badge badge-secondary';
             typeBadge.textContent = item.type;
             tdType.appendChild(typeBadge);
+
+            // Brand
+            const tdBrand = document.createElement('td');
+            tdBrand.innerHTML = `<span class="badge ${item.brandName === 'Local/Internal' ? 'badge-secondary' : 'badge-primary'}" style="opacity: 0.8">${item.brandName}</span>`;
+            tdBrand.className = 'font-medium';
+
 
             // Plays
             const tdPlays = document.createElement('td');
@@ -216,7 +237,7 @@ const AnalyticsView = {
             btn.onclick = () => this.viewMediaPop(item.mediaId, item.name);
             tdAction.appendChild(btn);
 
-            tr.append(tdMedia, tdType, tdPlays, tdScreens, tdLast, tdAction);
+            tr.append(tdMedia, tdType, tdBrand, tdPlays, tdScreens, tdLast, tdAction);
             tbody.appendChild(tr);
         });
         lucide.createIcons();

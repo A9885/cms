@@ -206,7 +206,7 @@ App.registerView('inventory', {
 
         <!-- Breadcrumb -->
         <div class="inv-breadcrumb" id="inv-breadcrumb">
-            <a data-onclick="window.InvView.goTo">Inventory</a>
+            <a data-go="screens">Inventory</a>
         </div>
 
         <!-- PANEL: Screens -->
@@ -359,12 +359,12 @@ App.registerView('inventory', {
     },
 
     _updateBreadcrumb() {
-        let html = '<a data-onclick="window.InvView.goTo">Inventory</a>';
+        let html = '<a data-go="screens">Inventory</a>';
         if (this._selectedScreen) {
-            html += ' <span class="sep">›</span> <a data-onclick="window.InvView.goTo">' + this._esc(this._selectedScreen.name) + '</a>';
+            html += ' <span class="sep">›</span> <a data-go="slots">' + this._esc(this._selectedScreen.name) + '</a>';
         }
         if (this._selectedMedia && this._navStack === 'pop') {
-            const mName = (this._selectedMedia.name || 'Media').replace(/^Slot_\d+_\d+_/, '');
+            const mName = App.cleanFilename(this._selectedMedia.name || 'Media');
             html += ' <span class="sep">›</span> <span>' + this._esc(mName) + '</span>';
         }
         const bc = document.getElementById('inv-breadcrumb');
@@ -389,12 +389,16 @@ App.registerView('inventory', {
                 </span>
             </div>
             <div class="inv-screen-tooltip-item">
+                <div class="inv-screen-tooltip-label">Partner</div>
+                <div class="inv-screen-tooltip-value">${this._esc(d.partner_name || 'No Partner')}</div>
+            </div>
+            <div class="inv-screen-tooltip-item">
                 <div class="inv-screen-tooltip-label">Area / Location</div>
                 <div class="inv-screen-tooltip-value">${this._esc(d.location || d.address || 'Unknown')}</div>
             </div>
             <div class="inv-screen-tooltip-item">
-                <div class="inv-screen-tooltip-label">Device Info</div>
-                <div class="inv-screen-tooltip-value">${this._esc(d.device || 'Unknown')} ${d.resolution ? '(' + d.resolution + ')' : ''}</div>
+                <div class="inv-screen-tooltip-label">Technical Specs</div>
+                <div class="inv-screen-tooltip-value">${this._esc(d.device || 'Unknown')} <br> ${d.resolution || ''} · ${d.orientation || ''}</div>
             </div>
             <div class="inv-screen-tooltip-item">
                 <div class="inv-screen-tooltip-label">Last Seen</div>
@@ -596,7 +600,7 @@ App.registerView('inventory', {
 
                 if (hasMedia) {
                     const m = slot.media[0];
-                    const name = (m.name || 'Media').replace(/^Slot_\d+_\d+_/, '');
+                    const name = App.cleanFilename(m.name || 'Media');
                     const mSummary = this._mediaSummary[m.mediaId] || { totalPlays: 0 };
                     const thumbUrl = `/xibo/proxy/thumbnail/${m.mediaId}`;
                     const durDisplay = m.duration ? m.duration + 's' : '—';
@@ -645,7 +649,7 @@ App.registerView('inventory', {
     async selectMedia(slotNum, mediaInfo) {
         this._selectedMedia = { ...mediaInfo, slotNum };
         const mediaId = mediaInfo.mediaId || mediaInfo.id;
-        const mediaName = (mediaInfo.name || 'Media').replace(/^Slot_\d+_\d+_/, '');
+        const mediaName = App.cleanFilename(mediaInfo.name || 'Media');
 
         this.goTo('pop');
 
@@ -796,7 +800,7 @@ App.registerView('inventory', {
     _refreshPoP() {
         if (!this._selectedMedia) return;
         const mediaId = this._selectedMedia.mediaId || this._selectedMedia.id;
-        const mediaName = (this._selectedMedia.name || 'Media').replace(/^Slot_\d+_\d+_/, '');
+        const mediaName = App.cleanFilename(this._selectedMedia.name || 'Media');
         this._fetchPoP(mediaId, mediaName);
     },
 
