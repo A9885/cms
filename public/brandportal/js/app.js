@@ -48,11 +48,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.querySelectorAll('.nav-item').forEach(item => {
         item.addEventListener('click', (e) => {
             const target = item.getAttribute('data-target');
-            if (target) switchView(target);
+            if (target) {
+                e.preventDefault();
+                switchView(target);
+            }
         });
     });
 
-    // 4. Real-time Socket.io connection
+    // 4. Setup Logout
+    const logoutBtn = document.getElementById('logout-trigger');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            logout();
+        });
+    }
+
+    // 5. Real-time Socket.io connection
     if (authed && window.io) {
         const socket = io();
         socket.on('slot_assigned', (event) => {

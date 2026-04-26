@@ -379,10 +379,40 @@ App.registerView('screens', {
                     </div>
                 </div>
             </div>
+
+            <!-- Global Map View Modal -->
+            <div id="screens-map-modal" class="modal-overlay" style="z-index: 1005;">
+                <div class="modal" style="max-width: 900px; width:95%; height: 85vh; display: flex; flex-direction: column;">
+                    <div class="modal-header">
+                        <span class="modal-title"><i data-lucide="map"></i> Network Map Overview</span>
+                        <button type="button" data-onclick="App.closeModal" class="modal-close">&times;</button>
+                    </div>
+                    <div class="modal-body" style="flex: 1; padding: 0; position: relative; overflow: hidden;">
+                        <div id="global-map-container" style="width: 100%; height: 100%;"></div>
+                        <div style="position: absolute; bottom: 20px; left: 20px; z-index: 1000; background: white; padding: 12px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); font-size: 0.75rem; display: flex; gap: 15px; border: 1px solid #e2e8f0;">
+                            <div style="display: flex; align-items: center; gap: 6px;">
+                                <div style="width: 12px; height: 12px; border-radius: 50%; background: #10b981; border: 2px solid #065f46;"></div>
+                                <strong>Online</strong>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 6px;">
+                                <div style="width: 12px; height: 12px; border-radius: 50%; background: #ef4444; border: 2px solid #7f1d1d;"></div>
+                                <strong>Offline</strong>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 6px;">
+                                <div style="width: 12px; height: 12px; border-radius: 50%; background: #f59e0b; border: 2px solid #92400e;"></div>
+                                <strong>Unlinked</strong>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-onclick="App.closeModal">Close Map</button>
+                    </div>
+                </div>
+            </div>
         `;
     },
 
-    async mount(container) {
+    async mount(container, selectedId = null) {
         window.Views = window.Views || {};
         window.Views.screens = this;
 
@@ -447,6 +477,12 @@ App.registerView('screens', {
                 opt.textContent = c;
                 cFilter.appendChild(opt);
             });
+        }
+
+        // Setup Map View
+        const btnViewMap = document.getElementById('btn-view-map');
+        if (btnViewMap) {
+            btnViewMap.onclick = () => this.showMapModal();
         }
 
         // Setup Create Screen Form
@@ -590,7 +626,11 @@ App.registerView('screens', {
         lucide.createIcons();
 
         // Default Detail
-        if (this.localScreens.length > 0) this.showDetails(this.localScreens[0].id);
+        if (selectedId) {
+            this.showDetails(selectedId);
+        } else if (this.localScreens.length > 0) {
+            this.showDetails(this.localScreens[0].id);
+        }
     },
 
     renderTable(screens) {
@@ -794,7 +834,7 @@ App.registerView('screens', {
                         tdTime.textContent = new Date(l.playedAt).toLocaleTimeString();
                         tr.appendChild(tdTime);
                         const tdAd = document.createElement('td');
-                        tdAd.textContent = l.adName || 'Ad';
+                        tdAd.textContent = App.cleanFilename(l.adName || 'Ad');
                         tr.appendChild(tdAd);
                         const tdCount = document.createElement('td');
                         tdCount.textContent = l.count || 1;
@@ -823,9 +863,15 @@ App.registerView('screens', {
             pBody.appendChild(emptyTr);
         }
 
-        // Actions
-        document.getElementById('btn-edit-screen').onclick = () => this.openEditModal(screen);
-        document.getElementById('btn-detail-delete-screen').onclick = () => this.deleteScreen(id, screen.name);
+        // Actions - use ID to always get the latest object from localScreens
+        document.getElementById('btn-edit-screen').onclick = () => {
+            const latest = this.localScreens.find(s => s.id === id);
+            this.openEditModal(latest || screen);
+        };
+        document.getElementById('btn-detail-delete-screen').onclick = () => {
+            const latest = this.localScreens.find(s => s.id === id);
+            this.deleteScreen(id, latest ? latest.name : screen.name);
+        };
 
         document.getElementById('btn-sync-screen').disabled = !isLinked;
         document.getElementById('btn-sync-screen').onclick = async () => {
@@ -1032,21 +1078,27 @@ App.registerView('screens', {
     },
 
     openEditModal(screen) {
-        document.getElementById('edit-modal-title').innerText = screen.name;
-        document.getElementById('edit-screen-name').value = screen.name;
-        document.getElementById('edit-screen-city').value = screen.city || '';
-        document.getElementById('edit-screen-address').value = screen.address || '';
-        document.getElementById('edit-screen-lat').value = screen.latitude || '';
-        document.getElementById('edit-screen-lng').value = screen.longitude || '';
-        document.getElementById('edit-screen-partner-select').value = screen.partner_id || '';
-        document.getElementById('edit-screen-notes').value = screen.notes || '';
-        document.getElementById('edit-screen-orientation').value = screen.orientation || 'Landscape';
-        document.getElementById('edit-screen-resolution').value = screen.resolution || '';
+        if (!screen) return;
+        const id = screen.id;
+        
+        // Refresh object from master list just in case
+        const latest = this.localScreens.find(s => s.id === id) || screen;
+        
+        document.getElementById('edit-modal-title').innerText = latest.name;
+        document.getElementById('edit-screen-name').value = latest.name;
+        document.getElementById('edit-screen-city').value = latest.city || '';
+        document.getElementById('edit-screen-address').value = latest.address || '';
+        document.getElementById('edit-screen-lat').value = latest.latitude || '';
+        document.getElementById('edit-screen-lng').value = latest.longitude || '';
+        document.getElementById('edit-screen-partner-select').value = latest.partner_id || '';
+        document.getElementById('edit-screen-notes').value = latest.notes || '';
+        document.getElementById('edit-screen-orientation').value = latest.orientation || 'Landscape';
+        document.getElementById('edit-screen-resolution').value = latest.resolution || '';
         document.getElementById('edit-screen-modal').classList.add('active');
 
         document.getElementById('btn-submit-edit').onclick = async () => {
             const body = {
-                ...screen,
+                ...latest,
                 name: document.getElementById('edit-screen-name').value,
                 city: document.getElementById('edit-screen-city').value,
                 address: document.getElementById('edit-screen-address').value,
@@ -1058,9 +1110,10 @@ App.registerView('screens', {
                 resolution: document.getElementById('edit-screen-resolution').value
             };
             try {
-                await window.Api.put(`/screens/${screen.id}`, body);
+                await window.Api.put(`/screens/${id}`, body);
                 document.getElementById('edit-screen-modal').classList.remove('active');
-                this.mount(document.getElementById('view-container'));
+                await this.mount(document.getElementById('view-container'), id);
+                App.showToast('Screen updated successfully', 'success');
             } catch (err) { App.showToast('Save failed', 'error'); }
         };
 
@@ -1099,5 +1152,69 @@ App.registerView('screens', {
             </span>
             <button class="btn btn-sm btn-outline-dark" data-onclick="window.location.reload">Retry</button>
         `;
+    },
+    async showMapModal() {
+        const modal = document.getElementById('screens-map-modal');
+        modal.classList.add('active');
+        lucide.createIcons();
+
+        // Small delay to ensure modal is visible for Leaflet to calculate size
+        setTimeout(() => {
+            if (this.globalMap) {
+                this.globalMap.remove();
+            }
+
+            this.globalMap = L.map('global-map-container', { zoomControl: true }).setView([17.3850, 78.4867], 11);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png').addTo(this.globalMap);
+
+            const markers = [];
+            this.localScreens.forEach(s => {
+                const lat = s.latitude;
+                const lng = s.longitude;
+                if (!lat || !lng) return;
+
+                const xibo = this.allXiboDisplays.find(xd => xd.displayId === s.xibo_display_id);
+                const isLinked = !!s.xibo_display_id;
+                const online = xibo ? xibo.loggedIn : false;
+
+                let color = '#f59e0b'; // Unlinked (Orange)
+                let stroke = '#92400e';
+                if (isLinked) {
+                    color = online ? '#10b981' : '#ef4444';
+                    stroke = online ? '#065f46' : '#7f1d1d';
+                }
+
+                const customIcon = L.divIcon({
+                    html: `<div style="background:${color}; width:16px; height:16px; border-radius:50%; border:2px solid ${stroke}; box-shadow: 0 2px 4px rgba(0,0,0,0.2);"></div>`,
+                    className: '',
+                    iconSize: [16, 16]
+                });
+
+                const popupHtml = `
+                    <div style="font-family:'Inter', sans-serif; min-width: 150px;">
+                        <div style="font-weight:700; margin-bottom:4px; font-size:0.9rem;">${s.name}</div>
+                        <div style="font-size:0.75rem; color:#64748b; margin-bottom:8px;">${s.city || 'Unknown City'}</div>
+                        <div style="display:flex; align-items:center; gap:6px; font-size:0.75rem;">
+                            <span style="width:8px; height:8px; border-radius:50%; background:${color};"></span>
+                            <span style="font-weight:600;">${isLinked ? (online ? 'Online' : 'Offline') : 'Not Linked'}</span>
+                        </div>
+                        <button class="btn btn-primary" style="width:100%; margin-top:10px; font-size:0.7rem; padding:4px 8px; height:auto;" onclick="window.Views.screens.showDetails(${s.id}); App.closeModal();">View Details</button>
+                    </div>
+                `;
+
+                const marker = L.marker([lat, lng], { icon: customIcon }).addTo(this.globalMap).bindPopup(popupHtml);
+                markers.push([lat, lng]);
+            });
+
+            if (markers.length > 0) {
+                this.globalMap.fitBounds(markers, { padding: [50, 50] });
+            }
+        }, 300);
+    },
+
+    unmount() {
+        if (this.globalMap) this.globalMap.remove();
+        if (this.detMap) this.detMap.remove();
+        if (this._locMap) this._locMap.remove();
     }
 });

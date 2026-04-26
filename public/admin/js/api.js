@@ -5,7 +5,8 @@
 const Api = {
     async get(endpoint) {
         try {
-            const res = await fetch(`/admin/api${endpoint}`);
+            const sep = endpoint.includes('?') ? '&' : '?';
+            const res = await fetch(`/admin/api${endpoint}${sep}t=${Date.now()}`);
             if (!res.ok) {
                 const data = await res.json().catch(() => ({}));
                 throw new Error(data.error || `HTTP ${res.status}`);
@@ -77,7 +78,7 @@ const Api = {
     // Xibo passthroughs
     async getXiboDisplays() {
         try {
-            const res = await fetch(`/xibo/displays/locations`);
+            const res = await fetch(`/xibo/displays/locations?t=${Date.now()}`);
             const data = await res.json();
             if (data.syncing && window.App) {
                 window.App.showSyncingBanner();
@@ -88,7 +89,7 @@ const Api = {
 
     async getXiboLibrary() {
         try {
-            const res = await fetch(`/xibo/library`);
+            const res = await fetch(`/xibo/library?t=${Date.now()}`);
             const data = await res.json();
             if (data.syncing) {
                 if (window.App) window.App.showSyncingBanner();

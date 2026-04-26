@@ -171,7 +171,7 @@ const AnalyticsView = {
             const textWrap = document.createElement('div');
             const name = document.createElement('div');
             name.className = 'font-bold';
-            name.textContent = item.name;
+            name.textContent = App.cleanFilename(item.name);
             const id = document.createElement('div');
             id.className = 'text-xs text-muted';
             id.textContent = `ID: ${item.mediaId}`;
@@ -264,7 +264,7 @@ const AnalyticsView = {
         document.querySelector('.header-actions').style.display = 'none';
 
         const titleObj = document.getElementById('pop-media-title');
-        titleObj.textContent = `Analysis: ${mediaName}`;
+        titleObj.textContent = `Analysis: ${App.cleanFilename(mediaName)}`;
 
         const tbody = document.getElementById('analytics-pop-tbody');
         if (!tbody) return;

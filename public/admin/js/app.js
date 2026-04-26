@@ -9,6 +9,13 @@ const App = {
     async init() {
         console.log("Admin Portal Initialized");
         
+        // Helper: Clean system-generated prefixes from filenames
+        this.cleanFilename = (name) => {
+            if (!name) return "";
+            const idx = name.lastIndexOf('_');
+            return idx === -1 ? name : name.substring(idx + 1);
+        };
+        
         // Authentication check
         try {
             const authRes = await fetch('/auth/me');
@@ -90,10 +97,8 @@ const App = {
 
         // --- CSP-Safe Event Delegation ---
         // This replaces inline onclick="..." and onsubmit="..." which are blocked by production CSP
-        const container = document.getElementById('view-container');
-        if (container) {
-            container.addEventListener('click', (e) => {
-                const target = e.target.closest('[data-onclick]');
+        document.addEventListener('click', (e) => {
+            const target = e.target.closest('[data-onclick]');
                 if (!target) return;
                 
                 const action = target.getAttribute('data-onclick');
@@ -111,25 +116,24 @@ const App = {
                 }
             });
 
-            container.addEventListener('submit', (e) => {
-                const target = e.target.closest('[data-onsubmit]');
-                if (!target) return;
-                
-                const action = target.getAttribute('data-onsubmit');
-                const parts = action.split('.');
-                let context = window;
-                let fn = window;
-                
-                for (let i = 0; i < parts.length; i++) {
-                    if (i < parts.length - 1) context = context[parts[i]];
-                    fn = fn ? fn[parts[i]] : null;
-                }
-                
-                if (typeof fn === 'function') {
-                    fn.call(context, e);
-                }
-            });
-        }
+        document.addEventListener('submit', (e) => {
+            const target = e.target.closest('[data-onsubmit]');
+            if (!target) return;
+            
+            const action = target.getAttribute('data-onsubmit');
+            const parts = action.split('.');
+            let context = window;
+            let fn = window;
+            
+            for (let i = 0; i < parts.length; i++) {
+                if (i < parts.length - 1) context = context[parts[i]];
+                fn = fn ? fn[parts[i]] : null;
+            }
+            
+            if (typeof fn === 'function') {
+                fn.call(context, e);
+            }
+        });
     },
 
     handleRoute(replace = false) {

@@ -1,6 +1,10 @@
 App.registerView('partners', {
     editingId: null,
     partnersData: [],
+    filters: {
+        query: '',
+        status: 'all'
+    },
     
     render() {
         return `
@@ -9,24 +13,36 @@ App.registerView('partners', {
             <!-- KPI Section -->
             <div class="dash-kpi-row" id="partner-kpis">
                 <div class="kpi-card kpi-blue">
-                    <div class="kpi-header"><i data-lucide="users"></i> Active Partners</div>
-                    <h2 id="kpi-total-partners">-</h2>
-                    <div style="font-size:0.7rem; opacity:0.8; margin-top:4px;">Revenue generating partners</div>
+                    <div class="kpi-icon-overlay"><i data-lucide="users"></i></div>
+                    <div class="kpi-content">
+                        <div class="kpi-header">Active Partners</div>
+                        <h2 id="kpi-total-partners">-</h2>
+                        <div class="kpi-footer">Revenue generating partners</div>
+                    </div>
                 </div>
                 <div class="kpi-card kpi-orange">
-                    <div class="kpi-header"><i data-lucide="clock"></i> Pending Payouts</div>
-                    <h2 id="kpi-pending-payouts">-</h2>
-                    <div style="font-size:0.7rem; opacity:0.8; margin-top:4px;">Awaiting settlement</div>
+                    <div class="kpi-icon-overlay"><i data-lucide="clock"></i></div>
+                    <div class="kpi-content">
+                        <div class="kpi-header">Pending Payouts</div>
+                        <h2 id="kpi-pending-payouts">-</h2>
+                        <div class="kpi-footer">Awaiting settlement</div>
+                    </div>
                 </div>
                 <div class="kpi-card kpi-lightblue">
-                    <div class="kpi-header"><i data-lucide="check-circle"></i> Total Paid</div>
-                    <h2 id="kpi-total-paid">-</h2>
-                    <div style="font-size:0.7rem; opacity:0.8; margin-top:4px;">Lifetime settlements</div>
+                    <div class="kpi-icon-overlay"><i data-lucide="check-circle"></i></div>
+                    <div class="kpi-content">
+                        <div class="kpi-header">Total Paid</div>
+                        <h2 id="kpi-total-paid">-</h2>
+                        <div class="kpi-footer">Lifetime settlements</div>
+                    </div>
                 </div>
                 <div class="kpi-card kpi-darkblue">
-                    <div class="kpi-header"><i data-lucide="monitor"></i> Total Screens</div>
-                    <h2 id="kpi-total-screens">-</h2>
-                    <div style="font-size:0.7rem; opacity:0.8; margin-top:4px;">Partner-owned displays</div>
+                    <div class="kpi-icon-overlay"><i data-lucide="monitor"></i></div>
+                    <div class="kpi-content">
+                        <div class="kpi-header">Total Screens</div>
+                        <h2 id="kpi-total-screens">-</h2>
+                        <div class="kpi-footer">Partner-owned displays</div>
+                    </div>
                 </div>
             </div>
 
@@ -53,25 +69,27 @@ App.registerView('partners', {
                     </div>
                 </div>
 
-                <!-- Fast Actions / Stats -->
-                <div class="card" style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); color: #fff; border:none;">
-                    <div class="card-title" style="color:#fff;">Partner Growth</div>
-                    <div style="padding:10px 0;">
-                        <div style="margin-bottom:20px;">
-                            <div style="display:flex; justify-content:space-between; font-size:0.8rem; margin-bottom:8px;">
-                                <span style="opacity:0.8;">Onboarding Completion</span>
-                                <span style="font-weight:700; color:#34d399;">85%</span>
+                <!-- Action Center -->
+                <div class="card action-card">
+                    <div class="card-title" style="color:#fff;">Network Operations</div>
+                    <div class="action-content">
+                        <div class="action-stat-row">
+                            <div class="action-stat">
+                                <span class="label">System Health</span>
+                                <span class="value" style="color:#34d399;">OPTIMAL</span>
                             </div>
-                            <div style="height:6px; background:rgba(255,255,255,0.1); border-radius:3px; overflow:hidden;">
-                                <div style="width:85%; height:100%; background:#34d399;"></div>
+                            <div class="action-stat">
+                                <span class="label">New Requests</span>
+                                <span class="value" id="new-requests-count">0</span>
                             </div>
                         </div>
-                        <div style="display:flex; gap:12px; margin-top:20px;">
-                            <button class="btn btn-primary" style="flex:1; background:#6366f1;" data-onclick="Views.partners.showModal">
-                                <i data-lucide="user-plus" style="width:14px;"></i> New Partner
+                        
+                        <div class="action-btns">
+                            <button class="btn btn-glow-blue" data-onclick="Views.partners.showModal">
+                                <i data-lucide="user-plus"></i> New Partner
                             </button>
-                            <button class="btn btn-secondary" style="flex:1; background:rgba(255,255,255,0.1); color:#fff; border:none;">
-                                <i data-lucide="download" style="width:14px;"></i> Export Report
+                            <button class="btn btn-outline-white" data-onclick="Views.partners.exportPartners">
+                                <i data-lucide="download"></i> Export Report
                             </button>
                         </div>
                     </div>
@@ -80,10 +98,22 @@ App.registerView('partners', {
 
             <!-- Partner List -->
             <div class="card" style="margin-top: 1.5rem;">
-                <div class="table-header" style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: flex-end;">
+                <div class="table-header" style="margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center;">
                     <div>
                         <h3 style="font-size: 1.1rem; font-weight: 800; color:var(--text-primary);">Registered Partners</h3>
                         <p style="font-size: 0.75rem; color: var(--text-muted);">Manage partner accounts, revenue share, and screen assignments.</p>
+                    </div>
+                    <div class="table-header-actions">
+                        <div class="search-box">
+                            <i data-lucide="search"></i>
+                            <input type="text" id="partner-search" placeholder="Search partners..." oninput="Views.partners.filterPartners(this.value)">
+                        </div>
+                        <select class="form-control" style="width:140px; height:38px; margin-bottom:0;" onchange="Views.partners.filterStatus(this.value)">
+                            <option value="all">All Status</option>
+                            <option value="Active">Active</option>
+                            <option value="Pending">Pending</option>
+                            <option value="Disabled">Disabled</option>
+                        </select>
                     </div>
                 </div>
                 <div class="table-wrap" style="border: none; border-radius: 0;">
@@ -288,8 +318,26 @@ App.registerView('partners', {
             let totalPaid = 0;
             let pendingBal = 0;
 
-            if (this.partnersData.length > 0) {
-                this.partnersData.forEach(p => {
+            let filtered = this.partnersData;
+            
+            // Apply Status Filter
+            if (this.filters.status !== 'all') {
+                filtered = filtered.filter(p => p.status === this.filters.status);
+            }
+            
+            // Apply Search Filter
+            if (this.filters.query) {
+                const q = this.filters.query.toLowerCase();
+                filtered = filtered.filter(p => 
+                    (p.name && p.name.toLowerCase().includes(q)) || 
+                    (p.company && p.company.toLowerCase().includes(q)) ||
+                    (p.email && p.email.toLowerCase().includes(q)) ||
+                    (p.city && p.city.toLowerCase().includes(q))
+                );
+            }
+
+            if (filtered.length > 0) {
+                filtered.forEach(p => {
                     totalScreens += (p.screen_count || 0);
                     totalPaid += (p.total_paid || 0);
                     pendingBal += (p.pending_balance || 0);
@@ -301,12 +349,12 @@ App.registerView('partners', {
                     const tdName = document.createElement('td');
                     tdName.innerHTML = `
                         <div style="display:flex; align-items:center; gap:12px;">
-                            <div style="width:36px; height:36px; background:#f1f5f9; border-radius:10px; display:flex; align-items:center; justify-content:center; color:var(--accent); font-weight:800; font-size:0.9rem;">
+                            <div style="width:40px; height:40px; background:linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%); border-radius:12px; display:flex; align-items:center; justify-content:center; color:var(--accent); font-weight:800; font-size:1rem; border:1px solid rgba(0,0,0,0.05);">
                                 ${(p.name || 'P').charAt(0).toUpperCase()}
                             </div>
                             <div>
-                                <div style="font-weight:700; font-size:0.875rem; color:var(--text-primary);">${p.name}</div>
-                                <div style="font-size:0.72rem; color:var(--text-muted);">${p.company || 'No Company'}</div>
+                                <div style="font-weight:700; font-size:0.9rem; color:var(--text-primary);">${p.name}</div>
+                                <div style="font-size:0.75rem; color:var(--text-muted);">${p.company || 'No Company'}</div>
                             </div>
                         </div>
                     `;
@@ -319,12 +367,14 @@ App.registerView('partners', {
                     screenWrap.style.display = 'flex';
                     screenWrap.style.alignItems = 'center';
                     screenWrap.style.gap = '10px';
-                    screenWrap.innerHTML = `<span style="background:rgba(37, 99, 235, 0.1); color:var(--accent); width:24px; height:24px; display:flex; align-items:center; justify-content:center; border-radius:6px; font-weight:800; font-size:0.75rem;">${screenCount}</span>`;
+                    screenWrap.innerHTML = `<span style="background:rgba(37, 99, 235, 0.08); color:var(--accent); min-width:28px; padding:0 6px; height:28px; display:flex; align-items:center; justify-content:center; border-radius:8px; font-weight:800; font-size:0.8rem; border:1px solid rgba(37, 99, 235, 0.15);">${screenCount}</span>`;
                     
                     const manageBtn = document.createElement('button');
                     manageBtn.className = 'btn-text';
-                    manageBtn.style.cssText = 'font-size:0.7rem; font-weight:700; color:var(--accent); background:none; border:none; cursor:pointer; padding:4px 8px; border-radius:4px;';
+                    manageBtn.style.cssText = 'font-size:0.72rem; font-weight:700; color:var(--accent); background:none; border:none; cursor:pointer; padding:6px 10px; border-radius:6px; transition:all 0.2s;';
                     manageBtn.textContent = 'Manage';
+                    manageBtn.onmouseover = () => manageBtn.style.background = 'rgba(37, 99, 235, 0.05)';
+                    manageBtn.onmouseout = () => manageBtn.style.background = 'none';
                     manageBtn.onclick = () => this.showAssignModal(p.id);
                     screenWrap.appendChild(manageBtn);
                     tdScreens.appendChild(screenWrap);
@@ -332,18 +382,18 @@ App.registerView('partners', {
 
                     // Rev Share
                     const tdRev = document.createElement('td');
-                    tdRev.innerHTML = `<span style="font-weight:600; font-size:0.85rem;">${p.revenue_share_percentage}%</span>`;
+                    tdRev.innerHTML = `<span style="font-weight:700; font-size:0.85rem; color:var(--text-secondary);">${p.revenue_share_percentage}%</span>`;
                     tr.appendChild(tdRev);
 
                     // Paid
                     const tdPaid = document.createElement('td');
-                    tdPaid.style.fontWeight = '600';
+                    tdPaid.style.fontWeight = '700';
                     tdPaid.textContent = `₹${(p.total_paid || 0).toLocaleString()}`;
                     tr.appendChild(tdPaid);
 
                     // Balance
                     const tdBal = document.createElement('td');
-                    tdBal.style.fontWeight = '700';
+                    tdBal.style.fontWeight = '800';
                     tdBal.style.color = (p.pending_balance > 0) ? '#ea580c' : 'var(--text-primary)';
                     tdBal.textContent = `₹${(p.pending_balance || 0).toLocaleString()}`;
                     tr.appendChild(tdBal);
@@ -351,8 +401,11 @@ App.registerView('partners', {
                     // Status
                     const tdStatus = document.createElement('td');
                     const status = (p.status || 'Active').toLowerCase();
-                    const badgeStyle = status === 'active' ? 'background:#dcfce7; color:#15803d;' : (status === 'pending' ? 'background:#fef9c3; color:#854d0e;' : 'background:#fee2e2; color:#991b1b;');
-                    tdStatus.innerHTML = `<span style="${badgeStyle} padding:4px 10px; border-radius:20px; font-size:0.65rem; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">${p.status}</span>`;
+                    let badgeClass = 'badge-active';
+                    if (status === 'pending') badgeClass = 'badge-pending';
+                    if (status === 'disabled') badgeClass = 'badge-disabled';
+                    
+                    tdStatus.innerHTML = `<span class="badge-premium ${badgeClass}">${p.status}</span>`;
                     tr.appendChild(tdStatus);
 
                     // Actions
@@ -363,7 +416,7 @@ App.registerView('partners', {
                     const actionWrap = document.createElement('div');
                     actionWrap.style.display = 'flex';
                     actionWrap.style.justifyContent = 'flex-end';
-                    actionWrap.style.gap = '6px';
+                    actionWrap.style.gap = '8px';
 
                     if (p.status === 'Pending' || p.status === 'Disabled') {
                         actionWrap.appendChild(this._createActionBtn('check', '#10b981', 'Approve', () => this.updateStatus(p.id, 'approve')));
@@ -384,7 +437,14 @@ App.registerView('partners', {
                     tbody.appendChild(tr);
                 });
             } else {
-                tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 50px;">No partners found.</td></tr>';
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 80px 20px;">
+                            <div style="opacity:0.5; margin-bottom:15px;"><i data-lucide="users" style="width:48px; height:48px;"></i></div>
+                            <div style="font-weight:700; font-size:1.1rem; color:var(--text-primary);">No partners found</div>
+                            <div style="font-size:0.85rem; margin-top:5px;">Try adjusting your search or filters.</div>
+                        </td>
+                    </tr>`;
             }
 
             // Update KPIs
@@ -392,6 +452,11 @@ App.registerView('partners', {
             document.getElementById('kpi-total-paid').textContent = `₹${totalPaid.toLocaleString()}`;
             document.getElementById('kpi-pending-payouts').textContent = `₹${pendingBal.toLocaleString()}`;
             document.getElementById('kpi-total-screens').textContent = totalScreens;
+            
+            const pendingPartnersCount = this.partnersData.filter(p => p.status === 'Pending').length;
+            const newRequestsEl = document.getElementById('new-requests-count');
+            if (newRequestsEl) newRequestsEl.textContent = pendingPartnersCount;
+            
             lucide.createIcons();
         } catch (err) {
             console.error('[Partners] Load failed:', err);
@@ -919,6 +984,9 @@ App.registerView('partners', {
     },
 
     async reprovisionXibo(reset = false) {
+        // Handle PointerEvent if called via data-onclick
+        if (reset && typeof reset === 'object' && reset.target) reset = false;
+        
         const msg = reset ? 'Full reset will re-create everything. Continue?' : 'Re-provision will check for missing resources. Continue?';
         if (!await App.showConfirm(msg)) return;
         try {
@@ -951,5 +1019,45 @@ App.registerView('partners', {
         } catch (err) {
             App.showToast('Disconnect failed: ' + err.message, 'error');
         }
+    },
+
+    filterPartners(query) {
+        this.filters.query = query;
+        this.loadPartners();
+    },
+
+    filterStatus(status) {
+        this.filters.status = status;
+        this.loadPartners();
+    },
+
+    exportPartners() {
+        if (this.partnersData.length === 0) return App.showToast('No data to export', 'warning');
+        
+        const headers = ['Name', 'Company', 'Email', 'Phone', 'City', 'Revenue Share', 'Total Paid', 'Pending Balance', 'Status'];
+        const csv = [
+            headers.join(','),
+            ...this.partnersData.map(p => [
+                `"${p.name}"`,
+                `"${p.company}"`,
+                p.email,
+                p.phone || '',
+                p.city || '',
+                p.revenue_share_percentage,
+                p.total_paid || 0,
+                p.pending_balance || 0,
+                p.status
+            ].join(','))
+        ].join('\n');
+
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.setAttribute('hidden', '');
+        a.setAttribute('href', url);
+        a.setAttribute('download', `partners_export_${new Date().toISOString().split('T')[0]}.csv`);
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
     }
 });
