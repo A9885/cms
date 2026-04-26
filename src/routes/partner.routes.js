@@ -75,7 +75,7 @@ router.get('/dashboard', async (req, res) => {
                 WHERE c.screen_id IN (${screenPh})
             `, screenIds),
             require('../services/stats.service').getRecentStats().catch(() => ({ data: [] })),
-            dbGet(`SELECT COUNT(*) as count FROM slots WHERE displayId IN (${displayIds.map(() => '?').join(',')}) AND brand_id IS NOT NULL`, displayIds),
+            dbGet(`SELECT COUNT(*) as count FROM slots WHERE displayId IN (${displayIds.map(() => '?').join(',')}) AND mediaId IS NOT NULL`, displayIds),
             dbAll(`
                 SELECT b.name as brand_name, COUNT(DISTINCT c.screen_id) as screen_count, SUM(i.amount) as earnings
                 FROM invoices i
@@ -301,7 +301,7 @@ router.get('/profile', async (req, res) => {
     try {
         const partnerId = req.user.partner_id;
         const [partner, user] = await Promise.all([
-            dbGet('SELECT * FROM partners WHERE id = ?', [partnerId]),
+            dbGet('SELECT name, company, city, email, phone, address, custom_fields, revenue_share_percentage FROM partners WHERE id = ?', [partnerId]),
             dbGet('SELECT id, username, role FROM users WHERE id = ?', [req.user.id])
         ]);
         res.json({ partner, user });
@@ -313,9 +313,9 @@ router.get('/profile', async (req, res) => {
 router.put('/profile', async (req, res) => {
     try {
         const partnerId = req.user.partner_id;
-        const { name, company, city, email, phone } = req.body;
-        await dbRun('UPDATE partners SET name=?, company=?, city=?, email=?, phone=? WHERE id=?',
-            [name, company, city, email, phone, partnerId]);
+        const { name, company, city, email, phone, address } = req.body;
+        await dbRun('UPDATE partners SET name=?, company=?, city=?, email=?, phone=?, address=? WHERE id=?',
+            [name, company, city, email, phone, address, partnerId]);
         res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });

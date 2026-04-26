@@ -701,14 +701,19 @@ router.post('/partners', async (req, res) => {
         return res.status(400).json({ error: 'Invalid email format' });
     }
 
+    // Clean empty fields from customFields array
+    const cleanedCustomFields = Array.isArray(req.body.customFields) 
+        ? req.body.customFields.filter(f => f && f.key && f.key.trim() !== '') 
+        : [];
+
     try {
         const existing = await dbGet('SELECT id FROM partners WHERE email = ?', [email]);
         if (existing) return res.status(409).json({ error: 'Email already exists' });
 
         const result = await dbRun(
-            `INSERT INTO partners (name, company, email, phone, address, city, status, revenue_share_percentage) 
-             VALUES (?, ?, ?, ?, ?, ?, 'Active', 50)`,
-            [name, company, email, phone, address, city]
+            `INSERT INTO partners (name, company, email, phone, address, city, status, revenue_share_percentage, custom_fields) 
+             VALUES (?, ?, ?, ?, ?, ?, 'Active', 50, ?)`,
+            [name, company, email, phone, address, city, JSON.stringify(cleanedCustomFields)]
         );
 
         const { hashPassword } = await import('@better-auth/utils/password');
@@ -789,11 +794,17 @@ router.post('/partners/payouts/:id/approve', async (req, res) => {
 
 /** PUT /api/admin/partners/:id - Update partner profile. */
 router.put('/partners/:id', async (req, res) => {
-    const { name, company, email, phone, address, city, status, revenue_share_percentage, password } = req.body;
+    const { name, company, email, phone, address, city, status, revenue_share_percentage, password, customFields } = req.body;
+    
+    // Clean empty fields from customFields array
+    const cleanedCustomFields = Array.isArray(customFields) 
+        ? customFields.filter(f => f && f.key && f.key.trim() !== '') 
+        : [];
+
     try {
         await dbRun(
-            `UPDATE partners SET name=?, company=?, email=?, phone=?, address=?, city=?, status=?, revenue_share_percentage=? WHERE id=?`,
-            [name, company, email, phone, address, city, status, revenue_share_percentage, req.params.id]
+            `UPDATE partners SET name=?, company=?, email=?, phone=?, address=?, city=?, status=?, revenue_share_percentage=?, custom_fields=? WHERE id=?`,
+            [name, company, email, phone, address, city, status, revenue_share_percentage, JSON.stringify(cleanedCustomFields), req.params.id]
         );
 
         if (email) {
@@ -997,6 +1008,14 @@ router.post('/screens', async (req, res) => {
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Offline')`,
             [name, city, address, latitude, longitude, timezone || 'Asia/Kolkata', partner_id || null, notes]
         );
+        
+        const screenService = require('../services/screen.service');
+        const srv = new screenService();
+        await srv.logEvent(result.id, 'provisioning', `Screen record created manually in Admin Center.`);
+        if (partner_id) {
+            await srv.logEvent(result.id, 'partner_assigned', `Assigned to Partner ID: ${partner_id}`);
+        }
+
         logActivity({ action: ACTION.CREATE, module: MODULE.SCREEN, description: `Screen "${name}" added (ID: ${result.id})`, req });
         res.json({ success: true, id: result.id });
     } catch(err) {
@@ -1050,6 +1069,13 @@ router.put('/screens/:id', async (req, res) => {
         }
 
         logActivity({ action: ACTION.UPDATE, module: MODULE.SCREEN, description: `Screen ID ${req.params.id} updated`, req });
+
+        // Log partner change if it happened
+        if (partner_id && partner_id != existing.partner_id) {
+            const srv = new screenService();
+            await srv.logEvent(req.params.id, 'partner_assigned', `Transferred to Partner ID: ${partner_id}`);
+        }
+
         res.json({ success: true });
     } catch(err) { 
         res.status(500).json({ error: err.message }); 
@@ -1067,6 +1093,10 @@ router.post('/screens/:id/sync-location', async (req, res) => {
         await screenService.syncLocation(screen.xibo_display_id);
         
         const updated = await dbGet('SELECT latitude, longitude, address FROM screens WHERE id = ?', [req.params.id]);
+        
+        const srv = new screenService();
+        await srv.logEvent(req.params.id, 'sync', `Location refreshed via GPS/IP. New address detected: ${updated.address || 'Unknown'}`);
+
         res.json({ success: true, location: updated });
     } catch(err) { res.status(500).json({ error: err.message }); }
 });
@@ -1098,11 +1128,72 @@ router.get('/screens/:id/proof-of-play', async (req, res) => {
         if (!screen || !screen.xibo_display_id) return res.json([]);
 
         const statsService = require('../services/stats.service');
-        const recent = await statsService.getRecentStats();
-        const screenStats = recent.data.filter(r => String(r.displayId) === String(screen.xibo_display_id)).slice(0, 50);
-        res.json(screenStats);
-    } catch(err) {
-        console.error('[Admin API] Proof of Play Error:', err.message);
+        const logs = await statsService.getRecentStats();
+        const filtered = logs.data.filter(l => String(l.displayId) === String(screen.xibo_display_id));
+        res.json(filtered);
+    } catch(err) { res.status(500).json([]); }
+});
+
+/** GET /api/admin/screens/:id/sync-status */
+router.get('/screens/:id/sync-status', async (req, res) => {
+    try {
+        const screen = await dbGet('SELECT xibo_display_id, status, updated_at FROM screens WHERE id = ?', [req.params.id]);
+        if (!screen || !screen.xibo_display_id) {
+            return res.status(404).json({ error: 'Screen not found or not linked' });
+        }
+
+        const bufferService = require('../services/buffer.service');
+        const pendingCount = await dbGet('SELECT COUNT(*) as count FROM stat_buffer WHERE display_id = ? AND synced = 0', [screen.xibo_display_id]);
+        const lastWindow = await dbGet('SELECT * FROM offline_windows WHERE display_id = ? ORDER BY id DESC LIMIT 1', [screen.xibo_display_id]);
+
+        res.json({
+            displayId: screen.xibo_display_id,
+            status: screen.status,
+            pendingStats: pendingCount ? pendingCount.count : 0,
+            lastOfflineWindow: lastWindow || null,
+            lastSyncAttempt: screen.updated_at
+        });
+    } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
+/** GET /api/admin/screens/:id/offline-history */
+router.get('/screens/:id/offline-history', async (req, res) => {
+    try {
+        const screen = await dbGet('SELECT xibo_display_id FROM screens WHERE id = ?', [req.params.id]);
+        if (!screen || !screen.xibo_display_id) {
+            return res.status(404).json({ error: 'Screen not found or not linked' });
+        }
+
+        const history = await dbAll('SELECT * FROM offline_windows WHERE display_id = ? ORDER BY id DESC LIMIT 30', [screen.xibo_display_id]);
+        res.json(history);
+    } catch(err) { res.status(500).json({ error: err.message }); }
+});
+
+/** GET /api/admin/screens/logs (Global) */
+router.get('/screens/logs', async (req, res) => {
+    try {
+        const logs = await dbAll(`
+            SELECT l.*, s.name as screen_name 
+            FROM screen_event_logs l
+            JOIN screens s ON l.screen_id = s.id
+            ORDER BY l.created_at DESC 
+            LIMIT 200
+        `);
+        res.json(logs);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/** GET /api/admin/screens/:id/logs */
+router.get('/screens/:id/logs', async (req, res) => {
+    try {
+        const logs = await dbAll(
+            'SELECT * FROM screen_event_logs WHERE screen_id = ? ORDER BY created_at DESC LIMIT 100',
+            [req.params.id]
+        );
+        res.json(logs);
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });

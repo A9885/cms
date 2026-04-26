@@ -348,7 +348,7 @@ window.openScreenDetail = async function(id) {
         try { slots = await api(`/screens/${screen.xibo_display_id}/slots`); } catch (e) {}
     }
 
-    const occupied = slots.filter(s => s.status === 'Reserved' || s.brand_name).length;
+    const occupied = slots.filter(s => s.status === 'Reserved' || s.brand_name || s.mediaId).length;
     const badgeCls = screen.liveStatus === 'Online' ? 'badge-online' : screen.liveStatus === 'Offline' ? 'badge-offline' : 'badge-unlinked';
     const body = document.getElementById('sdm-body');
     body.innerHTML = '';
@@ -377,10 +377,13 @@ window.openScreenDetail = async function(id) {
         body.appendChild(slotTitle);
         const grid = document.createElement('div'); grid.className = 'slot-grid';
         slots.forEach(sl => {
-            const sb = document.createElement('div'); sb.className = `slot-box ${sl.brand_name ? 'reserved' : 'available'}`; sb.title = sl.brand_name || 'Available';
+            const isOccupied = sl.brand_name || sl.mediaId || sl.status === 'Reserved';
+            const sb = document.createElement('div'); sb.className = `slot-box ${isOccupied ? 'reserved' : 'available'}`; 
+            sb.title = sl.brand_name || (sl.mediaId ? 'Occupied' : 'Available');
             sb.textContent = `#${sl.slot_number}`;
-            if (sl.brand_name) {
-                const bDiv = document.createElement('div'); bDiv.style.cssText = 'font-size:0.6rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;'; bDiv.textContent = sl.brand_name;
+            if (isOccupied) {
+                const bDiv = document.createElement('div'); bDiv.style.cssText = 'font-size:0.6rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;'; 
+                bDiv.textContent = sl.brand_name || (sl.mediaId ? 'Occupied' : 'Reserved');
                 sb.appendChild(bDiv);
             }
             grid.appendChild(sb);
@@ -706,7 +709,33 @@ registerView('profile', async (wrap) => {
     grid.appendChild(createField('Email', partner?.email, 'pf-email', 'email'));
     grid.appendChild(createField('Phone', partner?.phone, 'pf-phone', 'tel'));
     profileCard.appendChild(grid);
+    
+    profileCard.appendChild(createField('Mailing Address', partner?.address, 'pf-address'));
+
+    // Custom Fields
+    if (partner?.custom_fields) {
+        try {
+            const extra = typeof partner.custom_fields === 'string' ? JSON.parse(partner.custom_fields) : partner.custom_fields;
+            if (Object.keys(extra).length > 0) {
+                const extraTitle = document.createElement('div'); extraTitle.style.cssText = 'font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; margin:1rem 0 0.5rem 0;';
+                extraTitle.textContent = 'Custom Fields';
+                profileCard.appendChild(extraTitle);
+                
+                const extraGrid = document.createElement('div'); extraGrid.style.cssText = 'display:grid; grid-template-columns:1fr 1fr; gap:12px;';
+                for (const [key, val] of Object.entries(extra)) {
+                    const d = document.createElement('div');
+                    const l = document.createElement('label'); l.style.cssText = 'font-size:0.7rem; color:var(--text-muted);'; l.textContent = key;
+                    const v = document.createElement('div'); v.style.cssText = 'padding:8px 12px; background:#f1f5f9; border-radius:8px; font-size:0.85rem; font-weight:600;'; v.textContent = val;
+                    d.append(l, v);
+                    extraGrid.appendChild(d);
+                }
+                profileCard.appendChild(extraGrid);
+            }
+        } catch (e) { console.error('Failed to parse custom_fields', e); }
+    }
+
     const saveBtn = document.createElement('button'); saveBtn.className = 'btn btn-primary'; saveBtn.id = 'btn-save-profile';
+    saveBtn.style.marginTop = '1.5rem';
     saveBtn.innerHTML = '<i data-lucide="save"></i> Save Changes';
     profileCard.appendChild(saveBtn);
     anim.appendChild(profileCard);
@@ -746,7 +775,8 @@ registerView('profile', async (wrap) => {
                     company: document.getElementById('pf-company').value,
                     city: document.getElementById('pf-city').value,
                     email: document.getElementById('pf-email').value,
-                    phone: document.getElementById('pf-phone').value
+                    phone: document.getElementById('pf-phone').value,
+                    address: document.getElementById('pf-address').value
                 })
             });
             btn.innerHTML = '<span>✓ Saved!</span>';
