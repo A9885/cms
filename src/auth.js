@@ -38,6 +38,10 @@ async function getAuth() {
                 force_password_reset: { type: "number", required: false, defaultValue: 0 }
             }
         },
+        session: {
+            expiresIn: 60 * 60 * 8, // 8 hours (Session duration)
+            updateAge: 60 * 60 * 1  // 1 hour (How often the session expiry is updated)
+        },
         plugins: [
             username(),
             dash({

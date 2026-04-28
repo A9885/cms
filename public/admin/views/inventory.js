@@ -32,7 +32,7 @@ App.registerView('inventory', {
             color: #718096; font-size: 0.78rem; margin-bottom: 1rem;
         }
         .inv-breadcrumb a { color: var(--accent); text-decoration: none; cursor: pointer; }
-        .inv-breadcrumb a:hover { text-decoration: underline; }
+        .inv-breadcrumb a:hover { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 4px; }
         .inv-breadcrumb .sep { color: #cbd5e1; }
 
         .inv-card-header {
@@ -199,7 +199,6 @@ App.registerView('inventory', {
         </style>
 
         <!-- Tooltip box -->
-        <div id="inv-screen-tooltip" class="inv-screen-tooltip"></div>
 
         <!-- Toast box -->
         <div id="inv-toast-box"></div>
@@ -371,75 +370,6 @@ App.registerView('inventory', {
         if (bc) bc.innerHTML = html;
     },
 
-    showTooltip(e, dId) {
-        const d = this._screens[dId] || (this._selectedScreen && this._selectedScreen.id === dId ? this._selectedScreen : null);
-        if (!d) return;
-
-        const tip = document.getElementById('inv-screen-tooltip');
-        if (!tip) return;
-
-        const statusLabel = d.online ? 'Online' : 'Offline';
-        const lastSeen = d.lastAccessed ? new Date(d.lastAccessed + ' UTC').toLocaleString() : 'Never';
-
-        tip.innerHTML = `
-            <div class="inv-screen-tooltip-header">
-                <div class="inv-screen-tooltip-name">${this._esc(d.name)}</div>
-                <span class="${d.online ? 'inv-badge-online' : 'inv-badge-offline'}" style="font-size:0.6rem; padding: 2px 6px;">
-                    <span class="inv-badge-dot"></span>${statusLabel}
-                </span>
-            </div>
-            <div class="inv-screen-tooltip-item">
-                <div class="inv-screen-tooltip-label">Partner</div>
-                <div class="inv-screen-tooltip-value">${this._esc(d.partner_name || 'No Partner')}</div>
-            </div>
-            <div class="inv-screen-tooltip-item">
-                <div class="inv-screen-tooltip-label">Area / Location</div>
-                <div class="inv-screen-tooltip-value">${this._esc(d.location || d.address || 'Unknown')}</div>
-            </div>
-            <div class="inv-screen-tooltip-item">
-                <div class="inv-screen-tooltip-label">Technical Specs</div>
-                <div class="inv-screen-tooltip-value">${this._esc(d.device || 'Unknown')} <br> ${d.resolution || ''} · ${d.orientation || ''}</div>
-            </div>
-            <div class="inv-screen-tooltip-item">
-                <div class="inv-screen-tooltip-label">Last Seen</div>
-                <div class="inv-screen-tooltip-value">${this._esc(lastSeen)}</div>
-            </div>
-            <div style="margin-top:12px; font-size:0.65rem; color:#94a3b8; font-style:italic; border-top:1px solid #f1f5f9; padding-top:8px;">
-                ID: ${dId} ${d.timezone ? ' · ' + d.timezone : ''}
-            </div>
-        `;
-
-        tip.style.display = 'block';
-        
-        // Position it
-        const rect = e.target.getBoundingClientRect();
-        const tipRect = tip.getBoundingClientRect();
-        
-        let top = rect.top - tipRect.height - 12;
-        let left = rect.left + (rect.width / 2) - (tipRect.width / 2);
-
-        // Boundary checks
-        if (top < 10) top = rect.bottom + 12;
-        if (left < 10) left = 10;
-        if (left + tipRect.width > window.innerWidth - 10) left = window.innerWidth - tipRect.width - 10;
-
-        tip.style.top = top + 'px';
-        tip.style.left = left + 'px';
-
-        // Trigger reflow for animation
-        tip.offsetHeight;
-        tip.classList.add('visible');
-    },
-
-    hideTooltip() {
-        const tip = document.getElementById('inv-screen-tooltip');
-        if (tip) {
-            tip.classList.remove('visible');
-            setTimeout(() => {
-                if (!tip.classList.contains('visible')) tip.style.display = 'none';
-            }, 200);
-        }
-    },
 
     async loadMediaSummary() {
         try {
@@ -508,14 +438,14 @@ App.registerView('inventory', {
                 }
                 if (d.timezone) locHtml += '<div style="font-size:0.7rem;color:#94a3b8;margin-top:1px;">' + this._esc(d.timezone) + '</div>';
 
-                const lastSeen = d.lastAccessed ? new Date(d.lastAccessed + ' UTC').toLocaleString() : 'Never';
+                const lastSeen = d.lastAccessed ? new Date(d.lastAccessed + ' UTC').toLocaleString('en-GB', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:true }) : 'Never';
 
                 rows += `
                 <tr>
                     <td>
-                        <div style="font-weight:700;font-size:0.85rem; cursor:help; border-bottom:1px dashed #cbd5e1; display:inline-block;" 
-                             onmouseenter="window.InvView.showTooltip(event, '${dId}')" 
-                             onmouseleave="window.InvView.hideTooltip()">
+                        <div style="font-weight:700;font-size:0.85rem; cursor:help; border-bottom:2px solid var(--primary); display:inline-block;" 
+                             onmouseenter="App.tooltip.showScreen(event, '${dId}')" 
+                             onmouseleave="App.tooltip.hide()">
                              ${this._esc(d.name)}
                         </div>
                         <div style="font-size:0.72rem;color:#94a3b8;margin-top:2px;">ID: ${dId}${d.device ? ' · ' + this._esc(d.device) : ''}</div>
@@ -555,7 +485,7 @@ App.registerView('inventory', {
 
             // Update last-fetched badge
             const badge = document.getElementById('inv-sync-badge');
-            if (badge) badge.textContent = '🕐 Updated ' + new Date().toLocaleTimeString();
+            if (badge) badge.textContent = '🕐 Updated ' + new Date().toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:true });
 
         } catch (e) {
             if (wrap) wrap.innerHTML = '<div class="inv-empty">⚠️ Failed to load screens: ' + this._esc(e.message) + '</div>';
@@ -749,7 +679,7 @@ App.registerView('inventory', {
 
             // Update fetched badge
             const fetchBadge = document.getElementById('inv-pop-fetched-badge');
-            if (fetchBadge) fetchBadge.textContent = '🕐 Updated ' + new Date().toLocaleTimeString();
+            if (fetchBadge) fetchBadge.textContent = '🕐 Updated ' + new Date().toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:true });
 
             // History table
             const histEl = document.getElementById('inv-pop-history');
@@ -772,11 +702,11 @@ App.registerView('inventory', {
                         locCell = this._esc(loc.timezone);
                     }
                     return `<tr>
-                        <td style="color:#4a5568;">${dt.toLocaleString()}${liveBadge}</td>
+                        <td style="color:#4a5568;">${dt.toLocaleString('en-GB', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:true })}${liveBadge}</td>
                         <td style="font-weight:700; cursor:help;">
-                            <span onmouseenter="window.InvView.showTooltip(event, '${this._selectedScreen.id}')" 
-                                  onmouseleave="window.InvView.hideTooltip()"
-                                  style="border-bottom:1px dashed #cbd5e1;">
+                            <span onmouseenter="App.tooltip.showScreen(event, '${this._selectedScreen.id}')" 
+                                  onmouseleave="App.tooltip.hide()"
+                                  style="border-bottom:2px solid var(--primary);">
                                 ${this._esc(r.display || 'Display')}
                             </span>
                         </td>

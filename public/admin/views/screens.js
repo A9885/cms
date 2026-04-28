@@ -118,9 +118,15 @@ App.registerView('screens', {
                                     <div id="det-created-date" style="font-size:0.85rem; font-weight:600;">—</div>
                                 </div>
                             </div>
-                            <div style="margin-top:10px;">
-                                <label style="font-size:0.7rem; color:var(--text-muted);">MAC Address</label>
-                                <div id="det-mac-address" style="font-size:0.75rem; font-family:monospace; color:var(--text-muted);">—</div>
+                            <div style="margin-top:10px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                                <div>
+                                    <label style="font-size:0.7rem; color:var(--text-muted);">License Number</label>
+                                    <div id="det-license" style="font-size:0.75rem; font-family:monospace; color:var(--primary); font-weight:600;">—</div>
+                                </div>
+                                <div>
+                                    <label style="font-size:0.7rem; color:var(--text-muted);">MAC Address</label>
+                                    <div id="det-mac-address" style="font-size:0.75rem; font-family:monospace; color:var(--text-muted);">—</div>
+                                </div>
                             </div>
                         </div>
 
@@ -257,6 +263,10 @@ App.registerView('screens', {
                             <label>Address</label>
                             <textarea id="add-screen-address" placeholder="Full address" class="form-control" style="height:60px;"></textarea>
                         </div>
+                        <div class="form-group">
+                            <label>Xibo License / Hardware Key</label>
+                            <input type="text" id="add-screen-license" placeholder="E.g., f4:1c:26:6c:2d:5b" class="form-control">
+                        </div>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-onclick="App.closeModal">Cancel</button>
@@ -319,6 +329,14 @@ App.registerView('screens', {
                         <div class="form-group">
                             <label>Notes</label>
                             <textarea id="edit-screen-notes" class="form-control" style="height:60px;"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>Xibo License / Hardware Key</label>
+                            <div style="display:flex; gap:8px;">
+                                <input type="text" id="edit-screen-license" class="form-control" placeholder="Link by License Number" style="flex:1;">
+                                <button type="button" class="btn btn-secondary" id="btn-verify-license" style="font-size:0.75rem; white-space:nowrap;">Verify</button>
+                            </div>
+                            <div id="verify-license-status" style="margin-top:6px; font-size:0.72rem; display:none;"></div>
                         </div>
                     </div>
                     <div class="modal-footer">
@@ -408,35 +426,101 @@ App.registerView('screens', {
 
             <!-- Register Xibo Modal -->
             <div id="register-xibo-modal" class="modal-overlay" style="z-index: 1004;">
-                <div class="modal">
+                <div class="modal" style="max-width: 480px; width: 95%;">
                     <div class="modal-header">
-                        <span class="modal-title">🔗 Register New Xibo Display</span>
+                        <span class="modal-title" style="display: flex; align-items: center; gap: 10px;">
+                            <i data-lucide="monitor" style="color: #3b82f6;"></i>
+                            Register Xibo Player
+                        </span>
                         <button type="button" data-onclick="App.closeModal" class="modal-close">&times;</button>
                     </div>
-                    <div class="modal-body">
-                        <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:10px; padding:12px; margin-bottom:16px; font-size:0.8rem; line-height:1.6;">
-                            <strong>📋 Before registering:</strong><br>
-                            1. Open the Xibo Player app on the display<br>
-                            2. In player settings, set <strong>CMS Address</strong> to:<br>
-                            <code id="reg-cms-url" style="background:#dbeafe; padding:2px 6px; border-radius:4px; font-size:0.85rem; font-weight:700;">https://cms.signtral.info</code><br>
-                            3. The 6-digit code will appear on screen once connected
+                    <div class="modal-body" style="padding-top: 10px;">
+                        
+                        <!-- STEP 1: Instructions -->
+                        <div style="margin-bottom: 20px;">
+                            <div style="font-size: 0.7rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
+                                <span style="background: #e2e8f0; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.6rem; color: #1e293b;">1</span>
+                                Setup Instructions
+                            </div>
+                            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 15px; font-size: 0.8rem; line-height: 1.5;">
+                                <div style="display: flex; gap: 10px; align-items: start; margin-bottom: 10px;">
+                                    <i data-lucide="smartphone" style="width: 16px; color: #3b82f6; flex-shrink: 0; margin-top: 2px;"></i>
+                                    <div>Install <strong>Xibo for Android</strong> from Play Store.</div>
+                                </div>
+                                <div style="display: flex; gap: 10px; align-items: start;">
+                                    <i data-lucide="settings" style="width: 16px; color: #3b82f6; flex-shrink: 0; margin-top: 2px;"></i>
+                                    <div style="flex: 1;">
+                                        Open app → Settings and enter:
+                                        <div style="margin-top: 10px; display: grid; gap: 6px;">
+                                            <div style="display: flex; align-items: center; gap: 8px; background: white; border: 1px solid #e2e8f0; padding: 4px 8px; border-radius: 8px; font-size: 0.72rem;">
+                                                <span style="color: #64748b; width: 75px;">CMS URL:</span>
+                                                <code style="font-weight: 700; flex: 1; color: #1e293b;">https://cms.signtral.info</code>
+                                                <button class="btn-icon" title="Copy" onclick="navigator.clipboard.writeText('https://cms.signtral.info'); window.App.showToast('Copied URL', 'success')">
+                                                    <i data-lucide="copy" style="width: 12px;"></i>
+                                                </button>
+                                            </div>
+                                            <div style="display: flex; align-items: center; gap: 8px; background: white; border: 1px solid #e2e8f0; padding: 4px 8px; border-radius: 8px; font-size: 0.72rem;">
+                                                <span style="color: #64748b; width: 75px;">Secret Key:</span>
+                                                <code style="font-weight: 700; flex: 1; color: #1e293b;">signtral@info</code>
+                                                <button class="btn-icon" title="Copy" onclick="navigator.clipboard.writeText('signtral@info'); window.App.showToast('Copied Key', 'success')">
+                                                    <i data-lucide="copy" style="width: 12px;"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                        <div class="form-group">
-                            <label>Display Name *</label>
-                            <input type="text" id="reg-xibo-name" placeholder="E.g., Office-Entrance" class="form-control">
+
+                        <!-- STEP 2: Scan -->
+                        <div style="margin-bottom: 20px;">
+                            <div style="font-size: 0.7rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
+                                <span style="background: #e2e8f0; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.6rem; color: #1e293b;">2</span>
+                                Scan for Device
+                            </div>
+                            
+                            <button class="btn btn-primary" id="btn-scan-pending" style="width: 100%; height: 44px; font-weight: 700; background: #1e293b; color: white; border: none; border-radius: 10px; display: flex; align-items: center; justify-content: center; gap: 10px; transition: all 0.2s; font-size: 0.85rem;">
+                                <i data-lucide="search" style="width: 18px;"></i>
+                                <span id="scan-btn-text">Scan for Pending Displays</span>
+                            </button>
+
+                            <div id="reg-scan-results" style="margin-top: 12px; display: none;"></div>
                         </div>
-                        <div class="form-group">
-                            <label>Activation Code (shown on player screen) *</label>
-                            <input type="text" id="reg-xibo-code" placeholder="E.g., 2399CC" class="form-control" style="text-transform: uppercase; font-size: 1.1rem; letter-spacing: 0.15em; font-weight: 700;">
+
+                        <!-- STEP 3: Authorize -->
+                        <div id="reg-step-3" style="opacity: 0.4; pointer-events: none; transition: all 0.3s;">
+                            <div style="font-size: 0.7rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
+                                <span style="background: #e2e8f0; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.6rem; color: #1e293b;">3</span>
+                                Name & Authorize
+                            </div>
+                            <div class="form-group" style="margin-bottom: 12px;">
+                                <label style="font-size: 0.75rem; font-weight: 600; color: #475569; margin-bottom: 6px; display: block;">Display Name *</label>
+                                <input type="text" id="reg-xibo-name" placeholder="E.g., Lobby-Left-Screen" class="form-control" style="border-radius: 8px; font-size: 0.85rem;">
+                            </div>
+                            <div class="form-group">
+                                <label style="font-size: 0.75rem; font-weight: 600; color: #475569; margin-bottom: 6px; display: block;">Activation Code</label>
+                                <div style="position: relative;">
+                                    <input type="text" id="reg-xibo-code" class="form-control" disabled style="background: #f1f5f9; border-radius: 8px; font-family: monospace; letter-spacing: 2px; font-weight: 700; padding-right: 40px; font-size: 0.9rem; color: #1e293b;">
+                                    <i data-lucide="lock" style="position: absolute; right: 12px; top: 10px; width: 14px; color: #94a3b8;"></i>
+                                </div>
+                            </div>
                         </div>
-                        <div id="reg-pending-list" style="display:none; margin-top:10px;"></div>
+
+                        <!-- Error Message -->
+                        <div id="reg-error-msg" style="display: none; margin-top: 15px; background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; padding: 12px; border-radius: 10px; font-size: 0.75rem;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <i data-lucide="alert-circle" style="width: 14px;"></i>
+                                <span id="reg-error-text" style="flex: 1;"></span>
+                                <button class="btn btn-secondary" id="btn-reg-try-again" style="font-size: 0.65rem; padding: 3px 8px; height: auto; background: white; border: 1px solid #fecaca; color: #991b1b;">Try Again</button>
+                            </div>
+                        </div>
                     </div>
-                    <div class="modal-footer" style="flex-direction: column; gap: 8px; align-items: stretch;">
-                        <div style="display:flex; gap:8px;">
-                            <button class="btn btn-secondary" style="flex:1; font-size:0.8rem;" id="btn-scan-pending">🔍 Scan for Pending Displays</button>
-                            <button class="btn btn-primary" style="flex:1;" id="btn-submit-registration">Authorize Player</button>
-                        </div>
-                        <button type="button" class="btn btn-secondary" data-onclick="App.closeModal">Cancel</button>
+                    <div class="modal-footer" style="padding-top: 10px;">
+                        <button type="button" class="btn btn-secondary" data-onclick="App.closeModal" style="border-radius: 10px; font-size: 0.85rem;">Cancel</button>
+                        <button class="btn btn-primary" id="btn-submit-registration" disabled style="background: #10b981; color: white; border: none; border-radius: 10px; flex: 1; font-weight: 700; height: 40px; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.85rem; transition: all 0.2s;">
+                            <i data-lucide="check-circle" style="width: 18px;"></i>
+                            Authorize Player
+                        </button>
                     </div>
                 </div>
             </div>
@@ -489,7 +573,7 @@ App.registerView('screens', {
 
         this.localScreens = screens || [];
         this.partnersData = partners || [];
-        
+
         // Handle Xibo Connectivity Errors or Success
         if (xiboDisplays && xiboDisplays.error) {
             console.warn('[Screens] Xibo Connection Issue:', xiboDisplays.error);
@@ -554,7 +638,7 @@ App.registerView('screens', {
         if (btnViewLogs) {
             btnViewLogs.onclick = () => this.showGlobalLogs();
         }
-        
+
         const btnRefreshLogs = document.getElementById('btn-refresh-global-logs');
         if (btnRefreshLogs) {
             btnRefreshLogs.onclick = () => this.showGlobalLogs();
@@ -579,14 +663,36 @@ App.registerView('screens', {
             btnOpenAdd.onclick = () => document.getElementById('create-screen-modal').classList.add('active');
         }
 
-        // Register Xibo Modal
+        // Register Xibo Modal Opening
         const btnOpenReg = document.getElementById('btn-open-register-xibo');
         if (btnOpenReg) {
             btnOpenReg.onclick = () => {
+                // Reset Modal State
                 document.getElementById('reg-xibo-name').value = '';
                 document.getElementById('reg-xibo-code').value = '';
-                document.getElementById('reg-pending-list').style.display = 'none';
+                const resultsContainer = document.getElementById('reg-scan-results');
+                resultsContainer.style.display = 'none';
+                resultsContainer.innerHTML = '';
+                document.getElementById('reg-step-3').style.opacity = '0.4';
+                document.getElementById('reg-step-3').style.pointerEvents = 'none';
+                document.getElementById('btn-submit-registration').disabled = true;
+                document.getElementById('reg-error-msg').style.display = 'none';
+                
                 document.getElementById('register-xibo-modal').classList.add('active');
+            };
+        }
+
+        // Try Again logic
+        const btnTryAgain = document.getElementById('btn-reg-try-again');
+        if (btnTryAgain) {
+            btnTryAgain.onclick = () => {
+                document.getElementById('reg-error-msg').style.display = 'none';
+                document.getElementById('reg-scan-results').style.display = 'none';
+                document.getElementById('reg-scan-results').innerHTML = '';
+                document.getElementById('reg-step-3').style.opacity = '0.4';
+                document.getElementById('reg-step-3').style.pointerEvents = 'none';
+                document.getElementById('btn-submit-registration').disabled = true;
+                document.getElementById('reg-xibo-code').value = '';
             };
         }
 
@@ -595,37 +701,92 @@ App.registerView('screens', {
         if (btnScanPending) {
             btnScanPending.onclick = async () => {
                 btnScanPending.disabled = true;
-                btnScanPending.textContent = 'Scanning...';
+                const btnText = document.getElementById('scan-btn-text');
+                btnText.textContent = 'Scanning...';
+                
+                const container = document.getElementById('reg-scan-results');
+                container.style.display = 'block';
+                container.innerHTML = '<div style="text-align:center; padding:15px; color:#64748b; font-size:0.8rem;"><i data-lucide="loader-2" class="spin" style="width:18px; margin-bottom:8px;"></i><br>Looking for players on your network...</div>';
+                lucide.createIcons();
+
                 try {
                     const result = await window.Api.get('/screens/pending-displays');
-                    const container = document.getElementById('reg-pending-list');
                     if (result && result.length > 0) {
-                        container.style.display = 'block';
                         container.innerHTML = `
-                            <div style="font-size:0.78rem; font-weight:600; margin-bottom:6px; color:#1e40af;">
-                                🟡 ${result.length} pending display(s) waiting for authorization:
-                            </div>
+                            <div style="font-size:0.7rem; font-weight:700; color:#10b981; margin-bottom:8px; text-transform:uppercase;">Device(s) Found</div>
                             ${result.map(d => `
-                                <div style="border:1px solid #e2e8f0; border-radius:8px; padding:8px 10px; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center; background:#f8fafc; cursor:pointer;"
-                                     data-onclick="App.fillRegisterFields" data-code="${(d.license||'').slice(0,8)}" data-name="${d.display}">
-                                    <div>
-                                        <div style="font-size:0.85rem; font-weight:600;">${d.display}</div>
-                                        <div style="font-size:0.7rem; color:#64748b;">ID: ${d.displayId} · Last seen: ${d.lastAccessed || 'Unknown'}</div>
+                                <div class="device-card" 
+                                     style="border:2px solid #e2e8f0; border-radius:10px; padding:12px; margin-bottom:8px; background:white; cursor:pointer; transition:all 0.2s;"
+                                     data-code="${(d.license || d.activationCode || '').slice(0, 8)}" data-name="${d.display}">
+                                    <div style="display:flex; justify-content:space-between; align-items:start;">
+                                        <div style="display:flex; gap:10px; align-items:center;">
+                                            <i data-lucide="smartphone" style="width:18px; color:#64748b;"></i>
+                                            <div>
+                                                <div style="font-size:0.85rem; font-weight:700; color:#1e293b;">${d.display}</div>
+                                                <div style="font-size:0.65rem; color:#94a3b8; font-weight:600;">Detected via Activation Flow</div>
+                                            </div>
+                                        </div>
+                                        <button class="btn-select" style="background:#f1f5f9; border:none; border-radius:6px; padding:4px 10px; font-size:0.7rem; font-weight:700; color:#475569;">Select</button>
                                     </div>
-                                    <span style="font-size:0.7rem; background:#fef9c3; color:#854d0e; padding:2px 8px; border-radius:999px; font-weight:700;">Pending</span>
+                                    <div style="margin-top:10px; font-size:0.65rem; color:#64748b; font-family:monospace; background:#f8fafc; padding:4px 8px; border-radius:4px; display:inline-block;">
+                                        Code: ${(d.license || d.activationCode || '').slice(0, 8)}
+                                    </div>
                                 </div>
                             `).join('')}
-                            <div style="font-size:0.72rem; color:#64748b;">Click a display above to auto-fill the code field, then click Authorize Player.</div>
                         `;
+                        lucide.createIcons();
+
+                        // Add selection click handlers
+                        container.querySelectorAll('.device-card').forEach(card => {
+                            card.onclick = () => {
+                                // Clear previous selections
+                                container.querySelectorAll('.device-card').forEach(c => {
+                                    c.style.borderColor = '#e2e8f0';
+                                    c.style.background = 'white';
+                                    c.querySelector('.btn-select').textContent = 'Select';
+                                    c.querySelector('.btn-select').style.background = '#f1f5f9';
+                                    c.querySelector('.btn-select').style.color = '#475569';
+                                });
+
+                                // Apply selection
+                                card.style.borderColor = '#10b981';
+                                card.style.background = '#f0fdf4';
+                                const btn = card.querySelector('.btn-select');
+                                btn.textContent = 'Selected ✅';
+                                btn.style.background = '#10b981';
+                                btn.style.color = 'white';
+
+                                // Fill Step 3
+                                const nameInput = document.getElementById('reg-xibo-name');
+                                if (!nameInput.value.trim()) nameInput.value = card.dataset.name;
+                                document.getElementById('reg-xibo-code').value = card.dataset.code;
+
+                                // Enable Step 3
+                                const step3 = document.getElementById('reg-step-3');
+                                step3.style.opacity = '1';
+                                step3.style.pointerEvents = 'auto';
+                                document.getElementById('btn-submit-registration').disabled = false;
+                                
+                                App.showToast('Device selected!', 'success');
+                            };
+                        });
                     } else {
-                        container.style.display = 'block';
-                        container.innerHTML = '<div style="font-size:0.8rem; color:#64748b; padding:8px; background:#f8fafc; border-radius:8px;">No pending displays found. Make sure the player is connected to the CMS and showing the activation code.</div>';
+                        container.innerHTML = `
+                            <div style="text-align:center; padding:15px; background:#fff7ed; border:1px solid #ffedd5; border-radius:10px;">
+                                <div style="font-size:0.8rem; color:#9a3412; font-weight:600; margin-bottom:4px;">No pending displays found</div>
+                                <div style="font-size:0.7rem; color:#c2410c; line-height:1.4;">Make sure your app is connected to <strong>cms.signtral.info</strong> and shows the activation code, then scan again.</div>
+                                <button class="btn btn-secondary" style="margin-top:10px; width:100%; font-size:0.75rem;" id="btn-scan-again">🔄 Scan Again</button>
+                            </div>
+                        `;
+                        document.getElementById('btn-scan-again').onclick = () => btnScanPending.click();
                     }
-                } catch(e) {
+                } catch (e) {
                     App.showToast('Scan failed: ' + e.message, 'error');
+                    container.style.display = 'none';
+                } finally {
+                    btnScanPending.disabled = false;
+                    btnText.textContent = 'Scan for Pending Displays';
                 }
-                btnScanPending.disabled = false;
-                btnScanPending.textContent = '🔍 Scan for Pending Displays';
             };
         }
 
@@ -634,26 +795,34 @@ App.registerView('screens', {
             btnSubmitReg.onclick = async () => {
                 const name = document.getElementById('reg-xibo-name').value.trim();
                 const code = document.getElementById('reg-xibo-code').value.trim();
-                if (!name || !code) return App.showToast('Please enter both display name and activation code', 'error');
+                const errBox = document.getElementById('reg-error-msg');
+                const errText = document.getElementById('reg-error-text');
+
+                if (!name) return App.showToast('Please enter a display name', 'error');
 
                 btnSubmitReg.disabled = true;
-                btnSubmitReg.innerText = 'Authorizing...';
+                btnSubmitReg.innerHTML = '<i data-lucide="loader-2" class="spin" style="width:18px;"></i> Authorizing...';
+                lucide.createIcons();
+                errBox.style.display = 'none';
 
                 try {
                     const res = await window.Api.post('/screens/register-xibo', { name, code });
                     if (res && res.success) {
-                        App.showToast('✅ Display registered successfully!', 'success');
+                        App.showToast('✅ Screen registered successfully!', 'success');
                         document.getElementById('register-xibo-modal').classList.remove('active');
                         this.mount(container);
                     } else {
-                        const errMsg = (res && res.error) || 'Unknown error';
-                        App.showToast('❌ ' + errMsg, 'error');
+                        const errMsg = (res && res.error) || 'Unknown authorization error';
+                        errBox.style.display = 'block';
+                        errText.textContent = errMsg;
                     }
                 } catch (err) {
-                    App.showToast('Error: ' + err.message, 'error');
+                    errBox.style.display = 'block';
+                    errText.textContent = err.message;
                 } finally {
                     btnSubmitReg.disabled = false;
-                    btnSubmitReg.innerText = 'Authorize Player';
+                    btnSubmitReg.innerHTML = '<i data-lucide="check-circle" style="width: 18px;"></i> Authorize Player';
+                    lucide.createIcons();
                 }
             };
         }
@@ -670,7 +839,8 @@ App.registerView('screens', {
                 try {
                     const lat = document.getElementById('add-screen-lat').value || null;
                     const lng = document.getElementById('add-screen-lng').value || null;
-                    await window.Api.post('/screens', { name, city, address, partner_id, latitude: lat, longitude: lng });
+                    const license = document.getElementById('add-screen-license').value.trim();
+                    await window.Api.post('/screens', { name, city, address, partner_id, latitude: lat, longitude: lng, license });
                     document.getElementById('create-screen-modal').classList.remove('active');
                     this.mount(container);
                 } catch (err) { App.showToast(err.message, 'error'); }
@@ -748,8 +918,15 @@ App.registerView('screens', {
 
             const tdName = document.createElement('td');
             const nameDiv = document.createElement('div');
-            nameDiv.style.fontWeight = '600';
-            nameDiv.textContent = s.name;
+            nameDiv.style.fontWeight = '700';
+            nameDiv.style.cursor = 'help';
+            nameDiv.innerHTML = `
+                <span onmouseenter="App.tooltip.showScreen(event, '${s.id}')" 
+                      onmouseleave="App.tooltip.hide()"
+                      style="border-bottom:1px dashed #cbd5e1;">
+                    ${s.name}
+                </span>
+            `;
             tdName.appendChild(nameDiv);
             const idDiv = document.createElement('div');
             idDiv.style.fontSize = '0.7rem';
@@ -862,8 +1039,9 @@ App.registerView('screens', {
         document.getElementById('det-hardware-model').innerText = `${screen.brand || ''} ${screen.device_model || ''}`.trim() || '—';
         document.getElementById('det-ip-address').innerText = screen.client_address || '—';
         document.getElementById('det-mac-address').innerText = screen.mac_address || '—';
+        document.getElementById('det-license').innerText = screen.license || '—';
         document.getElementById('det-created-date').innerText = screen.created_at ? new Date(screen.created_at).toLocaleDateString() : '—';
-        
+
         lucide.createIcons();
 
         const xibo = this.allXiboDisplays.find(xd => xd.displayId === screen.xibo_display_id);
@@ -906,7 +1084,11 @@ App.registerView('screens', {
             try {
                 const logs = await window.Api.get(`/screens/${id}/proof-of-play`);
                 pBody.innerHTML = '';
-                if (!logs || logs.length === 0) {
+                if (logs.error) {
+                    pBody.innerHTML = `<tr><td colspan="3" style="text-align:center; padding:10px; color:#ef4444;">Error: ${logs.error}</td></tr>`;
+                    return;
+                }
+                if (!Array.isArray(logs) || logs.length === 0) {
                     const emptyTd = document.createElement('td');
                     emptyTd.colSpan = 3;
                     emptyTd.style.textAlign = 'center';
@@ -959,17 +1141,21 @@ App.registerView('screens', {
             try {
                 const evLogs = await window.Api.get(`/screens/${id}/logs`);
                 logBody.innerHTML = '';
-                if (!evLogs || evLogs.length === 0) {
+                if (evLogs.error) {
+                    logBody.innerHTML = `<tr><td colspan="3" style="text-align:center; padding:10px; color:#ef4444;">Error: ${evLogs.error}</td></tr>`;
+                    return;
+                }
+                if (!Array.isArray(evLogs) || evLogs.length === 0) {
                     logBody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding:10px; color:var(--text-muted);">No activity recorded.</td></tr>';
                 } else {
                     evLogs.forEach(l => {
                         const tr = document.createElement('tr');
-                        
+
                         const tdTime = document.createElement('td');
                         tdTime.style.whiteSpace = 'nowrap';
                         tdTime.style.color = '#64748b';
                         tdTime.textContent = new Date(l.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
-                        
+
                         const tdType = document.createElement('td');
                         let typeHtml = `<span style="font-weight:600; color:#1e293b;">${l.event_type.replace('_', ' ').toUpperCase()}</span>`;
                         if (l.event_type === 'status_change') {
@@ -984,7 +1170,7 @@ App.registerView('screens', {
                         const tdDetails = document.createElement('td');
                         tdDetails.style.color = '#475569';
                         tdDetails.textContent = l.details || '—';
-                        
+
                         tr.appendChild(tdTime);
                         tr.appendChild(tdType);
                         tr.appendChild(tdDetails);
@@ -1046,23 +1232,27 @@ App.registerView('screens', {
         const body = document.getElementById('global-logs-body');
         modal.classList.add('active');
         body.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:30px;">Loading global logs...</td></tr>';
-        
+
         try {
             const logs = await window.Api.get('/screens/logs');
             body.innerHTML = '';
-            if (!logs || logs.length === 0) {
+            if (logs.error) {
+                body.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:20px; color:#ef4444;">Error: ${logs.error}</td></tr>`;
+                return;
+            }
+            if (!Array.isArray(logs) || logs.length === 0) {
                 body.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:20px;">No logs found.</td></tr>';
                 return;
             }
 
             logs.forEach(l => {
                 const tr = document.createElement('tr');
-                
+
                 const tdTime = document.createElement('td');
                 tdTime.style.fontSize = '0.7rem';
                 tdTime.style.color = '#64748b';
                 tdTime.textContent = new Date(l.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
-                
+
                 const tdScreen = document.createElement('td');
                 tdScreen.style.fontWeight = '600';
                 tdScreen.textContent = l.screen_name || 'Unknown';
@@ -1260,13 +1450,17 @@ App.registerView('screens', {
         };
     },
 
-    openEditModal(screen) {
+    async openEditModal(screen) {
         if (!screen) return;
         const id = screen.id;
-        
-        // Refresh object from master list just in case
-        const latest = this.localScreens.find(s => s.id === id) || screen;
-        
+
+        // Fetch fresh object from server to avoid stale local data
+        const latest = await window.Api.get(`/screens/${id}`);
+        if (!latest) {
+            App.showToast('Could not load screen details', 'error');
+            return;
+        }
+
         document.getElementById('edit-modal-title').innerText = latest.name;
         document.getElementById('edit-screen-name').value = latest.name;
         document.getElementById('edit-screen-city').value = latest.city || '';
@@ -1277,6 +1471,51 @@ App.registerView('screens', {
         document.getElementById('edit-screen-notes').value = latest.notes || '';
         document.getElementById('edit-screen-orientation').value = latest.orientation || 'Landscape';
         document.getElementById('edit-screen-resolution').value = latest.resolution || '';
+        document.getElementById('edit-screen-license').value = latest.license || '';
+
+        // Cleanup status
+        const statusDiv = document.getElementById('verify-license-status');
+        statusDiv.style.display = 'none';
+        statusDiv.innerHTML = '';
+
+        // Verify Button Logic
+        document.getElementById('btn-verify-license').onclick = async () => {
+            const code = document.getElementById('edit-screen-license').value.trim();
+            if (!code) return App.showToast('Please enter a license number', 'error');
+
+            const btn = document.getElementById('btn-verify-license');
+            btn.innerText = 'Checking...';
+            btn.disabled = true;
+            statusDiv.style.display = 'block';
+            statusDiv.innerHTML = '<span style="color:#64748b;">🔍 Searching Xibo...</span>';
+
+            try {
+                const res = await window.Api.get(`/screens/verify-license/${encodeURIComponent(code)}`);
+                if (res && res.success) {
+                    statusDiv.innerHTML = `
+                        <div style="background:#f0fdf4; border:1px solid #bbf7d0; color:#166534; padding:8px; border-radius:6px;">
+                            <div style="font-weight:700;">✅ Found in Xibo</div>
+                            <div style="margin-top:2px;">Display: <strong>${res.name}</strong> (ID: ${res.displayId})</div>
+                            <div style="margin-top:2px; font-size:0.68rem; opacity:0.8;">${res.hardware || 'Unknown hardware'} · ${res.clientAddress || 'No IP'}</div>
+                            ${res.licensed ? '' : '<div style="margin-top:4px; font-weight:700; color:#b91c1c;">⚠️ Unauthorized: Will be authorized upon save.</div>'}
+                        </div>
+                    `;
+                } else {
+                    throw new Error(res.error || 'Not found');
+                }
+            } catch (e) {
+                statusDiv.innerHTML = `
+                    <div style="background:#fef2f2; border:1px solid #fecaca; color:#991b1b; padding:8px; border-radius:6px;">
+                        <div style="font-weight:700;">❌ Not Found</div>
+                        <div style="margin-top:2px; font-size:0.68rem;">${e.message}</div>
+                    </div>
+                `;
+            } finally {
+                btn.innerText = 'Verify';
+                btn.disabled = false;
+            }
+        };
+
         document.getElementById('edit-screen-modal').classList.add('active');
 
         document.getElementById('btn-submit-edit').onclick = async () => {
@@ -1290,7 +1529,8 @@ App.registerView('screens', {
                 partner_id: document.getElementById('edit-screen-partner-select').value || null,
                 notes: document.getElementById('edit-screen-notes').value,
                 orientation: document.getElementById('edit-screen-orientation').value,
-                resolution: document.getElementById('edit-screen-resolution').value
+                resolution: document.getElementById('edit-screen-resolution').value,
+                license: document.getElementById('edit-screen-license').value.trim()
             };
             try {
                 await window.Api.put(`/screens/${id}`, body);
@@ -1324,7 +1564,7 @@ App.registerView('screens', {
         }
 
         const is404 = err.error?.includes('404') || err.message?.includes('404');
-        const diagnosticMsg = is404 
+        const diagnosticMsg = is404
             ? `<strong>Xibo API Unreachable (404)</strong>. This usually means Nginx rewrite rules are missing. <br><small>Try adding <code>/api/index.php</code> to your URL or check your server config.</small>`
             : `<strong>Xibo Connection Error</strong>: ${err.error || 'Check credentials'}`;
 

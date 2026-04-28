@@ -76,6 +76,9 @@ app.use(cookieParser());
 const { getAuth } = require('./src/auth.js');
 let authHandler = null;
 getAuth().then(({ handler }) => { authHandler = handler; }).catch(console.error);
+const authRoutes = require('./src/routes/auth.routes');
+app.use('/api/auth', authRoutes);
+
 app.all('/api/auth/*splat', (req, res, next) => {
     if (authHandler) return authHandler(req, res);
     next(new Error("Auth handler not ready"));
@@ -751,7 +754,6 @@ app.get('/health', (req, res) => res.json({ status: 'OK', uptime: process.uptime
 
 
 
-const authRoutes = require('./src/routes/auth.routes');
 // Legacy auth routes are temporarily kept for any fallback, but most frontends should use /api/auth
 app.use('/auth', authRoutes);
 
@@ -1138,6 +1140,118 @@ app.get('/xibo/stats/media-summary', async (req, res) => {
         res.json(summary);
     } catch (err) {
         console.error('[GET /xibo/stats/media-summary]', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * GET /xibo/stats/totals
+ * Single source of truth for the 30-day Total PoP Plays KPI.
+ * Used by Dashboard, Analytics, and any future view so numbers always match.
+ */
+app.get('/xibo/stats/totals', async (req, res) => {
+    try {
+        const summary = await statsService.getAllMediaStats();
+        const totalPlays  = summary.reduce((s, i) => s + (i.totalPlays || 0), 0);
+        const activeMedia = summary.filter(i => i.totalPlays > 0).length;
+        const uniqueScreens = new Set(
+            summary.flatMap(i => i.displayIds || [])
+        ).size || summary.reduce((m, i) => Math.max(m, parseInt(i.uniqueDisplays) || 0), 0);
+
+        res.set('Cache-Control', 'no-store');
+        res.json({ totalPlays, activeMedia, uniqueScreens, window: '30d' });
+    } catch (err) {
+        console.error('[GET /xibo/stats/totals]', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * GET /xibo/stats/export-csv
+ * Downloads a CSV of all PoP data from daily_media_stats joined with media/brand info.
+ */
+app.get('/xibo/stats/export-csv', async (req, res) => {
+    try {
+        const { dbAll } = require('./src/db/database');
+        const rows = await dbAll(`
+            SELECT
+                d.date,
+                d.mediaId,
+                d.displayId,
+                d.count,
+                s.name  AS screen_name,
+                mb.brand_id,
+                b.name  AS brand_name
+            FROM daily_media_stats d
+            LEFT JOIN screens   s  ON s.xibo_display_id = d.displayId
+            LEFT JOIN media_brands mb ON mb.mediaId = d.mediaId
+            LEFT JOIN brands    b  ON b.id = mb.brand_id
+            ORDER BY d.date DESC, d.mediaId
+        `);
+
+        // Build CSV in memory — safe for reasonable data sets
+        const headers = ['Date', 'Media ID', 'Display ID', 'Screen Name', 'Brand', 'Play Count'];
+        const lines   = [headers.join(',')];
+        for (const r of rows) {
+            lines.push([
+                r.date ? String(r.date).split('T')[0] : '',
+                r.mediaId,
+                r.displayId,
+                `"${(r.screen_name || 'Unknown').replace(/"/g, '""')}"`,
+                `"${(r.brand_name  || 'Unlinked').replace(/"/g, '""')}"`,
+                r.count
+            ].join(','));
+        }
+
+        const csv = lines.join('\r\n');
+        const filename = `proof_of_play_${new Date().toISOString().split('T')[0]}.csv`;
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.send(csv);
+    } catch (err) {
+        console.error('[GET /xibo/stats/export-csv]', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * POST /xibo/stats/reset
+ * Truncates daily_media_stats. Requires { confirm: true } in body.
+ */
+app.post('/xibo/stats/reset', async (req, res) => {
+    try {
+        if (!req.body || req.body.confirm !== true) {
+            return res.status(400).json({ error: 'Confirmation required: send { confirm: true }' });
+        }
+        const { dbRun } = require('./src/db/database');
+        await dbRun('TRUNCATE TABLE daily_media_stats');
+        statsService.invalidateCache();
+        console.log('[POST /xibo/stats/reset] daily_media_stats truncated by admin.');
+        res.json({ success: true, message: 'All Proof of Play data has been reset.' });
+    } catch (err) {
+        console.error('[POST /xibo/stats/reset]', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * DELETE /xibo/stats/reset/:mediaId
+ * Deletes all daily_media_stats rows for a specific mediaId.
+ */
+app.delete('/xibo/stats/reset/:mediaId', async (req, res) => {
+    try {
+        const { mediaId } = req.params;
+        if (!mediaId || isNaN(parseInt(mediaId, 10))) {
+            return res.status(400).json({ error: 'Invalid mediaId' });
+        }
+        const { dbRun, dbGet } = require('./src/db/database');
+        const before = await dbGet('SELECT COUNT(*) as cnt FROM daily_media_stats WHERE mediaId = ?', [mediaId]);
+        await dbRun('DELETE FROM daily_media_stats WHERE mediaId = ?', [mediaId]);
+        statsService.invalidateCache();
+        console.log(`[DELETE /xibo/stats/reset/${mediaId}] Deleted ${before?.cnt || 0} rows.`);
+        res.json({ success: true, deleted: before?.cnt || 0, message: `PoP data for media ${mediaId} has been cleared.` });
+    } catch (err) {
+        console.error('[DELETE /xibo/stats/reset/:mediaId]', err.message);
         res.status(500).json({ error: err.message });
     }
 });

@@ -95,8 +95,17 @@ App.registerView('dashboard', {
     },
 
     async loadKPIs() {
-        const data = await Api.get('/dashboard');
+        // Fetch dashboard data and the global totals endpoint in parallel
+        const [data, totals] = await Promise.all([
+            Api.get('/dashboard'),
+            fetch('/xibo/stats/totals').then(r => r.json()).catch(() => null)
+        ]);
         if (data) {
+            // Override totalImpressions with the canonical 30d total so it
+            // always matches the Analytics page (same source: getAllMediaStats)
+            if (totals && totals.totalPlays != null) {
+                data.totalImpressions = totals.totalPlays;
+            }
             await this.updateKPIsUI(data);
             this.renderRevenueChart(data.revenueTrend || []);
         }

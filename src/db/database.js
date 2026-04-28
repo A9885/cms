@@ -104,6 +104,10 @@ async function initSchema() {
             await p.query("ALTER TABLE users ADD COLUMN force_password_reset BOOLEAN DEFAULT FALSE");
         } catch(e) {}
 
+        try {
+            await p.query("ALTER TABLE users ADD COLUMN timezone VARCHAR(100) DEFAULT 'Asia/Kolkata'");
+        } catch(e) {}
+
         // --- BETTER AUTH CORE TABLES ---
 
         await p.query(`
