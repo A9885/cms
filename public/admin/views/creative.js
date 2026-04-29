@@ -6,11 +6,12 @@ App.registerView('creative', {
                 <div class="table-header">
                     <h3 style="font-size: 1rem; font-weight: 600;">Media Assets</h3>
                     <div style="display: flex; gap: 10px; align-items: center;">
-                        <input type="text" id="creative-search" class="form-control" placeholder="Search by name..." style="width: 200px;" oninput="Views.creative.filterTable(this.value)">
+                        <input type="text" id="creative-search" class="form-control" placeholder="Search by name..." style="width: 200px;" data-oninput="Views.creative.filterTable">
                         <button class="btn btn-secondary" style="font-size: 0.8rem; display: flex; align-items: center; gap: 6px;" data-onclick="Views.creative.syncFromSlots" title="Auto-link all slot-assigned media to brands">
                             <i data-lucide="refresh-cw" style="width:14px;"></i> Sync from Slots
                         </button>
-                        <button class="btn btn-primary" data-onclick="window.location.href='/'">+ Upload Media</button>
+                        <input type="file" id="media-upload-input" style="display:none;" accept="image/*,video/*" data-onchange="Views.creative.handleUpload">
+                        <button class="btn btn-primary" data-onclick="Views.creative.triggerUpload">+ Upload Media</button>
                     </div>
                 </div>
                 <div class="table-wrap" style="border: none; border-radius: 0;">
@@ -106,21 +107,31 @@ App.registerView('creative', {
     },
 
     async loadLibrary() {
-        const [library, mapping, slotsRes] = await Promise.all([
-            Api.getXiboLibrary(),
-            Api.get('/media/brands').then(r => r || []),
+        const [libraryRes, mappingRes, slotsRes] = await Promise.all([
+            Api.getXiboLibrary().catch(() => []),
+            Api.get('/media/brands').catch(() => []),
             Api.get('/inventory').catch(() => ({}))
         ]);
+
+        const library = Array.isArray(libraryRes) ? libraryRes : (libraryRes && libraryRes.data ? libraryRes.data : []);
+        const mapping = Array.isArray(mappingRes) ? mappingRes : [];
+        
+        if (libraryRes && libraryRes.error) {
+            App.showToast('Failed to load library: ' + libraryRes.error, 'error');
+        }
+
         this.libraryData = library;
         this.mappingData = mapping;
 
         // Build a set of mediaIds that are assigned via slots
         const slotLinkedMediaIds = new Set();
-        if (slotsRes && typeof slotsRes === 'object') {
+        if (slotsRes && !slotsRes.error) {
             Object.values(slotsRes).forEach(screenSlots => {
-                (screenSlots || []).forEach(slot => {
-                    if (slot.mediaId && slot.brand_id) slotLinkedMediaIds.add(String(slot.mediaId));
-                });
+                if (Array.isArray(screenSlots)) {
+                    screenSlots.forEach(slot => {
+                        if (slot.mediaId && slot.brand_id) slotLinkedMediaIds.add(String(slot.mediaId));
+                    });
+                }
             });
         }
 
@@ -135,11 +146,13 @@ App.registerView('creative', {
                 
                 // Find brand mapping
                 const map = mapping.find(mp => String(mp.mediaId) === String(m.mediaId));
-                const brand = map ? this.brands.find(b => String(b.id) === String(map.brand_id)) : null;
+                const brand = (map && Array.isArray(this.brands)) ? this.brands.find(b => String(b.id) === String(map.brand_id)) : null;
+                const brandName = brand ? brand.name : 'Unlinked';
                 const isAutoLinked = slotLinkedMediaIds.has(String(m.mediaId));
 
                 const tr = document.createElement('tr');
-                tr.dataset.name = (m.name || '').toLowerCase();
+                const searchableName = (App.cleanFilename(m.name) + ' ' + (m.name || '') + ' ' + brandName).toLowerCase();
+                tr.dataset.name = searchableName;
                 
                 const tdCreative = document.createElement('td');
                 const creativeWrap = document.createElement('div');
@@ -234,17 +247,17 @@ App.registerView('creative', {
             const td = document.createElement('td');
             td.colSpan = 6;
             td.style.cssText = 'text-align:center; color:var(--text-muted); padding:40px;';
-            td.textContent = 'Your media library is empty.';
+            td.textContent = 'No images or videos found in the library.';
             tr.appendChild(td);
             tbody.appendChild(tr);
         }
         lucide.createIcons();
     },
 
-    filterTable(query) {
+    filterTable(e) {
         const tbody = document.getElementById('creative-table-body');
         if (!tbody) return;
-        const q = (query || '').toLowerCase();
+        const q = (e.target.value || '').toLowerCase();
         tbody.querySelectorAll('tr').forEach(tr => {
             tr.style.display = (!q || (tr.dataset.name || '').includes(q)) ? '' : 'none';
         });
@@ -374,6 +387,43 @@ App.registerView('creative', {
             }
         } catch (err) {
             App.showToast('Failed to delete: ' + err.message, 'error');
+        }
+    },
+
+    triggerUpload() {
+        window.location.href = '/manager.html';
+    },
+
+    async handleUpload(e) {
+        const input = e.target;
+        const file = input.files[0];
+        if (!file) return;
+
+        const btn = document.querySelector('[data-onclick="Views.creative.triggerUpload()"]');
+        const originalHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<i data-lucide="loader" style="width:14px; animation:spin 1s linear infinite;"></i> Uploading...';
+        lucide.createIcons();
+
+        const formData = new FormData();
+        formData.append('file', file);
+        // Admin uploads are unlinked by default in the library view
+        
+        try {
+            const res = await Api.upload('/api/creative/upload', formData);
+            if (res.success) {
+                App.showToast(`✅ Uploaded ${file.name} successfully`, 'success');
+                await this.loadLibrary();
+            } else {
+                App.showToast(res.error || 'Upload failed', 'error');
+            }
+        } catch (e) {
+            App.showToast('Upload error: ' + e.message, 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+            input.value = '';
+            lucide.createIcons();
         }
     }
 });

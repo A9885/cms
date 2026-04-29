@@ -4,7 +4,11 @@ App.registerView('settings', {
     async mount() {
         window.Views = window.Views || {};
         window.Views.settings = this;
-        await this.loadProfile();
+        await Promise.all([
+            this.loadProfile(),
+            this.loadLogs()
+        ]);
+        lucide.createIcons();
     },
 
     async loadProfile() {
@@ -17,6 +21,42 @@ App.registerView('settings', {
             }
         } catch (err) {
             App.showToast('Failed to load profile data', 'error');
+        }
+    },
+
+    async loadLogs() {
+        const tbody = document.getElementById('activity-logs-body');
+        if (!tbody) return;
+
+        try {
+            const res = await Api.get('/activity-logs?limit=10');
+            const logs = (res && res.data) || [];
+            
+            tbody.innerHTML = '';
+            if (logs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:30px; color:var(--text-muted);">No activity logs found.</td></tr>';
+                return;
+            }
+
+            logs.forEach(log => {
+                const tr = document.createElement('tr');
+                const date = new Date(log.created_at).toLocaleString();
+                
+                let actionClass = 'badge-blue';
+                if (log.action === 'CREATE') actionClass = 'badge-green';
+                if (log.action === 'DELETE') actionClass = 'badge-red';
+                if (log.action === 'ERROR') actionClass = 'badge-red';
+
+                tr.innerHTML = `
+                    <td style="font-size:0.8rem; color:var(--text-muted);">${date}</td>
+                    <td><span class="badge ${actionClass}" style="font-size:0.65rem;">${log.action}</span></td>
+                    <td style="font-size:0.85rem; font-weight:600;">${log.module}</td>
+                    <td style="font-size:0.85rem; color:var(--text-primary);">${log.description}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        } catch (err) {
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:30px; color:var(--danger);">Failed to load activity logs.</td></tr>';
         }
     },
 
@@ -140,7 +180,7 @@ App.registerView('settings', {
                 </div>
             </div>
             
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; max-width: 1200px;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; max-width: 1200px; margin-bottom: 2rem;">
                 <!-- Profile Section -->
                 <div class="card" style="border-radius: 20px; border: 1px solid var(--border); box-shadow: 0 10px 30px rgba(0,0,0,0.05); padding: 30px;">
                     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 2rem;">
@@ -215,10 +255,48 @@ App.registerView('settings', {
                 </div>
             </div>
 
+            <!-- Admin Activity Logs Section -->
+            <div class="card" style="max-width: 1200px; border-radius: 20px; border: 1px solid var(--border); box-shadow: 0 10px 30px rgba(0,0,0,0.05); padding: 30px; margin-bottom: 2rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                    <div>
+                        <h3 style="font-size: 1.2rem; font-weight: 800; margin: 0;">System Activity Logs</h3>
+                        <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 4px;">Recent administrative actions and security events.</p>
+                    </div>
+                    <button class="btn btn-secondary" style="font-size: 0.75rem; border-radius: 8px; padding: 6px 12px;" data-onclick="Views.settings.loadLogs">
+                        <i data-lucide="refresh-cw" style="width: 14px; margin-right: 6px;"></i> Refresh
+                    </button>
+                </div>
+
+                <div class="table-wrap" style="border: 1px solid var(--border); border-radius: 12px; overflow: hidden;">
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <thead>
+                            <tr style="background: #f8fafc; border-bottom: 1px solid var(--border);">
+                                <th style="text-align: left; padding: 12px 15px; font-size: 0.75rem; text-transform: uppercase; color: #64748b; font-weight: 700;">Timestamp</th>
+                                <th style="text-align: left; padding: 12px 15px; font-size: 0.75rem; text-transform: uppercase; color: #64748b; font-weight: 700;">Action</th>
+                                <th style="text-align: left; padding: 12px 15px; font-size: 0.75rem; text-transform: uppercase; color: #64748b; font-weight: 700;">Module</th>
+                                <th style="text-align: left; padding: 12px 15px; font-size: 0.75rem; text-transform: uppercase; color: #64748b; font-weight: 700;">Description</th>
+                            </tr>
+                        </thead>
+                        <tbody id="activity-logs-body">
+                            <tr><td colspan="4" style="text-align: center; padding: 30px; color: var(--text-muted);">Initializing activity audit stream...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div style="margin-top: 15px; text-align: right;">
+                    <a href="#moderation" style="font-size: 0.8rem; color: #3b82f6; font-weight: 600; text-decoration: none;">View Detailed Audit Log →</a>
+                </div>
+            </div>
+
             <style>
-                .badge { font-weight: 700; font-size: 0.75rem; text-transform: uppercase; padding: 6px 12px; border-radius: 10px; display: inline-flex; align-items: center; }
+                .badge { font-weight: 700; font-size: 0.75rem; text-transform: uppercase; padding: 4px 10px; border-radius: 8px; display: inline-flex; align-items: center; }
                 .badge-purple { background: rgba(139, 92, 246, 0.1); color: #8b5cf6; border: 1px solid rgba(139, 92, 246, 0.2); }
                 .badge-blue { background: rgba(59, 130, 246, 0.1); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.2); }
+                .badge-green { background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2); }
+                .badge-red { background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); }
+                
+                #activity-logs-body tr { border-bottom: 1px solid var(--border); transition: background 0.2s; }
+                #activity-logs-body tr:hover { background: #f8fafc; }
+                #activity-logs-body td { padding: 12px 15px; }
             </style>
         `;
     }

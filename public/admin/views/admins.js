@@ -350,7 +350,7 @@ App.registerView('admins', {
                 <div style="padding: 20px; border-bottom: 1px solid var(--border); background: var(--bg-card); display: flex; justify-content: space-between; align-items: center;">
                     <div style="position: relative; width: 300px;">
                         <i data-lucide="search" style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 16px; color: #94a3b8;"></i>
-                        <input type="text" class="form-control" placeholder="Search administrators..." oninput="Views.admins.handleSearch(event)" style="padding-left: 40px; border-radius: 10px; background: #1e293b; border: 1px solid #334155; color: white;">
+                        <input type="text" class="form-control" placeholder="Search administrators..." data-oninput="Views.admins.handleSearch" style="padding-left: 40px; border-radius: 10px; background: #1e293b; border: 1px solid #334155; color: white;">
                     </div>
                     <div style="color: var(--text-muted); font-size: 0.8rem; font-weight: 500;">
                         Showing ${this.admins.length} administrators

@@ -36,12 +36,12 @@ const ModerationView = {
                             <i data-lucide="search" style="position:absolute; left:12px; top:50%; transform:translateY(-50%); width:16px; color:var(--text-muted);"></i>
                             <input id="log-search" type="text" placeholder="e.g. 'Created brand' or 'Sync failed'..." 
                                 style="width:100%; padding:10px 12px 10px 38px; border:1px solid #e2e8f0; border-radius:10px; font-size:0.9rem; background:#f8fafc;" 
-                                oninput="Views.moderation._debounceSearch()">
+                                data-oninput="Views.moderation._debounceSearch">
                         </div>
                     </div>
                     <div style="flex:1; min-width:140px;">
                         <label style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:8px;">Module</label>
-                        <select id="log-filter-module" style="width:100%; padding:10px 12px; border:1px solid #e2e8f0; border-radius:10px; font-size:0.875rem; background:#f8fafc;" onchange="Views.moderation.loadLogs(1)">
+                        <select id="log-filter-module" style="width:100%; padding:10px 12px; border:1px solid #e2e8f0; border-radius:10px; font-size:0.875rem; background:#f8fafc;" data-onchange="Views.moderation.loadLogs">
                             <option value="">All Modules</option>
                             <option>BRAND</option><option>PARTNER</option><option>SCREEN</option>
                             <option>DISPLAY</option><option>CMS</option><option>CAMPAIGN</option>
@@ -53,8 +53,8 @@ const ModerationView = {
                     <div style="flex:1; min-width:140px;">
                         <label style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; display:block; margin-bottom:8px;">Date Range</label>
                         <div style="display:flex; gap:8px;">
-                            <input id="log-filter-from" type="date" style="width:100%; padding:10px 12px; border:1px solid #e2e8f0; border-radius:10px; font-size:0.875rem; background:#f8fafc;" onchange="Views.moderation.loadLogs(1)">
-                            <input id="log-filter-to" type="date" style="width:100%; padding:10px 12px; border:1px solid #e2e8f0; border-radius:10px; font-size:0.875rem; background:#f8fafc;" onchange="Views.moderation.loadLogs(1)">
+                            <input id="log-filter-from" type="date" style="width:100%; padding:10px 12px; border:1px solid #e2e8f0; border-radius:10px; font-size:0.875rem; background:#f8fafc;" data-onchange="Views.moderation.loadLogs">
+                            <input id="log-filter-to" type="date" style="width:100%; padding:10px 12px; border:1px solid #e2e8f0; border-radius:10px; font-size:0.875rem; background:#f8fafc;" data-onchange="Views.moderation.loadLogs">
                         </div>
                     </div>
                     <div style="display:flex; gap:8px;">

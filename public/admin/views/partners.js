@@ -427,7 +427,8 @@ App.registerView('partners', {
                     actionWrap.style.justifyContent = 'flex-end';
                     actionWrap.style.gap = '8px';
 
-                    if (p.status === 'Pending' || p.status === 'Disabled') {
+                    const currentStatus = (p.status || '').toLowerCase();
+                    if (currentStatus === 'pending' || currentStatus === 'disabled') {
                         actionWrap.appendChild(this._createActionBtn('check', '#10b981', 'Approve', () => this.updateStatus(p.id, 'approve')));
                     } else {
                         actionWrap.appendChild(this._createActionBtn('slash', '#f59e0b', 'Disable', () => this.updateStatus(p.id, 'disable')));
@@ -483,11 +484,12 @@ App.registerView('partners', {
         btn.style.borderRadius = '8px';
         btn.style.color = color;
         btn.title = title;
-        btn.onclick = (e) => {
+        
+        btn.addEventListener('click', (e) => {
             e.preventDefault();
-            e.stopPropagation();
             callback();
-        };
+        });
+
         btn.innerHTML = `<i data-lucide="${icon}" style="width:14px; height:14px;"></i>`;
         return btn;
     },
@@ -632,12 +634,17 @@ App.registerView('partners', {
         row.innerHTML = `
             <input type="text" class="form-control field-key" placeholder="Key (e.g. GST)" value="${key}">
             <input type="text" class="form-control field-value" placeholder="Value" value="${value}">
-            <button type="button" class="icon-btn" style="color: var(--danger); display: flex; align-items: center; justify-content: center;" data-onclick="this.parentElement.remove">
+            <button type="button" class="icon-btn" style="color: var(--danger); display: flex; align-items: center; justify-content: center;" data-onclick="Views.partners.removeCustomFieldRow">
                 <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>
             </button>
         `;
         container.appendChild(row);
         if (window.lucide) lucide.createIcons();
+    },
+
+    removeCustomFieldRow(e) {
+        const row = e.target.closest('.custom-field-row');
+        if (row) row.remove();
     },
 
     closeModal(e) {

@@ -23,6 +23,7 @@ App.registerView('brands', {
                                 <th>Brand Name</th>
                                 <th>Industry</th>
                                 <th>Contact</th>
+                                <th>Assigned</th>
                                 <th>Status</th>
                                 <th style="text-align: right;">Actions</th>
                             </tr>
@@ -269,6 +270,34 @@ App.registerView('brands', {
                 tdContact.appendChild(emailDiv);
                 tr.appendChild(tdContact);
 
+                const tdAssigned = document.createElement('td');
+                tdAssigned.style.fontSize = '0.8rem';
+                if (b.assigned_summary) {
+                    const wrap = document.createElement('div');
+                    wrap.style.cursor = 'pointer';
+                    wrap.title = 'View Detailed Assignments';
+                    wrap.onclick = () => this.showProfile(b.id);
+                    
+                    const items = b.assigned_summary.split('; ');
+                    items.forEach(item => {
+                        const div = document.createElement('div');
+                        div.style.marginBottom = '2px';
+                        div.innerHTML = `<span style="color:var(--accent);">📺</span> ${item}`;
+                        wrap.appendChild(div);
+                    });
+                    
+                    const more = document.createElement('div');
+                    more.style.fontSize = '0.7rem';
+                    more.style.color = 'var(--accent)';
+                    more.style.marginTop = '4px';
+                    more.innerHTML = '<i data-lucide="info" style="width:10px; height:10px; vertical-align:middle;"></i> View Full Details';
+                    wrap.appendChild(more);
+                    tdAssigned.appendChild(wrap);
+                } else {
+                    tdAssigned.innerHTML = '<span style="color:#94a3b8;">-</span>';
+                }
+                tr.appendChild(tdAssigned);
+
                 const tdStatus = document.createElement('td');
                 const badgeClass = b.status.toLowerCase();
                 const span = document.createElement('span');
@@ -328,7 +357,7 @@ App.registerView('brands', {
         } else {
             const tr = document.createElement('tr');
             const td = document.createElement('td');
-            td.colSpan = 5;
+            td.colSpan = 6;
             td.style.textAlign = 'center';
             td.style.color = 'var(--text-muted)';
             td.style.padding = '40px';
@@ -372,6 +401,7 @@ App.registerView('brands', {
             
             // Tab Header
             const tabHeader = document.createElement('div');
+            tabHeader.id = 'profile-tabs-header';
             tabHeader.style.cssText = 'display:flex; gap:20px; border-bottom:1px solid var(--border); margin-bottom:20px;';
             const tab1 = document.createElement('div');
             const tab2 = document.createElement('div');
@@ -400,6 +430,9 @@ App.registerView('brands', {
                 tabContent.innerHTML = '';
                 if (num === 1) renderActivity(); else renderSubs();
             };
+
+            tab1.onclick = () => setActiveTab(1);
+            tab2.onclick = () => setActiveTab(2);
 
             const renderActivity = () => {
                 const mainGrid = document.createElement('div');
@@ -487,10 +520,10 @@ App.registerView('brands', {
                 kpiGrid.style.gridTemplateColumns = '1fr 1fr'; kpiGrid.style.gap = '8px';
 
                 const kpis = [
-                    { icon: 'layers', color: 'blue', label: 'Slots', val: metrics.totalScreens },
-                    { icon: 'play-circle', color: 'lightblue', label: 'Plays', val: metrics.totalPlays.toLocaleString() },
+                    { icon: 'layers', color: 'blue', label: 'Slots', val: metrics.totalSlots },
+                    { icon: 'play-circle', color: 'lightblue', label: 'Plays', val: (metrics.totalPlays || 0).toLocaleString() },
                     { icon: 'calendar', color: 'darkblue', label: 'Campaigns', val: metrics.totalCampaigns },
-                    { icon: 'indian-rupee', color: 'orange', label: 'Spend', val: `₹${(metrics.totalSpend||0).toLocaleString()}` }
+                    { icon: 'briefcase', color: 'orange', label: 'Subscriptions', val: metrics.totalSubscriptions }
                 ];
                 kpis.forEach(k => {
                     const card = document.createElement('div');
@@ -547,19 +580,25 @@ App.registerView('brands', {
 
                 const gridCont = document.createElement('div'); gridCont.id = 'slot-grid-container'; gridCont.style.cssText = 'display:grid; grid-template-columns:repeat(5,1fr); gap:8px; margin-bottom:16px;';
                 rightCol.appendChild(gridCont);
-
                 const infoFooter = document.createElement('div');
-                infoFooter.style.cssText = 'background:#f8fafc; padding:12px; border-radius:8px; border:1px solid var(--border); display:flex; align-items:center; gap:8px; font-size:0.85rem; color:var(--text-muted);';
+                infoFooter.style.cssText = 'background:#f8fafc; padding:12px; border-radius:8px; border:1px solid var(--border); display:flex; align-items:center; gap:8px; font-size:0.85rem; color:var(--text-muted); margin-bottom: 20px;';
                 const infoI = document.createElement('i'); infoI.setAttribute('data-lucide', 'info'); infoI.style.width = '16px'; infoI.style.color = '#3b82f6';
                 infoFooter.appendChild(infoI);
                 const footerText = document.createElement('span'); footerText.innerHTML = 'Click any <strong style="color:#15803d;">green</strong> slot to assign. Click <strong style="color:#1d4ed8;">blue</strong> to unassign.';
                 infoFooter.appendChild(footerText);
                 rightCol.appendChild(infoFooter);
 
+                // Assigned Table
+                const assignCont = document.createElement('div');
+                assignCont.id = 'assignments-container';
+                assignCont.style.marginTop = '20px';
+                rightCol.appendChild(assignCont);
+
                 mainGrid.appendChild(rightCol);
                 tabContent.appendChild(mainGrid);
                 lucide.createIcons();
                 this.loadSlotGrid(brand.id);
+                this.loadAssignments(brand.id);
             };
 
             const renderSubs = () => {
@@ -674,6 +713,98 @@ App.registerView('brands', {
         });
     },
 
+    async loadAssignments(brandId) {
+        const container = document.getElementById('assignments-container');
+        if (!container) return;
+        container.innerHTML = '<div style="font-size:0.8rem; color:var(--text-muted);">Loading assignments...</div>';
+
+        try {
+            const data = await Api.get(`/brands/${brandId}/assignments`);
+            container.innerHTML = '';
+            
+            const title = document.createElement('h5');
+            title.style.fontSize = '0.8rem';
+            title.style.color = 'var(--text-muted)';
+            title.style.textTransform = 'uppercase';
+            title.style.marginBottom = '10px';
+            title.textContent = 'Active Assignments';
+            container.appendChild(title);
+
+            if (!data || data.length === 0) {
+                const empty = document.createElement('div');
+                empty.style.padding = '20px';
+                empty.style.textAlign = 'center';
+                empty.style.background = '#f8fafc';
+                empty.style.borderRadius = '8px';
+                empty.style.color = 'var(--text-muted)';
+                empty.style.fontSize = '0.85rem';
+                empty.textContent = 'No slots assigned yet.';
+                container.appendChild(empty);
+                return;
+            }
+
+            const tableWrap = document.createElement('div');
+            tableWrap.className = 'table-wrap';
+            tableWrap.style.maxHeight = '200px';
+            tableWrap.style.overflowY = 'auto';
+
+            const table = document.createElement('table');
+            table.className = 'mini-table';
+            table.innerHTML = `
+                <thead>
+                    <tr>
+                        <th style="width:50px;">Slot</th>
+                        <th>Screen Name</th>
+                        <th style="width:100px;">Status</th>
+                        <th>Subscription</th>
+                        <th>Media</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            `;
+            const tbody = table.querySelector('tbody');
+
+            data.forEach(as => {
+                const tr = document.createElement('tr');
+                
+                const isOnline = (as.status || '').toLowerCase() === 'online' || (as.status || '').toLowerCase() === 'live';
+                const statusHtml = isOnline 
+                    ? '<span style="color:#10b981;">🟢 Live</span>' 
+                    : '<span style="color:#ef4444;">🔴 Offline</span>';
+
+                tr.innerHTML = `
+                    <td style="font-weight:700;">S${as.slot_number}</td>
+                    <td style="font-weight:700; cursor:help;">
+                        <span onmouseenter="App.tooltip.showScreen(event, '${as.displayId}')" 
+                              onmouseleave="App.tooltip.hide()"
+                              style="border-bottom:2px solid var(--primary);">
+                            ${as.screen_name || 'Unknown'}
+                        </span>
+                    </td>
+                    <td>${statusHtml}</td>
+                    <td style="font-size:0.75rem; color:var(--accent);">${as.subscription_name || '-'}</td>
+                    <td style="color:var(--text-muted); font-size:0.75rem;">${as.creative_name || '-'}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            tableWrap.appendChild(table);
+            container.appendChild(tableWrap);
+
+            const footer = document.createElement('div');
+            footer.style.marginTop = '10px';
+            footer.style.fontSize = '0.75rem';
+            footer.style.color = 'var(--text-muted)';
+            const uniqueScreens = [...new Set(data.map(as => as.screen_name))].length;
+            footer.textContent = `${data.length} slot(s) across ${uniqueScreens} screen(s)`;
+            container.appendChild(footer);
+
+        } catch (err) {
+            console.error('Error loading assignments:', err);
+            container.innerHTML = '<div style="color:red; font-size:0.8rem;">Error loading assignments</div>';
+        }
+    },
+
     async quickAssignSlot(brandId, displayId, slotNumber, isUnassign) {
         if (isUnassign) {
             if (!await App.showConfirm(`Unassign slot ${slotNumber}?`)) return;
@@ -719,9 +850,58 @@ App.registerView('brands', {
 
         if (res && res.success) {
             await this.loadSlotGrid(brandId);
+            this.loadAssignments(brandId);
+        } else if (res && res.error === 'slot_limit_reached') {
+            this.showUpgradeBanner(res.used, res.allowed);
         } else {
             App.showToast('Failed: ' + (res?.error || 'Unknown error'), 'error');
         }
+    },
+
+    showUpgradeBanner(used, allowed) {
+        const brandId = this._activeProfileBrandId;
+        const bannerId = 'upgrade-warning-banner';
+        let banner = document.getElementById(bannerId);
+        if (!banner) {
+            banner = document.createElement('div');
+            banner.id = bannerId;
+            banner.style.cssText = 'background:#fff1f2; border:1px solid #fda4af; border-radius:10px; padding:16px; margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);';
+            const content = document.getElementById('brand-profile-content');
+            content.insertBefore(banner, content.firstChild);
+        }
+
+        banner.innerHTML = `
+            <div style="display:flex; align-items:center; gap:12px;">
+                <div style="background:#ffe4e6; padding:8px; border-radius:50%; display:flex;">
+                    <i data-lucide="alert-triangle" style="color:#e11d48; width:20px; height:20px;"></i>
+                </div>
+                <div>
+                    <strong style="display:block; color:#9f1239; font-size:0.95rem;">Slot limit reached (${used}/${allowed} used)</strong>
+                    <span style="font-size:0.85rem; color:#be123c;">To add more slots, please create a new subscription plan.</span>
+                </div>
+            </div>
+            <button id="banner-create-plan-btn" class="btn btn-primary" style="background:#e11d48; border-color:#e11d48; padding:8px 16px; font-weight:600;">
+                + Create New Plan
+            </button>
+        `;
+        
+        const btn = banner.querySelector('#banner-create-plan-btn');
+        if (btn) {
+            btn.onclick = () => {
+                this.switchToSubscriptionsTab();
+                this.showSubModal(brandId);
+            };
+        }
+        lucide.createIcons();
+    },
+
+    switchToSubscriptionsTab() {
+        const tabs = document.querySelectorAll('#profile-tabs-header > div');
+        tabs.forEach(t => {
+            if (t.textContent === 'Subscriptions') {
+                t.click();
+            }
+        });
     },
 
     async loadSubscriptions(brandId) {
@@ -759,11 +939,113 @@ App.registerView('brands', {
                         <div><span style="color:var(--text-muted);display:block;">Payment</span><strong>${s.payment_status}</strong></div>
                         <div><span style="color:var(--text-muted);display:block;">Notes</span><strong style="font-size:0.75rem;">${s.notes || '-'}</strong></div>
                     </div>
+                    
+                    <div style="margin-top:12px; border-top:1px solid #f1f5f9; padding-top:8px;">
+                        <button class="btn btn-secondary" style="width:100%; font-size:0.75rem; padding:4px; display:flex; align-items:center; justify-content:center; gap:4px;" 
+                                onclick="Views.brands.toggleAssignments(${brandId}, ${s.id}, this)">
+                            <i data-lucide="chevron-down" style="width:14px;"></i> Assigned to this Subscription
+                        </button>
+                        <div id="assignments-${s.id}" style="display:none; margin-top:10px;">
+                            <div class="inv-loading">Loading assignments...</div>
+                        </div>
+                    </div>
                 </div>`;
             }).join('');
             lucide.createIcons();
         } catch(e) {
             el.innerHTML = `<div style="color:red;padding:10px;">Error: ${e.message}</div>`;
+        }
+    },
+
+    async toggleAssignments(brandId, subId, btn) {
+        const container = document.getElementById(`assignments-${subId}`);
+        const icon = btn.querySelector('i');
+        
+        if (container.style.display === 'block') {
+            container.style.display = 'none';
+            icon.setAttribute('data-lucide', 'chevron-down');
+            lucide.createIcons();
+            return;
+        }
+
+        container.style.display = 'block';
+        icon.setAttribute('data-lucide', 'chevron-up');
+        lucide.createIcons();
+
+        try {
+            const data = await Api.get(`/brands/${brandId}/subscription/${subId}/assignments`);
+            if (!data || (!data.screens.length && !data.slots.length)) {
+                container.innerHTML = '<div style="font-size:0.75rem; color:var(--text-muted); text-align:center; padding:10px;">No screens or slots assigned yet</div>';
+                return;
+            }
+
+            container.innerHTML = `
+                <div style="display:flex; gap:10px; margin-bottom:10px; border-bottom:1px solid #f1f5f9;">
+                    <div id="tab-assign-screens-${subId}" style="padding:4px 8px; font-size:0.7rem; font-weight:700; cursor:pointer; color:var(--accent); border-bottom:2px solid var(--accent);">SCREENS</div>
+                    <div id="tab-assign-slots-${subId}" style="padding:4px 8px; font-size:0.7rem; font-weight:700; cursor:pointer; color:var(--text-muted);">SLOTS</div>
+                </div>
+                <div id="content-assign-screens-${subId}">
+                    <table style="font-size:0.7rem; width:100%;">
+                        <thead>
+                            <tr style="text-align:left; color:var(--text-muted);">
+                                <th>Screen Name</th>
+                                <th>Location</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${data.screens.map(s => `
+                                <tr>
+                                    <td>${s.name}</td>
+                                    <td>${s.location || '-'}</td>
+                                    <td><span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${s.status === 'Online' ? '#22c55e' : '#94a3b8'}; margin-right:4px;"></span>${s.status}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+                <div id="content-assign-slots-${subId}" style="display:none;">
+                    <table style="font-size:0.7rem; width:100%;">
+                        <thead>
+                            <tr style="text-align:left; color:var(--text-muted);">
+                                <th>Slot</th>
+                                <th>Screen</th>
+                                <th>Media</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${data.slots.map(s => `
+                                <tr>
+                                    <td>#${s.slot_number}</td>
+                                    <td>${s.screen_name}</td>
+                                    <td>${s.media_name || 'Empty'}</td>
+                                    <td>${s.slot_status}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+
+            const tScreens = document.getElementById(`tab-assign-screens-${subId}`);
+            const tSlots = document.getElementById(`tab-assign-slots-${subId}`);
+            const cScreens = document.getElementById(`content-assign-screens-${subId}`);
+            const cSlots = document.getElementById(`content-assign-slots-${subId}`);
+
+            tScreens.onclick = () => {
+                tScreens.style.color = 'var(--accent)'; tScreens.style.borderBottomColor = 'var(--accent)';
+                tSlots.style.color = 'var(--text-muted)'; tSlots.style.borderBottomColor = 'transparent';
+                cScreens.style.display = 'block'; cSlots.style.display = 'none';
+            };
+            tSlots.onclick = () => {
+                tSlots.style.color = 'var(--accent)'; tSlots.style.borderBottomColor = 'var(--accent)';
+                tScreens.style.color = 'var(--text-muted)'; tScreens.style.borderBottomColor = 'transparent';
+                cSlots.style.display = 'block'; cScreens.style.display = 'none';
+            };
+
+        } catch (e) {
+            container.innerHTML = `<div style="color:red; font-size:0.7rem;">Error loading assignments: ${e.message}</div>`;
         }
     },
 
@@ -783,14 +1065,6 @@ App.registerView('brands', {
             return;
         }
 
-        // UX Improvement: Prevent complex nested modal overlapping by directly closing 
-        // the background profile modal if it is active. This replaces stacking with 
-        // a much cleaner "modal swap" approach.
-        const profileModal = document.getElementById('brand-profile-modal');
-        if (profileModal && profileModal.classList.contains('active')) {
-            profileModal.classList.remove('active');
-        }
-
         this._subEditId = subId;
         this._subBrandId = brandId;
 
@@ -803,6 +1077,24 @@ App.registerView('brands', {
 
         document.getElementById('sub-modal-title').textContent = subId ? 'Edit Subscription' : 'Create Subscription';
         document.getElementById('subscription-form').reset();
+        
+        // Prevent past dates for Start Date
+        const todayStr = new Date().toISOString().split('T')[0];
+        document.getElementById('sub-start-date').setAttribute('min', todayStr);
+        
+        const screenInput = document.getElementById('sub-screens');
+        const slotInput = document.getElementById('sub-slots');
+        
+        // Reset states
+        screenInput.disabled = false;
+        slotInput.disabled = false;
+        screenInput.style.background = '';
+        slotInput.style.background = '';
+        
+        // Clear any existing lock icons
+        const existingLocks = document.querySelectorAll('.sub-lock-icon');
+        existingLocks.forEach(l => l.remove());
+
         if (subId) {
             Api.get(`/subscriptions/brand/${brandId}`).then(subs => {
                 const s = (subs || []).find(x => x.id === subId);
@@ -810,8 +1102,27 @@ App.registerView('brands', {
                     document.getElementById('sub-plan-name').value = s.plan_name || '';
                     document.getElementById('sub-start-date').value = formatDate(s.start_date);
                     document.getElementById('sub-end-date').value = formatDate(s.end_date);
-                    document.getElementById('sub-screens').value = s.screens_included || 1;
-                    document.getElementById('sub-slots').value = s.slots_included || 1;
+                    
+                    screenInput.value = s.screens_included || 1;
+                    slotInput.value = s.slots_included || 1;
+                    
+                    // Lock these fields on Edit
+                    screenInput.disabled = true;
+                    slotInput.disabled = true;
+                    screenInput.style.background = '#f1f5f9';
+                    slotInput.style.background = '#f1f5f9';
+                    screenInput.title = "To add more screens/slots, create a new subscription";
+                    slotInput.title = "To add more screens/slots, create a new subscription";
+                    
+                    // Add lock icons
+                    [screenInput, slotInput].forEach(inp => {
+                        const lock = document.createElement('span');
+                        lock.className = 'sub-lock-icon';
+                        lock.innerHTML = '🔒';
+                        lock.style.marginLeft = '8px';
+                        inp.parentElement.querySelector('label').appendChild(lock);
+                    });
+
                     document.getElementById('sub-cities').value = s.cities || '';
                     document.getElementById('sub-payment-status').value = s.payment_status || 'Pending';
                     document.getElementById('sub-status').value = s.status || 'Draft';
@@ -829,7 +1140,6 @@ App.registerView('brands', {
         }
         document.getElementById('subscription-modal').classList.remove('active');
         if (this._activeProfileBrandId) {
-            document.getElementById('brand-profile-modal').classList.add('active');
             this.loadSubscriptions(this._activeProfileBrandId);
         }
     },
@@ -978,7 +1288,7 @@ App.registerView('brands', {
         row.innerHTML = `
             <input type="text" class="form-control field-key" placeholder="Key (e.g. GST)" value="${key}">
             <input type="text" class="form-control field-value" placeholder="Value" value="${value}">
-            <button type="button" class="icon-btn" style="color: var(--danger); display: flex; align-items: center; justify-content: center;" data-onclick="this.parentElement.remove">
+            <button type="button" class="icon-btn" style="color: var(--danger); display: flex; align-items: center; justify-content: center;" data-onclick="Views.brands.removeCustomFieldRow">
                 <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>
             </button>
         `;
@@ -989,6 +1299,11 @@ App.registerView('brands', {
         } else {
             console.warn('[Brands View] Lucide icons not available');
         }
+    },
+
+    removeCustomFieldRow(e) {
+        const row = e.target.closest('.custom-field-row');
+        if (row) row.remove();
     },
 
     closeModal(e) {

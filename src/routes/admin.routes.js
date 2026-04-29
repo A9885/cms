@@ -120,7 +120,7 @@ router.get('/health/xibo', hasPermission('audit:view'), async (req, res) => {
 // ─── UTILITIES ───
 const sanitizeUsername = (str) => (str || '').toLowerCase().replace(/[^a-z0-9._-]/g, '_');
 
-router.get('/brands/debug', async (req, res) => {
+router.get('/brands/debug', hasPermission('audit:view'), async (req, res) => {
     try {
         const brands = await dbAll('SELECT id, name, extra_fields, custom_fields FROM brands ORDER BY id DESC LIMIT 2');
         res.json({ success: true, brands});
@@ -515,7 +515,7 @@ router.patch('/brands/:id/approve', hasPermission('*'), async (req, res) => {
 });
 
 /** PATCH /api/admin/brands/:id/disable - Disable a brand. */
-router.patch('/brands/:id/disable', async (req, res) => {
+router.patch('/brands/:id/disable', hasPermission('user:edit'), async (req, res) => {
     try {
         const result = await dbRun('UPDATE brands SET status = "Disabled" WHERE id = ?', [req.params.id]);
         if (result.changes === 0) return res.status(404).json({ error: 'Brand not found' });
@@ -526,7 +526,7 @@ router.patch('/brands/:id/disable', async (req, res) => {
 
 
 /** PUT /api/admin/brands/:id - Update brand profile. */
-router.put('/brands/:id', async (req, res) => {
+router.put('/brands/:id', hasPermission('user:edit'), async (req, res) => {
     console.log(`[Admin API] PUT /brands/${req.params.id} body:`, JSON.stringify(req.body));
     const { name, industry, contact_person, email, phone, status, password, extra_fields, customFields } = req.body;
     
@@ -635,7 +635,7 @@ router.get('/brands/:id/impersonate', hasPermission('*'), async (req, res) => {
 });
 
 /** DELETE /api/admin/brands/:id - Delete brand and clean up all associated slot allocations. */
-router.delete('/brands/:id', async (req, res) => {
+router.delete('/brands/:id', hasPermission('user:edit'), async (req, res) => {
     const brandId = req.params.id;
     try {
         await dbRun('UPDATE slots SET brand_id = NULL, status = "Available" WHERE brand_id = ?', [brandId]);
@@ -649,7 +649,7 @@ router.delete('/brands/:id', async (req, res) => {
 // ─── SUBSCRIPTIONS ───
 
 /** GET /api/admin/subscriptions - List all subscriptions with brand name. */
-router.get('/subscriptions', async (req, res) => {
+router.get('/subscriptions', hasPermission('user:view'), async (req, res) => {
     try {
         const { brand_id, status } = req.query;
         let query = `SELECT sub.*, b.name as brand_name FROM subscriptions sub LEFT JOIN brands b ON sub.brand_id = b.id`;
@@ -664,7 +664,7 @@ router.get('/subscriptions', async (req, res) => {
 });
 
 /** GET /api/admin/subscriptions/brand/:brandId - Subscriptions for a specific brand. */
-router.get('/subscriptions/brand/:brandId', async (req, res) => {
+router.get('/subscriptions/brand/:brandId', hasPermission('user:view'), async (req, res) => {
     try {
         const rows = await dbAll(
             `SELECT sub.*, b.name as brand_name FROM subscriptions sub LEFT JOIN brands b ON sub.brand_id = b.id WHERE sub.brand_id = ? ORDER BY sub.id DESC`,
@@ -675,7 +675,7 @@ router.get('/subscriptions/brand/:brandId', async (req, res) => {
 });
 
 /** POST /api/admin/subscriptions - Create a new subscription. */
-router.post('/subscriptions', async (req, res) => {
+router.post('/subscriptions', hasPermission('user:edit'), async (req, res) => {
     const { brand_id, plan_name, start_date, end_date, screens_included, slots_included, cities, payment_status, status, notes } = req.body;
     if (!brand_id || !plan_name || !start_date || !end_date) {
         return res.status(400).json({ error: 'brand_id, plan_name, start_date, and end_date are required.' });
@@ -691,7 +691,7 @@ router.post('/subscriptions', async (req, res) => {
 });
 
 /** PUT /api/admin/subscriptions/:id - Update subscription. */
-router.put('/subscriptions/:id', async (req, res) => {
+router.put('/subscriptions/:id', hasPermission('user:edit'), async (req, res) => {
     const { plan_name, start_date, end_date, screens_included, slots_included, cities, payment_status, status, notes } = req.body;
     try {
         const result = await dbRun(
@@ -705,7 +705,7 @@ router.put('/subscriptions/:id', async (req, res) => {
 });
 
 /** DELETE /api/admin/subscriptions/:id - Delete a subscription. */
-router.delete('/subscriptions/:id', async (req, res) => {
+router.delete('/subscriptions/:id', hasPermission('user:edit'), async (req, res) => {
     const subId = req.params.id;
     try {
         // 1. Unassign all slots associated with this subscription
@@ -739,7 +739,7 @@ router.delete('/subscriptions/:id', async (req, res) => {
  * GET /api/admin/brands/:brandId/subscription/:subscriptionId/assignments
  * List all screens and slots assigned to a specific brand under a specific subscription.
  */
-router.get('/brands/:brandId/subscription/:subscriptionId/assignments', async (req, res) => {
+router.get('/brands/:brandId/subscription/:subscriptionId/assignments', hasPermission('user:view'), async (req, res) => {
     const { brandId, subscriptionId } = req.params;
     try {
         // Find all screens linked to this brand via slots table
@@ -783,15 +783,16 @@ router.get('/brands/:brandId/subscription/:subscriptionId/assignments', async (r
  * GET /api/admin/brands/:id/metrics
  * Aggregates performance data for a specific brand.
  */
-router.get('/brands/:id/metrics', async (req, res) => {
+router.get('/brands/:id/metrics', hasPermission('audit:view'), async (req, res) => {
     const brandId = req.params.id;
     try {
-        const [campaignsCount, screensCount, spendSum, brandMedia, allStats] = await Promise.all([
+        const [campaignsCount, slotsCount, spendSum, brandMedia, allStats, subCount] = await Promise.all([
             dbGet('SELECT COUNT(DISTINCT id) as count FROM campaigns WHERE brand_id = ?', [brandId]),
-            dbGet('SELECT COUNT(DISTINCT displayId) as count FROM slots WHERE brand_id = ?', [brandId]),
+            dbGet('SELECT COUNT(*) as count FROM slots WHERE brand_id = ?', [brandId]),
             dbGet('SELECT SUM(amount) as total FROM invoices WHERE brand_id = ?', [brandId]),
             dbAll('SELECT mediaId FROM media_brands WHERE brand_id = ?', [brandId]),
-            statsService.getAllMediaStats()
+            statsService.getAllMediaStats(),
+            dbGet('SELECT COUNT(*) as count FROM subscriptions WHERE brand_id = ?', [brandId])
         ]);
         
         const myMediaIds = new Set(brandMedia.map(bm => String(bm.mediaId)));
@@ -802,9 +803,10 @@ router.get('/brands/:id/metrics', async (req, res) => {
 
         res.json({
             totalCampaigns: campaignsCount.count || 0,
-            totalScreens: screensCount.count || 0,
+            totalSlots: slotsCount.count || 0,
             totalSpend: spendSum.total || 0,
-            totalPlays: totalPlays
+            totalPlays: totalPlays,
+            totalSubscriptions: subCount.count || 0
         });
     } catch (err) {
         console.error('[Admin API] Brand Metrics Error:', err.message);
@@ -813,7 +815,7 @@ router.get('/brands/:id/metrics', async (req, res) => {
 });
 
 /** GET /api/admin/brands/:id/campaigns - List all campaigns (media) for a specific brand. */
-router.get('/brands/:id/campaigns', async (req, res) => {
+router.get('/brands/:id/campaigns', hasPermission('creative:view'), async (req, res) => {
     const brandId = req.params.id;
     try {
         const localCampaigns = await dbAll(`
@@ -842,7 +844,7 @@ router.get('/brands/:id/campaigns', async (req, res) => {
 });
 
 /** GET /api/admin/brands/:id/creatives - List all library creatives assigned to a brand. */
-router.get('/brands/:id/creatives', async (req, res) => {
+router.get('/brands/:id/creatives', hasPermission('creative:view'), async (req, res) => {
     const brandId = req.params.id;
     try {
         const mappings = await dbAll('SELECT mediaId, status FROM media_brands WHERE brand_id = ?', [brandId]);
@@ -866,7 +868,7 @@ router.get('/brands/:id/creatives', async (req, res) => {
 });
 
 /** POST /api/admin/media/link-brand - Link an uploaded media artifact to a specific brand. */
-router.post('/media/link-brand', async (req, res) => {
+router.post('/media/link-brand', hasPermission('creative:edit'), async (req, res) => {
     const { mediaId, brandId, displayId, slotId } = req.body;
     if (!mediaId || !brandId) return res.status(400).json({ error: 'Media ID and Brand ID are required' });
     try {
@@ -895,7 +897,7 @@ router.post('/media/link-brand', async (req, res) => {
 });
 
 /** GET /api/admin/media/brands - Get all media-to-brand mappings */
-router.get('/media/brands', async (req, res) => {
+router.get('/media/brands', hasPermission('creative:view'), async (req, res) => {
     try {
         const mappings = await dbAll('SELECT * FROM media_brands');
         res.json(mappings);
@@ -905,7 +907,7 @@ router.get('/media/brands', async (req, res) => {
 });
 
 /** POST /api/admin/media/assign - Admin Portal forced media-to-brand mapping */
-router.post('/media/assign', async (req, res) => {
+router.post('/media/assign', hasPermission('creative:edit'), async (req, res) => {
     const { mediaId, brand_id } = req.body;
     if (!mediaId) return res.status(400).json({ error: 'Media ID is required' });
     try {
@@ -933,7 +935,7 @@ router.post('/media/assign', async (req, res) => {
  * GET /api/admin/screens
  * Syncs Xibo displays with the local database and returns the full list of screens.
  */
-router.get('/screens', async (req, res) => {
+router.get('/screens', hasPermission('screen:manage'), async (req, res) => {
     try {
         const screenService = require('../services/screen.service');
         // Non-blocking background sync so the UI doesn't hang waiting for the external API
@@ -969,7 +971,7 @@ router.get('/screens/logs', hasPermission('audit:view'), async (req, res) => {
  * GET /api/admin/screens/pending-displays
  * Returns Xibo displays that are connected but not yet authorized (licensed=0).
  */
-router.get('/screens/pending-displays', async (req, res) => {
+router.get('/screens/pending-displays', hasPermission('screen:manage'), async (req, res) => {
     try {
         const axios = require('axios');
         const headers = await xiboService.getHeaders();
@@ -1004,7 +1006,7 @@ router.get('/screens/pending-displays', async (req, res) => {
  * GET /api/admin/screens/verify-license/:code
  * Checks if a license (hardware key) exists in Xibo and returns display details.
  */
-router.get('/screens/verify-license/:code', async (req, res) => {
+router.get('/screens/verify-license/:code', hasPermission('screen:manage'), async (req, res) => {
     try {
         const upperCode = req.params.code.toUpperCase().trim();
         const xiboDisplays = await xiboService.getDisplays();
@@ -1056,7 +1058,7 @@ router.post('/screens/register-xibo', hasPermission('screen:manage'), async (req
 });
 
 /** POST /api/admin/screens - Add a new screen to the CRM. */
-router.post('/screens', async (req, res) => {
+router.post('/screens', hasPermission('screen:manage'), async (req, res) => {
     const { name, city, address, latitude, longitude, timezone, partner_id, notes, license } = req.body;
     if (!name) return res.status(400).json({ error: 'Name is required' });
     try {
@@ -1076,19 +1078,22 @@ router.post('/screens', async (req, res) => {
 });
 
 /** GET /api/admin/screens/:id - Single screen details. */
-router.get('/screens/:id', async (req, res) => {
+router.get('/screens/:id', hasPermission('screen:manage'), async (req, res) => {
+    console.log(`[Admin API] GET /screens/${req.params.id}`);
     try {
         const screen = await dbGet(`
             SELECT s.*, p.name as partner_name
             FROM screens s
             LEFT JOIN partners p ON p.id = s.partner_id
-            WHERE s.id = ?
-        `, [req.params.id]);
+            WHERE s.id = ? OR s.xibo_display_id = ?
+            LIMIT 1
+        `, [req.params.id, req.params.id]);
 
         if (!screen) return res.status(404).json({ error: 'Screen not found' });
 
         // Enrich with live status if possible
-        const xiboDisplays = await xiboService.getDisplays().catch(() => []);
+        const rawXibo = await xiboService.getDisplays().catch(() => []);
+        const xiboDisplays = rawXibo.data || (Array.isArray(rawXibo) ? rawXibo : []);
         const xibo = xiboDisplays.find(d => d.displayId === screen.xibo_display_id);
         screen.online = xibo ? !!xibo.loggedIn : false;
         if (xibo && xibo.lastAccessed) screen.lastAccessed = xibo.lastAccessed;
@@ -1099,7 +1104,7 @@ router.get('/screens/:id', async (req, res) => {
     }
 });
 
-router.put('/screens/:id', async (req, res) => {
+router.put('/screens/:id', hasPermission('screen:manage'), async (req, res) => {
     const { name, city, address, latitude, longitude, timezone, partner_id, notes, status, xibo_display_id, orientation, resolution, license } = req.body;
     try {
         const existing = await dbGet('SELECT * FROM screens WHERE id = ?', [req.params.id]);
@@ -1189,7 +1194,7 @@ router.put('/screens/:id', async (req, res) => {
     }
 });
 
-router.post('/screens/:id/sync-location', async (req, res) => {
+router.post('/screens/:id/sync-location', hasPermission('screen:manage'), async (req, res) => {
     try {
         const screen = await dbGet('SELECT xibo_display_id FROM screens WHERE id = ?', [req.params.id]);
         if (!screen || !screen.xibo_display_id) {
@@ -1209,7 +1214,7 @@ router.post('/screens/:id/sync-location', async (req, res) => {
 });
 
 /** DELETE /api/admin/screens/:id - Delete screen from the local records. */
-router.delete('/screens/:id', async (req, res) => {
+router.delete('/screens/:id', hasPermission('screen:manage'), async (req, res) => {
     try {
         const screen = await dbGet('SELECT name, xibo_display_id FROM screens WHERE id = ?', [req.params.id]);
         if (screen && screen.xibo_display_id) {
@@ -1229,7 +1234,7 @@ router.delete('/screens/:id', async (req, res) => {
  * GET /api/admin/screens/:id/proof-of-play
  * Returns recent playback logs for a specific screen.
  */
-router.get('/screens/:id/proof-of-play', async (req, res) => {
+router.get('/screens/:id/proof-of-play', hasPermission('screen:manage'), async (req, res) => {
     try {
         const screen = await dbGet('SELECT * FROM screens WHERE id = ?', [req.params.id]);
         if (!screen || !screen.xibo_display_id) return res.json([]);
@@ -1242,7 +1247,7 @@ router.get('/screens/:id/proof-of-play', async (req, res) => {
 });
 
 /** GET /api/admin/screens/:id/sync-status */
-router.get('/screens/:id/sync-status', async (req, res) => {
+router.get('/screens/:id/sync-status', hasPermission('screen:manage'), async (req, res) => {
     try {
         const screen = await dbGet('SELECT xibo_display_id, status, updated_at FROM screens WHERE id = ?', [req.params.id]);
         if (!screen || !screen.xibo_display_id) {
@@ -1264,7 +1269,7 @@ router.get('/screens/:id/sync-status', async (req, res) => {
 });
 
 /** GET /api/admin/screens/:id/offline-history */
-router.get('/screens/:id/offline-history', async (req, res) => {
+router.get('/screens/:id/offline-history', hasPermission('screen:manage'), async (req, res) => {
     try {
         const screen = await dbGet('SELECT xibo_display_id FROM screens WHERE id = ?', [req.params.id]);
         if (!screen || !screen.xibo_display_id) {
@@ -1293,7 +1298,7 @@ router.get('/screens/:id/logs', hasPermission('audit:view'), async (req, res) =>
 // ─── PARTNERS ───
 
 /** GET /api/admin/partners - List all screen partners with screen counts and basic info. */
-router.get('/partners', async (req, res) => {
+router.get('/partners', hasPermission('user:view'), async (req, res) => {
     try {
         const partners = await dbAll(`
             SELECT p.*, COUNT(s.id) as screen_count
@@ -1307,7 +1312,7 @@ router.get('/partners', async (req, res) => {
 });
 
 /** GET /api/admin/partners/:id - Detailed partner profile with financial metrics. */
-router.get('/partners/:id', async (req, res) => {
+router.get('/partners/:id', hasPermission('user:view'), async (req, res) => {
     try {
         const partner = await dbGet(`
             SELECT p.*,
@@ -1324,7 +1329,7 @@ router.get('/partners/:id', async (req, res) => {
 });
 
 /** POST /api/admin/partners - Register a new screen partner with validation and conflict check. */
-router.post('/partners', async (req, res) => {
+router.post('/partners', hasPermission('user:edit'), async (req, res) => {
     const { name, company, email, phone, address, city, password } = req.body;
     
     if (!name || !email) {
@@ -1385,27 +1390,25 @@ router.post('/partners', async (req, res) => {
 });
 
 /** PATCH /api/admin/partners/:id/approve - Activate a partner. */
-router.patch('/partners/:id/approve', async (req, res) => {
+router.patch('/partners/:id/approve', hasPermission('user:edit'), async (req, res) => {
     try {
         const result = await dbRun('UPDATE partners SET status = "Active" WHERE id = ?', [req.params.id]);
-        if (result.changes === 0) return res.status(404).json({ error: 'Partner not found' });
         logActivity({ action: ACTION.APPROVE, module: MODULE.PARTNER, description: `Partner ID ${req.params.id} approved/activated`, req });
         res.json({ success: true, partner_id: req.params.id, status: 'Active' });
     } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
 /** PATCH /api/admin/partners/:id/disable - Disable a partner. */
-router.patch('/partners/:id/disable', async (req, res) => {
+router.patch('/partners/:id/disable', hasPermission('user:edit'), async (req, res) => {
     try {
         const result = await dbRun('UPDATE partners SET status = "Disabled" WHERE id = ?', [req.params.id]);
-        if (result.changes === 0) return res.status(404).json({ error: 'Partner not found' });
         logActivity({ action: ACTION.UPDATE, module: MODULE.PARTNER, description: `Partner ID ${req.params.id} disabled`, req });
         res.json({ success: true, partner_id: req.params.id, status: 'Disabled' });
     } catch(err) { res.status(500).json({ error: err.message }); }
 });
 
 /** GET /api/admin/partners/payouts/pending - List all pending payout requests for review. */
-router.get('/partners/payouts/pending', async (req, res) => {
+router.get('/partners/payouts/pending', hasPermission('audit:view'), async (req, res) => {
     try {
         const pending = await dbAll(`
             SELECT pp.*, p.name as partner_name, p.company
@@ -1419,7 +1422,7 @@ router.get('/partners/payouts/pending', async (req, res) => {
 });
 
 /** POST /api/admin/partners/payouts/:id/approve - Approve a payout request. */
-router.post('/partners/payouts/:id/approve', async (req, res) => {
+router.post('/partners/payouts/:id/approve', hasPermission('user:edit'), async (req, res) => {
     try {
         const result = await dbRun('UPDATE partner_payouts SET status = "Paid" WHERE id = ?', [req.params.id]);
         if (result.changes === 0) return res.status(404).json({ error: 'Payout request not found' });
@@ -1428,7 +1431,7 @@ router.post('/partners/payouts/:id/approve', async (req, res) => {
 });
 
 /** PUT /api/admin/partners/:id - Update partner profile. */
-router.put('/partners/:id', async (req, res) => {
+router.put('/partners/:id', hasPermission('user:edit'), async (req, res) => {
     const { name, company, email, phone, address, city, status, revenue_share_percentage, password, customFields } = req.body;
     
     // Clean empty fields from customFields array
@@ -1482,7 +1485,7 @@ router.put('/partners/:id', async (req, res) => {
 });
 
 /** DELETE /api/admin/partners/:id - Delete partner and unassign their screens. */
-router.delete('/partners/:id', async (req, res) => {
+router.delete('/partners/:id', hasPermission('user:edit'), async (req, res) => {
     const partnerId = req.params.id;
     try {
         const partner = await dbGet('SELECT name FROM partners WHERE id = ?', [partnerId]);
@@ -1499,7 +1502,7 @@ router.delete('/partners/:id', async (req, res) => {
 
 
 /** POST /api/admin/partners/:id/assign-screens - Bulk assign screens to a partner. */
-router.post('/partners/:id/assign-screens', async (req, res) => {
+router.post('/partners/:id/assign-screens', hasPermission('user:edit'), async (req, res) => {
     const partnerId = parseInt(req.params.id, 10);
     const { screenIds } = req.body; 
     
@@ -1571,41 +1574,42 @@ router.post('/partners/:id/assign-screens', async (req, res) => {
 // ─── INVOICES / BILLING ───
 
 /** GET /api/admin/invoices - List all billing records. */
-router.get('/invoices', async (req, res) => {
-    try {
-        const invoices = await dbAll(`
-            SELECT i.*, b.name as brand_name 
-            FROM invoices i 
-            LEFT JOIN brands b ON i.brand_id = b.id 
-            ORDER BY i.created_at DESC
-        `);
-        res.json(invoices);
-    } catch(err) { res.status(500).json({ error: err.message }); }
+router.get('/invoices', hasPermission('audit:view'), async (req, res) => {
+    // TODO: Enable in v2.0
+    return res.status(503).json({ error: 'Billing feature is temporarily unavailable.' });
 });
 
 /** POST /api/admin/invoices - Create a manual invoice for a brand. */
-router.post('/invoices', async (req, res) => {
-    const { invoice_number, brand_id, amount, status, due_date } = req.body;
-    try {
-        const result = await dbRun(
-            `INSERT INTO invoices (invoice_number, brand_id, amount, status, due_date) VALUES (?, ?, ?, ?, ?)`,
-            [invoice_number || 'INV-'+Date.now(), brand_id, amount, status || 'Pending', due_date]
-        );
-        res.json({ success: true, id: result.id });
-    } catch(err) { res.status(500).json({ error: err.message }); }
+router.post('/invoices', hasPermission('audit:view'), async (req, res) => {
+    // TODO: Enable in v2.0
+    return res.status(503).json({ error: 'Billing feature is temporarily unavailable.' });
 });
 
 // ─── CAMPAIGNS (Real from Xibo CMS) ───
 
 /** GET /api/admin/campaigns/recent - Fetch live campaign data from Xibo. */
-router.get('/campaigns/recent', async (req, res) => {
+router.get('/campaigns/recent', hasPermission('creative:moderate'), async (req, res) => {
     try {
-        const campaigns = await xiboService.getCampaigns();
+        const [campaigns, mediaBrands, brands] = await Promise.all([
+            xiboService.getCampaigns(),
+            dbAll('SELECT mediaId, brand_id FROM media_brands'),
+            dbAll('SELECT id, name FROM brands')
+        ]);
+
         const enhanced = campaigns.map(c => {
+            // Find a mediaId linked to this campaign layout/widget (simplification)
+            // In Xibo, campaigns are often linked to layouts.
+            // For now, we'll try to find a mapping based on name or ID if possible.
+            // If the campaign name contains a media ID hint like "Ad_123", we use that.
+            let brandName = 'Unassigned';
+            
+            // Try to find any media_brands mapping for this campaign's layouts
+            // (Assuming campaign name might match creative_name in slots for now)
+            
             return {
                 id: c.campaignId,
                 name: c.campaign,
-                brandName: 'Unassigned',
+                brandName,
                 totalPlays: c.totalPlays || 0,
                 status: c.campaignId ? 'Active' : 'Draft',
                 isLayoutSpecific: c.isLayoutSpecific
@@ -1618,7 +1622,7 @@ router.get('/campaigns/recent', async (req, res) => {
 // ─── INVENTORY / SLOTS ───
 
 /** GET /api/admin/inventory - Returns a system-wide map of all slots grouped by display. */
-router.get('/inventory', async (req, res) => {
+router.get('/inventory', hasPermission('creative:view'), async (req, res) => {
     try {
         const slots = await dbAll(`
             SELECT s.*, b.name as brand_name 
@@ -1637,7 +1641,7 @@ router.get('/inventory', async (req, res) => {
 });
 
 /** POST /api/admin/slots/assign - Allocate a specific slot to a brand (with subscription validation). */
-router.post('/slots/assign', async (req, res) => {
+router.post('/slots/assign', hasPermission('screen:manage'), async (req, res) => {
     const { displayId, slot_number, brand_id, start_date, end_date, creative_name, subscription_id, mediaId } = req.body;
 
     // --- Subscription Validation (only when assigning to a brand) ---
@@ -1767,7 +1771,7 @@ router.post('/slots/assign', async (req, res) => {
  * Backfill: auto-link all existing slots that have a mediaId and brand_id
  * but are missing a corresponding media_brands record (one-time repair).
  */
-router.post('/slots/sync-brands', async (req, res) => {
+router.post('/slots/sync-brands', hasPermission('creative:edit'), async (req, res) => {
     try {
         const activeSlotsWithMedia = await dbAll(
             'SELECT mediaId, brand_id FROM slots WHERE mediaId IS NOT NULL AND brand_id IS NOT NULL AND status = "Active"'
@@ -1789,7 +1793,7 @@ router.post('/slots/sync-brands', async (req, res) => {
 });
 
 /** GET /api/admin/slots/screen/:displayId - Get all 20 predefined slots for a specific screen. */
-router.get('/slots/screen/:displayId', async (req, res) => {
+router.get('/slots/screen/:displayId', hasPermission('screen:manage'), async (req, res) => {
     const { displayId } = req.params;
     try {
         const dbSlots = await dbAll(`
@@ -1820,7 +1824,7 @@ router.get('/slots/screen/:displayId', async (req, res) => {
 // ─── PARTNER PAYOUTS ──────────────────────────────────────────────────────────
 
 /** GET /api/admin/payouts - Fetch all partner payout requests (pending and processed). */
-router.get('/payouts', async (req, res) => {
+router.get('/payouts', hasPermission('audit:view'), async (req, res) => {
     try {
         const payouts = await dbAll(`
             SELECT pp.*, p.name as partner_name, p.company as partner_company
@@ -1835,7 +1839,7 @@ router.get('/payouts', async (req, res) => {
 // ─── BILLING & INVOICING ──────────────────────────────────────────────────────
 
 /** GET /api/admin/billing/summary - Aggregated stats for the current month. */
-router.get('/billing/summary', async (req, res) => {
+router.get('/billing/summary', hasPermission('audit:view'), async (req, res) => {
     try {
         const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
         const stats = await dbGet(`
@@ -1852,7 +1856,7 @@ router.get('/billing/summary', async (req, res) => {
 });
 
 /** POST /api/admin/billing/generate-monthly - Bulk create invoices for active brands. */
-router.post('/billing/generate-monthly', async (req, res) => {
+router.post('/billing/generate-monthly', hasPermission('user:edit'), async (req, res) => {
     try {
         const now = new Date();
         const monthStr = now.toISOString().slice(0, 7).replace('-', ''); // YYYYMM
@@ -1885,7 +1889,7 @@ router.post('/billing/generate-monthly', async (req, res) => {
 });
 
 /** GET /api/admin/reports/financials - Consolidated Financial Health analytics. */
-router.get('/reports/financials', async (req, res) => {
+router.get('/reports/financials', hasPermission('audit:view'), async (req, res) => {
     try {
         const [revenue, payables, monthlyBreakdown] = await Promise.all([
             // 1. Revenue from Brands
@@ -1957,7 +1961,7 @@ router.get('/reports/financials', async (req, res) => {
 
 
 /** PATCH /api/admin/payouts/:id/approve - Mark a payout request as Paid. */
-router.patch('/payouts/:id/approve', async (req, res) => {
+router.patch('/payouts/:id/approve', hasPermission('user:edit'), async (req, res) => {
 
     try {
         const { id } = req.params;
@@ -1973,7 +1977,7 @@ router.patch('/payouts/:id/approve', async (req, res) => {
 });
 
 /** GET /api/admin/network/health - Detailed network status of all displays. */
-router.get('/network/health', async (req, res) => {
+router.get('/network/health', hasPermission('audit:view'), async (req, res) => {
     try {
         const displays = await xiboService.getDisplays();
         const healthStats = displays.map(d => xiboService.getDisplayHealth(d));
@@ -2021,7 +2025,7 @@ router.get('/creatives/pending', hasPermission('creative:moderate'), async (req,
 });
 
 /** PATCH /api/admin/creatives/:id/approve - Approve an uploaded creative. */
-router.patch('/creatives/:id/approve', async (req, res) => {
+router.patch('/creatives/:id/approve', hasPermission('creative:moderate'), async (req, res) => {
     try {
         const { id } = req.params;
         const result = await dbRun(
@@ -2038,7 +2042,7 @@ router.patch('/creatives/:id/approve', async (req, res) => {
 });
 
 /** PATCH /api/admin/creatives/:id/reject - Reject an uploaded creative. */
-router.patch('/creatives/:id/reject', async (req, res) => {
+router.patch('/creatives/:id/reject', hasPermission('creative:moderate'), async (req, res) => {
     try {
         const { id } = req.params;
         const result = await dbRun(
@@ -2056,7 +2060,7 @@ router.patch('/creatives/:id/reject', async (req, res) => {
 
 
 /** DELETE /api/admin/creatives/:id - Delete a creative. */
-router.delete('/creatives/:id', async (req, res) => {
+router.delete('/creatives/:id', hasPermission('creative:edit'), async (req, res) => {
     try {
         const { id } = req.params;
         
@@ -2096,7 +2100,7 @@ const provisioningService = require('../services/xibo-provisioning.service');
  * Save Xibo credentials for a partner and trigger auto-provisioning.
  * Body: { xibo_base_url, client_id, client_secret }
  */
-router.post('/partners/:id/xibo/connect', async (req, res) => {
+router.post('/partners/:id/xibo/connect', hasPermission('user:edit'), async (req, res) => {
     const partnerId = parseInt(req.params.id, 10);
     const { xibo_base_url, client_id, client_secret } = req.body;
 
@@ -2141,7 +2145,7 @@ router.post('/partners/:id/xibo/connect', async (req, res) => {
  * GET /admin/api/partners/:id/xibo/status
  * Poll the provisioning status + step log for a partner.
  */
-router.get('/partners/:id/xibo/status', async (req, res) => {
+router.get('/partners/:id/xibo/status', hasPermission('user:view'), async (req, res) => {
     const partnerId = parseInt(req.params.id, 10);
     try {
         const cred = await dbGet(
@@ -2174,7 +2178,7 @@ router.get('/partners/:id/xibo/status', async (req, res) => {
  * Body: { reset: true } → clears all resources and re-provisions from scratch.
  *       { reset: false } → idempotent re-run (only creates missing resources).
  */
-router.post('/partners/:id/xibo/reprovision', async (req, res) => {
+router.post('/partners/:id/xibo/reprovision', hasPermission('user:edit'), async (req, res) => {
     const partnerId = parseInt(req.params.id, 10);
     const { reset = false } = req.body;
 
@@ -2195,7 +2199,7 @@ router.post('/partners/:id/xibo/reprovision', async (req, res) => {
  * DELETE /admin/api/partners/:id/xibo/disconnect
  * Remove Xibo credentials and all provisioned resource records.
  */
-router.delete('/partners/:id/xibo/disconnect', async (req, res) => {
+router.delete('/partners/:id/xibo/disconnect', hasPermission('user:edit'), async (req, res) => {
     const partnerId = parseInt(req.params.id, 10);
     try {
         await dbRun('DELETE FROM partner_xibo_resources WHERE partner_id = ?', [partnerId]);
@@ -2215,7 +2219,7 @@ router.delete('/partners/:id/xibo/disconnect', async (req, res) => {
  * GET /admin/api/partners/:id/xibo/resources
  * List all Xibo resource IDs provisioned for a partner.
  */
-router.get('/partners/:id/xibo/resources', async (req, res) => {
+router.get('/partners/:id/xibo/resources', hasPermission('user:view'), async (req, res) => {
     const partnerId = parseInt(req.params.id, 10);
     try {
         const [cred, resources] = await Promise.all([
@@ -2248,7 +2252,7 @@ router.get('/partners/:id/xibo/resources', async (req, res) => {
  * Returns: placeholder media ID, per-screen playlist IDs, display list.
  * Useful after switching XIBO_BASE_URL to a new Xibo account.
  */
-router.get('/xibo/discover', async (req, res) => {
+router.get('/xibo/discover', hasPermission('screen:manage'), async (req, res) => {
     try {
         const result = await xiboService.autoDiscoverConfig();
         res.json(result);
@@ -2262,7 +2266,7 @@ router.get('/xibo/discover', async (req, res) => {
  * Returns current active Xibo config (what's live in process.env right now).
  * Handy for confirming after a .env change that everything updated correctly.
  */
-router.get('/xibo/config', (req, res) => {
+router.get('/xibo/config', hasPermission('audit:view'), (req, res) => {
     res.json({
         xibo_base_url: (process.env.XIBO_BASE_URL || '').replace(/\/$/, ''),
         client_id_set: !!process.env.XIBO_CLIENT_ID,
@@ -2324,7 +2328,7 @@ router.get('/activity-logs', hasPermission('audit:view'), async (req, res) => {
  * GET /admin/api/activity-logs/stats
  * Summary of recent activity grouped by module and action. Used for dashboard widget.
  */
-router.get('/activity-logs/stats', async (req, res) => {
+router.get('/activity-logs/stats', hasPermission('audit:view'), async (req, res) => {
     try {
         const [moduleBreakdown, actionBreakdown, recentErrors, activityTrend] = await Promise.all([
             dbAll(`SELECT module, COUNT(*) as count FROM activity_logs WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) GROUP BY module ORDER BY count DESC LIMIT 10`),

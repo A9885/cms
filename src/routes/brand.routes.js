@@ -89,7 +89,8 @@ async function getBrandSlots(brandId) {
         SELECT 
             sl.id, sl.slot_number, sl.displayId, sl.status, sl.brand_id,
             sl.start_date, sl.end_date, sl.creative_name, sl.mediaId,
-            s.name as screen_name, s.city, s.address, s.notes
+            s.name as screen_name, s.city, s.address, s.notes,
+            s.latitude, s.longitude
         FROM slots sl
         LEFT JOIN screens s ON sl.displayId = s.xibo_display_id
         WHERE sl.brand_id = ?
@@ -130,44 +131,60 @@ router.get('/profile', async (req, res) => {
 router.get('/subscription', async (req, res) => {
     const brandId = req.user.brand_id;
     try {
-        const today = new Date().toISOString().slice(0, 10);
-        // Prefer active subscription; fallback to most recent
-        let sub = await dbGet(
-            `SELECT * FROM subscriptions WHERE brand_id = ? AND status = 'Active' AND start_date <= ? AND end_date >= ? ORDER BY id DESC LIMIT 1`,
-            [brandId, today, today]
-        );
-        if (!sub) {
-            sub = await dbGet(
-                `SELECT * FROM subscriptions WHERE brand_id = ? ORDER BY id DESC LIMIT 1`,
-                [brandId]
-            );
-        }
+        const sub = await dbGet(`
+            SELECT 
+                plan_name as planName, 
+                status, 
+                DATE_FORMAT(start_date, '%Y-%m-%d') as startDate, 
+                DATE_FORMAT(end_date, '%Y-%m-%d') as endDate,
+                payment_status as paymentStatus,
+                cities,
+                screens_included as screensIncluded,
+                slots_included as slotsIncluded,
+                DATEDIFF(end_date, CURDATE()) as daysRemaining
+            FROM subscriptions 
+            WHERE brand_id = ? AND status = 'Active'
+            ORDER BY id DESC LIMIT 1
+        `, [brandId]);
+
         if (!sub) return res.json(null);
 
-        const endDate = new Date(sub.end_date);
-        const daysRemaining = Math.max(0, Math.ceil((endDate - new Date()) / (1000 * 60 * 60 * 24)));
-
-        // Count actual usage against subscription limits
-        const [usedScreensRow, usedSlotsRow] = await Promise.all([
-            dbGet('SELECT COUNT(DISTINCT displayId) as cnt FROM slots WHERE brand_id = ?', [brandId]),
-            dbGet('SELECT COUNT(*) as cnt FROM slots WHERE brand_id = ?', [brandId])
-        ]);
+        // Count current usage
+        const usage = await dbGet(`
+            SELECT 
+                COUNT(DISTINCT displayId) as screensUsed,
+                COUNT(*) as slotsUsed
+            FROM slots 
+            WHERE brand_id = ?
+        `, [brandId]);
 
         res.json({
-            id: sub.id,
-            planName: sub.plan_name,
-            status: sub.status,
-            startDate: sub.start_date,
-            endDate: sub.end_date,
-            daysRemaining,
-            screensIncluded: sub.screens_included,
-            slotsIncluded: sub.slots_included,
-            screensUsed: usedScreensRow ? usedScreensRow.cnt : 0,
-            slotsUsed: usedSlotsRow ? usedSlotsRow.cnt : 0,
-            cities: sub.cities || '',
-            paymentStatus: sub.payment_status,
-            notes: sub.notes || ''
+            ...sub,
+            screensUsed: usage.screensUsed || 0,
+            slotsUsed: usage.slotsUsed || 0
         });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.get('/subscriptions/history', async (req, res) => {
+    const brandId = req.user.brand_id;
+    try {
+        const history = await dbAll(`
+            SELECT 
+                plan_name as planName, 
+                status, 
+                DATE_FORMAT(start_date, '%Y-%m-%d') as startDate, 
+                DATE_FORMAT(end_date, '%Y-%m-%d') as endDate,
+                payment_status as paymentStatus,
+                screens_included as screensIncluded,
+                slots_included as slotsIncluded
+            FROM subscriptions 
+            WHERE brand_id = ?
+            ORDER BY start_date DESC
+        `, [brandId]);
+        res.json(history);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -256,9 +273,10 @@ router.get('/dashboard', async (req, res) => {
         // 6. Recent Proof of Play from local cache (top 10)
         const [recentPoPRecords, libraryRes, displaysRes] = await Promise.all([
             dbAll(`
-                SELECT s.mediaId, s.displayId, s.date, s.count, m.brand_id
+                SELECT s.mediaId, s.displayId, s.date, s.count, m.brand_id, sl.slot_number
                 FROM daily_media_stats s
                 JOIN media_brands m ON s.mediaId = m.mediaId
+                LEFT JOIN slots sl ON (s.mediaId = sl.mediaId AND s.displayId = sl.displayId)
                 WHERE m.brand_id = ?
                 ORDER BY s.date DESC
                 LIMIT 10
@@ -279,9 +297,11 @@ router.get('/dashboard', async (req, res) => {
             adName: beautifyMediaName(libraryMap.get(String(r.mediaId)) || `Media #${r.mediaId}`),
             displayId: r.displayId,
             displayName: displayMap.get(String(r.displayId)) || `Display #${r.displayId}`,
+            slotNumber: r.slot_number,
             playedAt: r.date,
             count: r.count
         }));
+
 
         res.json({
             activeScreens:  uniqueScreens,
@@ -290,7 +310,6 @@ router.get('/dashboard', async (req, res) => {
             reservedCount,
             onlineScreens:  onlineNow,
             totalPlays:     totalPlays,
-            estimatedImpressions: totalPlays * 45, 
             recentPoP,
             dailyStats,
             brandScreens,
@@ -324,6 +343,8 @@ router.get('/screens', async (req, res) => {
                     city: slot.city || '-',
                     address: slot.address || '-',
                     location: slot.notes || '-',
+                    lat: parseFloat(slot.latitude) || null,
+                    lng: parseFloat(slot.longitude) || null,
                     slots: [],
                     status: 'offline'
                 };
@@ -337,6 +358,11 @@ router.get('/screens', async (req, res) => {
                 if (screens[d.displayId]) {
                     screens[d.displayId].status = (d.loggedIn === 1 || d.loggedIn === true) ? 'online' : 'offline';
                     screens[d.displayId].lastAccess = d.lastAccessed;
+                    // Supplement with Xibo GPS if DB latitude is missing
+                    if (!screens[d.displayId].lat && d.latitude)
+                        screens[d.displayId].lat = parseFloat(d.latitude) || null;
+                    if (!screens[d.displayId].lng && d.longitude)
+                        screens[d.displayId].lng = parseFloat(d.longitude) || null;
                 }
             });
         } catch (e) {}
@@ -432,6 +458,99 @@ router.get('/screens/locations', async (req, res) => {
 });
 
 /**
+ * GET /api/brand/screens/:displayId
+ * Returns full detail for a single screen: slots with media names, total plays.
+ * NOTE: Must be declared AFTER all static /screens/X sub-routes to avoid wildcard collision.
+ */
+router.get('/screens/:displayId', async (req, res) => {
+    const brandId = req.user.brand_id;
+    const displayId = parseInt(req.params.displayId, 10);
+    if (!displayId) return res.status(400).json({ error: 'Invalid displayId' });
+
+    try {
+        // 1. ALL Slots for this screen (to show capacity and ownership)
+        const allSlots = await dbAll(`
+            SELECT sl.slot_number, sl.status, sl.mediaId, sl.creative_name as media_name, sl.brand_id
+            FROM slots sl
+            WHERE sl.displayId = ?
+            ORDER BY sl.slot_number
+        `, [displayId]);
+
+        // 2. Screen metadata + Partner name
+        const screen = await dbGet(`
+            SELECT s.name, s.city, s.address, s.notes, s.latitude, s.longitude, s.xibo_display_id, p.name as partner_name
+            FROM screens s
+            LEFT JOIN partners p ON s.partner_id = p.id
+            WHERE s.xibo_display_id = ?
+        `, [displayId]);
+
+        // 3. Online status from Xibo — with 3s timeout so it never blocks
+        let status = 'offline';
+        let lastAccess = null;
+        try {
+            const xiboTimeout = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 3000));
+            const displaysRes = await Promise.race([xiboService.getDisplays(), xiboTimeout]);
+            const d = (displaysRes || []).find(x => String(x.displayId) === String(displayId));
+            if (d) {
+                status = (d.loggedIn === 1 || d.loggedIn === true) ? 'online' : 'offline';
+                lastAccess = d.lastAccessed || null;
+            }
+        } catch (e) { /* Xibo unavailable or timed out — keep offline */ }
+
+        // 4. Per-slot play counts (only for THIS brand's media)
+        const myMediaIds = allSlots
+            .filter(s => s.brand_id === brandId && s.mediaId)
+            .map(s => s.mediaId);
+            
+        let totalPlays = 0;
+        const slotPlaysMap = {};
+
+        if (myMediaIds.length > 0) {
+            const placeholders = myMediaIds.map(() => '?').join(',');
+            const [playsTotal, playsPerMedia] = await Promise.all([
+                dbGet(
+                    `SELECT SUM(count) as total FROM daily_media_stats WHERE displayId = ? AND mediaId IN (${placeholders})`,
+                    [displayId, ...myMediaIds]
+                ),
+                dbAll(
+                    `SELECT mediaId, SUM(count) as plays FROM daily_media_stats WHERE displayId = ? AND mediaId IN (${placeholders}) GROUP BY mediaId`,
+                    [displayId, ...myMediaIds]
+                )
+            ]);
+            totalPlays = playsTotal ? parseInt(playsTotal.total || 0, 10) : 0;
+            playsPerMedia.forEach(row => { slotPlaysMap[String(row.mediaId)] = parseInt(row.plays || 0, 10); });
+        }
+
+        // Enrich slots with ownership flag and play counts
+        const enrichedSlots = allSlots.map(s => ({
+            ...s,
+            isOwnedByMe: s.brand_id === brandId,
+            plays: (s.brand_id === brandId && s.mediaId) ? (slotPlaysMap[String(s.mediaId)] || 0) : 0
+        }));
+
+        res.json({
+            displayId,
+            name: screen ? screen.name : `Display #${displayId}`,
+            partnerName: screen ? screen.partner_name : 'Signtral Network',
+            city: screen ? (screen.city || '-') : '-',
+            address: screen ? (screen.address || '-') : '-',
+            notes: screen ? (screen.notes || '-') : '-',
+            lat: screen ? (parseFloat(screen.latitude) || null) : null,
+            lng: screen ? (parseFloat(screen.longitude) || null) : null,
+            status,
+            lastAccess,
+            slots: enrichedSlots,
+            totalPlays
+        });
+    } catch (err) {
+        console.error('[Brand API] Screen detail error:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+
+
+/**
  * POST /api/brand/slots/purchase
  * Allows a brand to reserve one or more slots on a screen.
  */
@@ -476,51 +595,84 @@ router.post('/slots/purchase', async (req, res) => {
 
 /**
  * GET /api/brand/proof-of-play
- * Returns detailed playback history for all screens assigned to this brand.
+ * Returns playback history for all media assigned to this brand's slots.
+ * Source: daily_media_stats (local DB) — NOT the Xibo live API.
+ * This ensures all media appear, not just those Xibo reports recently.
  */
 router.get('/proof-of-play', async (req, res) => {
     const brandId = req.user.brand_id;
     try {
+        // Get all slots for this brand (with screen info)
         const mySlots = await getBrandSlots(brandId);
-        const displayIds = [...new Set(mySlots.map(s => s.displayId).filter(Boolean))];
+        if (mySlots.length === 0) return res.json([]);
 
-        if (displayIds.length === 0) return res.json([]);
+        // Get all mediaIds belonging to this brand
+        const brandMediaIds = await dbAll(
+            'SELECT mediaId FROM media_brands WHERE brand_id = ?',
+            [brandId]
+        );
+        if (brandMediaIds.length === 0) return res.json([]);
 
-        const brandStats = await getStatsForBrand(brandId);
+        const mediaIds = brandMediaIds.map(r => r.mediaId).filter(Boolean);
+        const placeholders = mediaIds.map(() => '?').join(',');
 
-        const aggregated = {};
-        brandStats.forEach(r => {
-            const key = `${r.displayId}_${r.mediaId || r.adName}`;
-            if (!aggregated[key]) {
-                const slot = mySlots.find(s => 
-                    String(s.displayId) === String(r.displayId) && 
-                    (String(s.slot_number) === String(r.slot) || r.adName.includes(`SLOT_${s.slot_number}`))
-                );
-                
-                aggregated[key] = {
-                    mediaId: r.mediaId,
-                    displayId: r.displayId,
-                    adName: beautifyMediaName(r.adName),
-                    screenName: slot ? (slot.screen_name || `Display #${r.displayId}`) : `Display #${r.displayId}`,
-                    location: slot ? (slot.address || slot.city || 'Central') : 'Central',
-                    count: 0,
-                    totalPlays: 0,
-                    lastPlayed: r.playedAt,
-                    slotNumber: r.slot || (slot ? slot.slot_number : '-')
-                };
-            }
-            aggregated[key].count += (r.count || 1);
-            aggregated[key].totalPlays += (r.count || 1);
-            if (new Date(r.playedAt) > new Date(aggregated[key].lastPlayed)) {
-                aggregated[key].lastPlayed = r.playedAt;
-            }
+        // Query daily_media_stats for all brand media, grouped by mediaId + displayId
+        const stats = await dbAll(`
+            SELECT
+                dms.mediaId,
+                dms.displayId,
+                SUM(dms.count)      AS totalPlays,
+                MAX(dms.date)       AS lastPlayed
+            FROM daily_media_stats dms
+            WHERE dms.mediaId IN (${placeholders})
+            GROUP BY dms.mediaId, dms.displayId
+            ORDER BY lastPlayed DESC
+        `, mediaIds);
+
+        if (stats.length === 0) return res.json([]);
+
+        // Build a lookup: mediaId → slot info
+        const slotsByMedia = {};
+        mySlots.forEach(sl => {
+            if (sl.mediaId) slotsByMedia[String(sl.mediaId)] = sl;
         });
 
-        res.json(Object.values(aggregated).sort((a, b) => new Date(b.lastPlayed) - new Date(a.lastPlayed)));
+        // Also build a lookup by displayId for media without a direct slot link
+        const slotsByDisplay = {};
+        mySlots.forEach(sl => {
+            if (!slotsByDisplay[String(sl.displayId)]) slotsByDisplay[String(sl.displayId)] = sl;
+        });
+
+        // Build the result rows
+        const rows = stats.map(row => {
+            const mediaIdStr = String(row.mediaId);
+            const displayIdStr = String(row.displayId);
+
+            // Find the slot: prefer exact mediaId match, fall back to display match
+            const slot = slotsByMedia[mediaIdStr] || slotsByDisplay[displayIdStr] || null;
+
+            return {
+                mediaId: row.mediaId,
+                displayId: row.displayId,
+                adName: slot ? (slot.creative_name || `Media #${row.mediaId}`) : `Media #${row.mediaId}`,
+                screenName: slot ? (slot.screen_name || `Display #${row.displayId}`) : `Display #${row.displayId}`,
+                location: slot
+                    ? ([slot.address, slot.city].filter(v => v && v !== '-').join(', ') || 'Central')
+                    : 'Central',
+                slotNumber: slot ? slot.slot_number : '-',
+                count: parseInt(row.totalPlays || 0, 10),
+                totalPlays: parseInt(row.totalPlays || 0, 10),
+                lastPlayed: row.lastPlayed
+            };
+        });
+
+        res.json(rows);
     } catch (err) {
+        console.error('[Brand API] proof-of-play error:', err.message);
         res.status(500).json({ error: err.message });
     }
 });
+
 
 /**
  * GET /api/brand/campaigns
@@ -567,15 +719,8 @@ router.get('/campaigns', async (req, res) => {
 
 /** GET /api/brand/invoices - List invoices for the logged-in brand. */
 router.get('/invoices', async (req, res) => {
-    const brandId = req.user.brand_id;
-    try {
-        const invoices = await dbAll(
-            'SELECT * FROM invoices WHERE brand_id = ? ORDER BY due_date DESC', [brandId]
-        );
-        res.json(invoices);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+    // TODO: Enable in v2.0
+    return res.status(503).json({ error: 'Billing feature is temporarily unavailable.' });
 });
 
 /** POST /api/sync-stats - Force a manual data refresh from Xibo. */

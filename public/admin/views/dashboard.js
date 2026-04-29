@@ -47,10 +47,11 @@ App.registerView('dashboard', {
                         <canvas id="chart-daily-plays"></canvas>
                     </div>
                 </div>
-                <div class="card">
-                    <div class="card-title">Revenue Growth (₹)</div>
-                    <div style="height: 250px; position:relative;">
-                        <canvas id="chart-revenue"></canvas>
+                <div class="card" style="opacity: 0.6; pointer-events: none;">
+                    <!-- TODO: Enable in v2.0 -->
+                    <div class="card-title">Revenue Growth (₹) <span class="badge secondary">Coming Soon</span></div>
+                    <div style="height: 250px; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-weight: 600;">
+                        Chart data available in next version
                     </div>
                 </div>
                 <div class="card">
@@ -107,7 +108,8 @@ App.registerView('dashboard', {
                 data.totalImpressions = totals.totalPlays;
             }
             await this.updateKPIsUI(data);
-            this.renderRevenueChart(data.revenueTrend || []);
+            // TODO: Enable in v2.0
+            // this.renderRevenueChart(data.revenueTrend || []);
         }
     },
 
@@ -277,9 +279,13 @@ App.registerView('dashboard', {
         };
         kpiContainer.appendChild(createKpi('kpi-blue', 'monitor', 'Total Screens', data.totalScreens));
         kpiContainer.appendChild(createKpi('kpi-darkblue', 'play-circle', 'Total PoP Plays', (data.totalImpressions || 0).toLocaleString(), 'Total verified plays'));
-        kpiContainer.appendChild(createKpi('kpi-lightblue', 'indian-rupee', 'Revenue', `₹${(data.monthlyRevenue || 0).toLocaleString()}`));
+        // TODO: Enable in v2.0
+        const revKpi = createKpi('kpi-lightblue', 'indian-rupee', 'Revenue', 'Coming Soon', 'Available in next version');
+        revKpi.style.opacity = '0.7';
+        kpiContainer.appendChild(revKpi);
 
-        // Add Pending Payouts alert if any
+        // TODO: Enable in v2.0
+        /*
         try {
             const payouts = await Api.get('/partners/payouts/pending');
             if (payouts && payouts.length > 0) {
@@ -291,6 +297,8 @@ App.registerView('dashboard', {
         } catch (e) {
             kpiContainer.appendChild(createKpi('kpi-white', 'users', 'Partners', data.totalPartners));
         }
+        */
+        kpiContainer.appendChild(createKpi('kpi-white', 'users', 'Partners', data.totalPartners));
 
         kpiContainer.appendChild(createKpi('kpi-white', 'briefcase', 'Brands', data.totalBrands));
 
@@ -438,8 +446,9 @@ App.registerView('dashboard', {
         lucide.createIcons();
     },
 
-    async triggerSync() {
-        const btn = event.currentTarget;
+    async triggerSync(e) {
+        const btn = e.target.closest('[data-onclick]');
+        if (!btn) return;
         btn.disabled = true;
         const old = btn.innerHTML;
         btn.innerHTML = 'Syncing...';

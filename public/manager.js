@@ -5,18 +5,7 @@ let isReplaceMode = false;
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('Manager UI Initialized');
-
-    // Auth Check
-    try {
-        const authRes = await fetch('/auth/me');
-        if (!authRes.ok) {
-            window.location.href = '/admin/login.html';
-            return;
-        }
-    } catch (e) {
-        window.location.href = '/admin/login.html';
-        return;
-    }
+    initManager();
 
     // Logout Handling
     const logoutBtn = document.querySelector('.logout-btn');
@@ -27,8 +16,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    initDisplays();
-
     // File Selection Handling
     const mInput = document.getElementById('media-input');
     if (mInput) {
@@ -36,16 +23,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             console.log('File selection changed:', e.target.files[0]?.name);
             if (!e.target.files[0] || !activeSlotId) return;
             const file = e.target.files[0];
-            
-            // Default 13 seconds as per requirements
             const duration = 13;
-            console.log('Using default duration:', duration, 'isReplaceMode:', isReplaceMode);
-
             await uploadMedia(activeSlotId, file, duration, isReplaceMode);
             mInput.value = ''; // Reset
         });
-    } else {
-        console.error('Critical: media-input element not found on DOMContentLoaded!');
     }
 });
 
@@ -115,33 +96,37 @@ function showConfirm(message) {
     });
 }
 
-
-
-async function initDisplays() {
+async function initManager() {
     showLoader(true);
     const tabsContainer = document.getElementById('screen-tabs');
     tabsContainer.innerHTML = '';
 
     try {
-        const resp = await fetch('/xibo/displays');
-        const displays = await resp.json();
+        // ULTIMATE OPTIMIZATION: Fetch everything in one go
+        const resp = await fetch('/api/manager/init');
+        if (!resp.ok) {
+            if (resp.status === 401) window.location.href = '/admin/login.html';
+            throw new Error(`Init failed: ${resp.status}`);
+        }
+        
+        const data = await resp.json();
+        const { displays, initialSlots } = data;
 
-        if (displays.error) throw new Error(displays.error);
         if (displays.length === 0) {
             tabsContainer.innerHTML = '<div style="color: #64748b; padding: 1rem;">No displays found in Xibo.</div>';
             return;
         }
 
+        // 1. Render Tabs
         displays.forEach((d, idx) => {
             const btn = document.createElement('button');
             btn.className = idx === 0 ? 'tab active' : 'tab';
             btn.textContent = d.name;
             btn.dataset.displayId = d.displayId;
             btn.dataset.displayGroupId = d.displayGroupId;
-            btn.dataset.name = d.name;
-            btn.dataset.status = d.isOnline ? 'Online' : 'Offline';
 
             btn.addEventListener('click', () => {
+                if (currentDisplayId === d.displayId) return;
                 document.querySelector('.tab.active')?.classList.remove('active');
                 btn.classList.add('active');
                 currentDisplayId = d.displayId;
@@ -151,25 +136,40 @@ async function initDisplays() {
             tabsContainer.appendChild(btn);
         });
 
-        // Initialize with first display
-        currentDisplayId = displays[0].displayId;
-        switchDisplay(displays[0]);
+        // 2. Render Initial State (First Display)
+        const first = displays[0];
+        currentDisplayId = first.displayId;
+        
+        document.getElementById('screen-location').textContent = first.name;
+        const statusEl = document.getElementById('screen-status');
+        statusEl.textContent = first.isOnline ? 'Online' : 'Offline';
+        statusEl.className = first.isOnline ? 'status-online' : 'status-offline';
+        document.getElementById('playlist-title').textContent = `${first.name} Playlist`;
+
+        // 3. Render Slots (Pre-fetched!)
+        renderSlots(initialSlots);
 
     } catch (err) {
         console.error('Init failed:', err);
-        if (err.message.includes('401')) {
-            window.location.href = '/admin/login.html';
-            return;
-        }
-        tabsContainer.innerHTML = '';
-        const errDiv = document.createElement('div');
-        errDiv.style.color = 'red';
-        errDiv.style.padding = '1rem';
-        errDiv.textContent = `Setup Error: ${err.message}`;
-        tabsContainer.appendChild(errDiv);
+        tabsContainer.innerHTML = `<div style="color:red; padding:1rem;">Setup Error: ${err.message}</div>`;
     } finally {
         showLoader(false);
     }
+}
+
+function renderSlots(slots) {
+    const grid = document.getElementById('slot-grid');
+    grid.innerHTML = '';
+    
+    if (!slots || slots.length === 0) {
+        grid.innerHTML = '<div style="grid-column: span 5; padding: 2rem; background: white; border-radius: 8px; text-align: center; color: #64748b;">No slots found for this screen.</div>';
+        return;
+    }
+
+    slots.forEach(slot => {
+        const card = createSlotCard(slot);
+        grid.appendChild(card);
+    });
 }
 
 function switchDisplay(display) {

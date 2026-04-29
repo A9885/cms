@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
-const path = require('multer'); // dummy name for logic
+const path = require('path');
 const fs = require('fs');
 const xiboService = require('../services/xibo.service');
 const { dbRun, dbAll, dbGet } = require('../db/database');
@@ -34,11 +34,13 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     const xiboResult = await xiboService.uploadMedia(file.path, file.originalname);
     const mediaId = xiboResult.mediaId;
 
-    // 3. Link to Brand in MySQL with 'Pending' status
-    await dbRun(
-      'REPLACE INTO media_brands (mediaId, brand_id, status) VALUES (?, ?, ?)',
-      [mediaId, targetBrandId, 'Pending']
-    );
+    // 3. Link to Brand in MySQL with 'Pending' status (if brand provided)
+    if (targetBrandId) {
+      await dbRun(
+        'REPLACE INTO media_brands (mediaId, brand_id, status) VALUES (?, ?, ?)',
+        [mediaId, targetBrandId, req.user?.role === 'SuperAdmin' || req.user?.role === 'Admin' ? 'Approved' : 'Pending']
+      );
+    }
 
     // 4. Enable Stats Collection (Proof of Play)
     await xiboService.setStatCollection('media', mediaId, true);
@@ -85,18 +87,27 @@ router.get('/list', async (req, res) => {
       return res.status(400).json({ error: 'Brand ID is required.' });
     }
 
-    const [library, mappings, campaignsData] = await Promise.all([
-      xiboService.getLibrary({ length: 1000 }), // Increased to 1000 to ensure we find everything
+    const [library, mappings, campaignsData, playsData] = await Promise.all([
+      xiboService.getLibrary({ length: 1000 }),
       dbAll('SELECT mediaId, status FROM media_brands WHERE brand_id = ?', [brandId]),
       dbAll(`
-        SELECT sl.mediaId as creative_id, sl.slot_number, s.name as screen_name 
+        SELECT sl.mediaId as creative_id, sl.slot_number, sl.displayId, sl.status as slot_status,
+               s.name as screen_name 
         FROM slots sl 
         LEFT JOIN screens s ON sl.displayId = s.xibo_display_id 
-        WHERE sl.brand_id = ? AND sl.status = 'Active' AND sl.mediaId IS NOT NULL
+        WHERE sl.brand_id = ? AND sl.mediaId IS NOT NULL
+      `, [brandId]),
+      dbAll(`
+        SELECT mediaId, SUM(count) as total
+        FROM daily_media_stats
+        WHERE mediaId IN (SELECT mediaId FROM media_brands WHERE brand_id = ?)
+        GROUP BY mediaId
       `, [brandId])
     ]);
 
     const mappingMap = new Map(mappings.map(m => [String(m.mediaId), m.status]));
+    const playsMap = new Map(playsData.map(p => [String(p.mediaId), parseInt(p.total || 0, 10)]));
+
     const campaignMap = {};
     campaignsData.forEach(c => {
       if (!campaignMap[String(c.creative_id)]) campaignMap[String(c.creative_id)] = [];
@@ -114,6 +125,7 @@ router.get('/list', async (req, res) => {
         duration: media.duration,
         status: mappingMap.get(String(media.mediaId)) || 'Pending',
         assignedSlots: campaignMap[String(media.mediaId)] || [],
+        totalPlays: playsMap.get(String(media.mediaId)) || 0,
         thumbnailUrl: `/xibo/proxy/thumbnail/${media.mediaId}`,
         previewUrl: `/xibo/library/download/${media.mediaId}`
       }));
@@ -124,5 +136,6 @@ router.get('/list', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 
 module.exports = router;

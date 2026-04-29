@@ -316,9 +316,22 @@ async function loadDashboard() {
     document.getElementById('dash-active-screens').innerText = data.activeScreens || 0;
     document.getElementById('dash-total-screens').innerText = data.totalSlots || 0;
     document.getElementById('dash-total-plays').innerText    = (data.totalPlays || 0).toLocaleString();
-    
-    const estImp = document.getElementById('dash-est-impressions');
-    if (estImp) estImp.innerText = (data.estimatedImpressions || 0).toLocaleString();
+
+    // ─── SUBSCRIPTION KPI ───
+    const planNameEl = document.getElementById('dash-plan-name');
+    const planStatusEl = document.getElementById('dash-plan-status');
+    if (planNameEl && planStatusEl) {
+        const sub = await safeFetch('/brandportal/api/subscription');
+        if (sub) {
+            planNameEl.textContent = sub.planName || 'Active Plan';
+            planStatusEl.textContent = sub.daysRemaining > 0 
+                ? `${sub.daysRemaining} days remaining` 
+                : (sub.daysRemaining === 0 ? 'Expires today' : 'Subscription expired');
+        } else {
+            planNameEl.textContent = 'No Plan';
+            planStatusEl.textContent = 'Contact sales to subscribe';
+        }
+    }
 
     // Render recent Activity
     const activityList = document.getElementById('recent-activity-list');
@@ -350,8 +363,10 @@ async function loadDashboard() {
                 const meta = document.createElement('div');
                 meta.style.fontSize = '0.75rem';
                 meta.style.color = 'var(--text-muted)';
-                meta.textContent = `${r.displayName || 'Screen'} • ${r.playedAt ? new Date(r.playedAt).toLocaleTimeString() : '-'}`;
+                const slotText = r.slotNumber ? `Slot ${r.slotNumber} • ` : '';
+                meta.textContent = `${slotText}${r.displayName || 'Screen'} • ${r.playedAt ? new Date(r.playedAt).toLocaleTimeString() : '-'}`;
                 content.appendChild(meta);
+
                 
                 item.appendChild(content);
 
@@ -479,32 +494,27 @@ function initDashboardMap(brandScreens) {
     dashMap.fitBounds(bounds, { padding: [30, 30], maxZoom: 14 });
 }
 
-
 // ─── SCREENS ───
 async function loadScreens() {
     const data = await safeFetch('/brandportal/api/screens');
     const pop = await safeFetch('/brandportal/api/proof-of-play');
     const tbody = document.querySelector('#my-screens-table tbody');
-    if (!tbody || !data) return;
-    
-    // Calculate page-level KPIs dynamically
-    const totalPlays = pop ? pop.reduce((sum, r) => sum + (r.totalPlays || r.count || 0), 0) : 0;
-    const onlineCount = data.filter(s => s.status === 'online').length;
-    
-    document.getElementById('detail-total-plays').innerText = totalPlays.toLocaleString();
-    const viewsBadge = document.getElementById('screen-detail-panel').querySelector('.activity-item:last-child span');
-    if (viewsBadge) viewsBadge.innerText = `${totalPlays.toLocaleString()} Views Total`;
+    if (!tbody) return;
+
+    // Guard: data must be a non-null array
+    const screens = Array.isArray(data) ? data : [];
 
     tbody.innerHTML = '';
-    if (data.length === 0) {
+    if (screens.length === 0) {
         tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:3rem; color:var(--text-muted);">No screens assigned to your brand yet.</td></tr>';
         return;
     }
 
-    data.forEach(s => {
+
+    screens.forEach(s => {
         const tr = document.createElement('tr');
         tr.className = 'screen-row';
-        tr.onclick = () => viewScreenDetail(s.displayId, s.name);
+        tr.onclick = () => viewScreenDetail(s.displayId, s);
         
         const tdInfo = document.createElement('td');
         const infoWrap = document.createElement('div');
@@ -574,50 +584,147 @@ async function loadScreens() {
     });
     lucide.createIcons();
     
-    if (data.length > 0) viewScreenDetail(data[0].displayId, data[0].name);
+    if (screens.length > 0) viewScreenDetail(screens[0].displayId, screens[0]);
 }
 
-async function viewScreenDetail(displayId, name) {
-    document.getElementById('detail-display-id').innerText = displayId;
-    
-    // Init map for details if not exists
-    if (!detailMap) {
-        detailMap = L.map('large-screens-map', { zoomControl: false }).setView([17.3850, 78.4867], 13);
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png').addTo(detailMap);
-    }
-    detailMarkers.forEach(m => detailMap.removeLayer(m));
-    detailMarkers = [];
+// ─── SCREEN DETAIL ───
+async function viewScreenDetail(displayId, screenOrName) {
+    const panel = document.getElementById('screen-detail-panel');
+    if (!panel) return;
+    panel.innerHTML = `
+        <div style="padding:3rem; text-align:center; color:var(--text-muted);">
+            <div style="width:32px;height:32px;border:3px solid #e2e8f0;border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 1rem;"></div>
+            <p style="font-size:0.9rem;">Loading screen details...</p>
+        </div>
+        <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+    `;
 
-    const marker = L.marker([17.3850, 78.4867]).addTo(detailMap);
-    detailMarkers.push(marker);
-    detailMap.setView([17.3850, 78.4867], 13);
-
-    // Sparkline Chart
-    const canvas = document.getElementById('sparkline-chart');
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (sparklineChart) sparklineChart.destroy();
-    
-    sparklineChart = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: ['W1', 'W2', 'W3', 'W4'],
-            datasets: [{
-                data: [4000, 6000, 5500, 8240],
-                borderColor: '#3b82f6',
-                borderWidth: 2,
-                fill: false,
-                tension: 0.4,
-                pointRadius: 0
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: { x: { display: false }, y: { display: false } },
-            plugins: { legend: { display: false } }
+    // Fetch real data from backend
+    let detail = null;
+    try {
+        const res = await fetch(`/brandportal/api/screens/${displayId}`);
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+            panel.innerHTML = `<div style="padding:2rem; text-align:center; color:var(--danger); font-size:0.9rem;">⚠️ ${err.error || 'Could not load screen details.'}</div>`;
+            return;
         }
-    });
+        detail = await res.json();
+    } catch (e) {
+        console.error('[Screens] fetch error:', e);
+        panel.innerHTML = `<div style="padding:2rem; text-align:center; color:var(--danger); font-size:0.9rem;">⚠️ Network error. Please refresh.</div>`;
+        return;
+    }
+
+    if (!detail || detail.error) {
+        panel.innerHTML = `<div style="padding:2rem; text-align:center; color:var(--danger); font-size:0.9rem;">⚠️ ${detail?.error || 'Screen not found.'}</div>`;
+        return;
+    }
+
+    // ── Map coordinates (real lat/lng or India center fallback) ──
+    const screenInfo = (typeof screenOrName === 'object' && screenOrName) ? screenOrName : {};
+    const lat = detail.lat || screenInfo.lat || null;
+    const lng = detail.lng || screenInfo.lng || null;
+    const DEFAULT_LAT = 20.5937, DEFAULT_LNG = 78.9629;
+
+    const isOnline = detail.status === 'online';
+    const statusLabel = isOnline ? '🟢 Online' : '🔴 Offline';
+    const location = [detail.address, detail.city].filter(v => v && v !== '-').join(', ') || 'Location not set';
+
+    // ── Build slot rows with per-slot plays ──
+    const slotRows = (detail.slots || []).map(sl => {
+        let statusHtml = '';
+        let rowStyle = '';
+        
+        if (sl.isOwnedByMe) {
+            const icon = sl.status === 'Active' ? '✅' : '⏳';
+            statusHtml = `<span style="color:#3b82f6; font-weight:700;">${icon} Your Slot</span>`;
+            rowStyle = 'background: rgba(59, 130, 246, 0.05);';
+        } else if (sl.status === 'Available') {
+            statusHtml = `<span style="color:#22c55e;">🔓 Available</span>`;
+        } else {
+            statusHtml = `<span style="color:#94a3b8;">🔒 Occupied</span>`;
+        }
+
+        const mediaName = sl.isOwnedByMe 
+            ? (sl.media_name || (sl.mediaId ? `Media #${sl.mediaId}` : '<span style="color:#94a3b8">No Media</span>'))
+            : '<span style="color:#cbd5e1">—</span>';
+            
+        const plays = sl.isOwnedByMe ? (sl.plays || 0).toLocaleString() : '—';
+        
+        return `<tr style="${rowStyle} border-bottom:1px solid #f8fafc;">
+            <td style="font-weight:800; color:var(--accent); font-size:0.9rem; padding:6px 10px;">S${sl.slot_number}</td>
+            <td style="padding:6px 10px; font-size:0.75rem;">${statusHtml}</td>
+            <td style="font-size:0.8rem; color:var(--text-muted); max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:6px 10px;" title="${sl.media_name || ''}">${mediaName}</td>
+            <td style="font-weight:700; color:var(--text-primary); text-align:right; padding:6px 10px;">${plays}</td>
+        </tr>`;
+    }).join('');
+
+    const lastSeenStr = detail.lastAccess
+        ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">Last seen: ${new Date(detail.lastAccess).toLocaleString()}</div>`
+        : '';
+
+    panel.innerHTML = `
+        <div id="large-screens-map" style="height:180px; border-radius:var(--radius-sm); overflow:hidden; margin-bottom:1.25rem; background:#f1f5f9;"></div>
+
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:0.75rem;">
+            <div>
+                <div style="font-weight:800; font-size:1.05rem; color:var(--text-primary);">${detail.name}</div>
+                <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">📍 ${location}</div>
+                ${lastSeenStr}
+            </div>
+            <span class="status-pill ${isOnline ? 'active' : 'offline'}" style="font-size:0.72rem; flex-shrink:0;">${statusLabel}</span>
+        </div>
+
+        <div style="background:#f8fafc; border-radius:8px; padding:8px 12px; font-size:0.75rem; color:var(--text-muted); margin-bottom:1rem; display:flex; justify-content:space-between; align-items:center;">
+            <div>🖥 ID: <strong style="color:var(--text-primary);">${detail.displayId}</strong></div>
+            <div>🤝 Partner: <strong style="color:var(--text-primary);">${detail.partnerName || 'Central'}</strong></div>
+        </div>
+
+        <div style="margin-bottom:1rem;">
+            <div style="font-size:0.68rem; font-weight:800; text-transform:uppercase; color:var(--text-muted); letter-spacing:0.06em; margin-bottom:8px; display:flex; justify-content:space-between;">
+                <span>Screen Capacity (20 Slots)</span>
+                <span style="color:var(--accent);">${detail.slots?.filter(s => s.isOwnedByMe).length || 0} Owned</span>
+            </div>
+            <div style="max-height:300px; overflow-y:auto; border:1px solid #f1f5f9; border-radius:8px;">
+                <table style="width:100%; border-collapse:collapse; font-size:0.8rem;">
+                    <thead style="position:sticky; top:0; background:#fff; box-shadow:0 1px 0 #f1f5f9;">
+                        <tr>
+                            <th style="text-align:left; padding:8px 10px; color:var(--text-muted); font-size:0.65rem; text-transform:uppercase;">Slot</th>
+                            <th style="text-align:left; padding:8px 10px; color:var(--text-muted); font-size:0.65rem; text-transform:uppercase;">Status</th>
+                            <th style="text-align:left; padding:8px 10px; color:var(--text-muted); font-size:0.65rem; text-transform:uppercase;">Media</th>
+                            <th style="text-align:right; padding:8px 10px; color:var(--text-muted); font-size:0.65rem; text-transform:uppercase;">Plays</th>
+                        </tr>
+                    </thead>
+                    <tbody>${slotRows}</tbody>
+                </table>
+            </div>
+        </div>
+
+        <div style="border-top:1px solid #f1f5f9; padding-top:0.875rem; display:flex; align-items:center; justify-content:space-between;">
+            <div>
+                <div style="font-size:0.68rem; font-weight:800; text-transform:uppercase; color:var(--text-muted); margin-bottom:2px;">Total Plays (Yours)</div>
+                <div style="font-size:1.6rem; font-weight:800; color:var(--text-primary);">${(detail.totalPlays || 0).toLocaleString()}</div>
+            </div>
+            <button class="btn btn-primary" style="padding:6px 14px; font-size:0.75rem;" onclick="window.location.hash='#marketplace'">Buy More Slots</button>
+        </div>
+    `;
+
+
+    // Mount map AFTER innerHTML is set so the div exists
+    if (detailMap) { detailMap.remove(); detailMap = null; detailMarkers = []; }
+    const mapDiv = document.getElementById('large-screens-map');
+    if (mapDiv) {
+        detailMap = L.map('large-screens-map', { zoomControl: false }).setView(
+            lat && lng ? [lat, lng] : [DEFAULT_LAT, DEFAULT_LNG],
+            lat && lng ? 14 : 5
+        );
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { attribution: '' }).addTo(detailMap);
+        if (lat && lng) {
+            L.marker([lat, lng]).bindPopup(`<b>${detail.name}</b>`).addTo(detailMap).openPopup();
+        }
+        setTimeout(() => detailMap.invalidateSize(), 200);
+    }
+    lucide.createIcons();
 }
 
 // ─── MARKET ───
@@ -1085,7 +1192,7 @@ async function loadSubscription() {
     }
     // Renewal Warning
     const warnEl = document.getElementById('sub-renewal-warn');
-    if (warnEl) {
+    if (warnEl && sub) {
         if (sub.daysRemaining <= 30 && sub.daysRemaining > 0) {
             warnEl.style.display = 'block';
             warnEl.textContent = `⚠️ Your subscription expires in ${sub.daysRemaining} day${sub.daysRemaining === 1 ? '' : 's'}. Contact your account manager to renew.`;
@@ -1094,6 +1201,26 @@ async function loadSubscription() {
             warnEl.textContent = '🚫 Your subscription has expired. Contact your account manager to reactivate.';
         } else {
             warnEl.style.display = 'none';
+        }
+    }
+
+    // Load Subscription History
+    const historyBody = document.getElementById('sub-history-body');
+    if (historyBody) {
+        const history = await safeFetch('/brandportal/api/subscriptions/history');
+        if (history && history.length > 0) {
+            historyBody.innerHTML = '';
+            history.forEach(h => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td style="font-weight:600;">${h.planName}</td>
+                    <td style="font-size:0.85rem;">${h.startDate} to ${h.endDate}</td>
+                    <td style="font-size:0.85rem;color:var(--text-muted);">${h.screensIncluded} Screens / ${h.slotsIncluded} Slots</td>
+                    <td><span style="font-size:0.75rem;font-weight:600;color:${h.paymentStatus === 'Paid' ? '#10b981' : '#f59e0b'};">${h.paymentStatus}</span></td>
+                    <td><span class="status-pill ${h.status === 'Active' ? 'active' : 'offline'}" style="padding:2px 10px;font-size:0.7rem;">${h.status}</span></td>
+                `;
+                historyBody.appendChild(tr);
+            });
         }
     }
 }
@@ -1198,6 +1325,15 @@ async function loadCreatives() {
             });
         }
         tr.appendChild(tdAssigned);
+
+        // ── PLAYS column ──
+        const tdPlays = document.createElement('td');
+        const plays = m.totalPlays || 0;
+        tdPlays.style.fontWeight = '700';
+        tdPlays.style.fontSize = '1rem';
+        tdPlays.style.color = plays > 0 ? 'var(--text-primary)' : 'var(--text-muted)';
+        tdPlays.textContent = plays.toLocaleString();
+        tr.appendChild(tdPlays);
 
         const tdAction = document.createElement('td');
         const btn = document.createElement('button');

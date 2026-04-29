@@ -29,6 +29,7 @@ class XiboService {
     this.resetTimeout = 60000; // 60 seconds
     this.clockOffset = 0;      // ms: XiboTime - LocalTime
     this._apiCache = new Map(); // Simple in-memory cache for GET requests
+    this._inflight = new Map(); // Track pending promises to avoid race conditions
   }
 
   async _getCached(key, fn, ttlMs = 5000) {
@@ -38,12 +39,27 @@ class XiboService {
             return cached.data;
         }
     }
-    const data = await fn();
-    // Cache array responses or valid objects
-    if (data && !data.error) {
-        this._apiCache.set(key, { data, expires: Date.now() + ttlMs });
+
+    // If there is an inflight request for this key, wait for it
+    if (this._inflight.has(key)) {
+        return await this._inflight.get(key);
     }
-    return data;
+
+    // Start a new request and track it
+    const promise = fn();
+    this._inflight.set(key, promise);
+
+    try {
+        const data = await promise;
+        // Cache array responses or valid objects
+        if (data && !data.error) {
+            this._apiCache.set(key, { data, expires: Date.now() + ttlMs });
+        }
+        return data;
+    } finally {
+        // Always remove from inflight
+        this._inflight.delete(key);
+    }
   }
 
   /**
@@ -275,7 +291,7 @@ class XiboService {
             throw err;
         }
       });
-    }, 10000); // 10 seconds cache
+    }, 30000); // 30 seconds cache
   }
 
   /**
@@ -400,7 +416,7 @@ class XiboService {
             });
             return resp.data;
         });
-    }, 10000); // 10 second cache
+    }, 30000); // 30 second cache
   }
 
   /**

@@ -115,8 +115,18 @@ registerView('dashboard', async (wrap) => {
     const kpiGrid = document.createElement('div');
     kpiGrid.className = 'kpi-grid';
     kpiGrid.appendChild(createKpi('Total Screens', d.totalScreens, `${d.onlineScreens} online · ${d.offlineScreens} offline`, 'monitor', 'accent'));
-    kpiGrid.appendChild(createKpi('Revenue (My Share)', `₹${myRevenue.toLocaleString()}`, `${revShare}% share · ${d.occupiedSlots} occupied slots`, 'indian-rupee', 'kpi-success'));
-    kpiGrid.appendChild(createKpi('Pending Payment', `₹${myPending.toLocaleString()}`, 'Awaiting settlement', 'clock', 'kpi-warn'));
+    
+    // TODO: Enable in v2.0
+    const revKpi = createKpi('Revenue (My Share)', 'Coming Soon', 'Available in next version', 'indian-rupee', 'kpi-success');
+    const openTicketsKpi = createKpi('Open Tickets', d.openTickets || 0, 'Recent support requests', 'life-buoy', 'kpi-warn');
+    openTicketsKpi.style.cursor = 'pointer';
+    openTicketsKpi.onclick = () => navigate('support');
+    kpiGrid.appendChild(openTicketsKpi);
+
+    const pendKpi = createKpi('Pending Payment', 'Coming Soon', 'Available in next version', 'clock', 'kpi-success');
+    pendKpi.style.opacity = '0.7';
+    kpiGrid.appendChild(pendKpi);
+
     kpiGrid.appendChild(createKpi('Empty Slots', d.emptySlots, `${d.utilizationRate}% utilization rate`, 'layers', 'kpi-danger'));
     
     anim.appendChild(kpiGrid);
@@ -153,26 +163,10 @@ registerView('dashboard', async (wrap) => {
     // Earnings Card
     const earnCard = document.createElement('div');
     earnCard.className = 'card';
-    earnCard.innerHTML = `<div class="section-title"><i data-lucide="trending-up"></i> Earnings by Brand</div>`;
-    if (d.earningsByBrand && d.earningsByBrand.length > 0) {
-        const wrapTable = document.createElement('div'); wrapTable.className = 'table-wrap';
-        const table = document.createElement('table');
-        table.innerHTML = '<thead><tr><th>Brand</th><th>Screens</th><th>Earnings</th></tr></thead>';
-        const tbody = document.createElement('tbody');
-        d.earningsByBrand.forEach(b => {
-            const tr = document.createElement('tr');
-            const tdBrand = document.createElement('td'); tdBrand.style.fontWeight = '600'; tdBrand.textContent = b.brand_name;
-            const tdScreens = document.createElement('td'); tdScreens.textContent = b.screen_count;
-            const tdEarn = document.createElement('td'); tdEarn.style.cssText = 'color:var(--success); font-weight:700;'; tdEarn.textContent = `₹${Math.floor((b.earnings||0)*revShare/100).toLocaleString()}`;
-            tr.append(tdBrand, tdScreens, tdEarn);
-            tbody.appendChild(tr);
-        });
-        table.appendChild(tbody);
-        wrapTable.appendChild(table);
-        earnCard.appendChild(wrapTable);
-    } else {
-        earnCard.innerHTML += `<div class="empty-state"><i data-lucide="bar-chart-2"></i><p>No brand earnings data yet</p></div>`;
-    }
+    earnCard.style.opacity = '0.6';
+    earnCard.style.pointerEvents = 'none';
+    earnCard.innerHTML = `<div class="section-title"><i data-lucide="trending-up"></i> Earnings by Brand <span class="badge secondary">Coming Soon</span></div>`;
+    earnCard.innerHTML += `<div class="empty-state"><i data-lucide="bar-chart-2"></i><p>Brand earnings data will be available in next version</p></div>`;
     dashRow.appendChild(earnCard);
     anim.appendChild(dashRow);
 
@@ -399,7 +393,7 @@ window.openScreenDetail = async function(id) {
 
     const reportBtn = document.createElement('button');
     reportBtn.className = 'btn btn-secondary'; reportBtn.style.cssText = 'width:100%; margin-top:0.5rem;';
-    reportBtn.onclick = () => { document.getElementById('screen-detail-modal').classList.remove('active'); navigate('support'); };
+    reportBtn.onclick = () => { modalEl.classList.remove('active'); navigate('support'); };
     const rIcon = document.createElement('i'); rIcon.setAttribute('data-lucide', 'life-buoy');
     reportBtn.append(rIcon, document.createTextNode(' Report Issue for This Screen'));
     body.appendChild(reportBtn);
@@ -427,6 +421,10 @@ window.openScreenDetail = async function(id) {
         syncBtn.append(sIcon, document.createTextNode(' Force Sync Analytics'));
         body.appendChild(syncBtn);
     }
+
+    // Modal Close Binding
+    const closeBtn = modalEl.querySelector('.modal-close');
+    if (closeBtn) closeBtn.onclick = () => modalEl.classList.remove('active');
 
     lucide.createIcons();
 };
@@ -576,9 +574,8 @@ registerView('earnings', async (wrap) => {
 
 // ═══ SUPPORT VIEW ════════════════════════════════════════════════════════════
 registerView('support', async (wrap) => {
-    const symbols = await api('/tickets');
-    if (symbols === null) return;
-    const tickets = symbols;
+    const tickets = await api('/tickets');
+    if (tickets === null) return;
 
     wrap.innerHTML = '';
     const anim = document.createElement('div'); anim.className = 'view-anim';
@@ -586,7 +583,7 @@ registerView('support', async (wrap) => {
     const header = document.createElement('div');
     header.style.cssText = 'display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;';
     const info = document.createElement('div'); info.style.cssText = 'font-size:0.85rem; color:var(--text-muted);';
-    info.textContent = `${tickets.length} open/recent ticket(s)`;
+    info.textContent = `${tickets.length} support ticket(s) found`;
     const btn = document.createElement('button'); btn.className = 'btn btn-primary';
     btn.onclick = () => openTicketModal();
     btn.innerHTML = '<i data-lucide="plus"></i> Raise a Ticket';
@@ -595,31 +592,53 @@ registerView('support', async (wrap) => {
 
     const card = document.createElement('div');
     card.className = 'card';
-    card.innerHTML = `<div class="section-title"><i data-lucide="life-buoy"></i> Your Support Tickets</div>`;
+    card.style.padding = '0'; // For list items
+    card.innerHTML = `<div class="section-title" style="padding:1.5rem 1.5rem 0.5rem 1.5rem;"><i data-lucide="life-buoy"></i> Recent Support Requests</div>`;
     
     if (tickets.length > 0) {
         const list = document.createElement('div');
         tickets.forEach(t => {
             const statusMap = { Open: 'badge-open', Resolved: 'badge-resolved', 'In Progress': 'badge-progress' };
-            const dotMap = { Open: 'open', Resolved: 'resolved', 'In Progress': 'in_progress' };
             const item = document.createElement('div'); item.className = 'ticket-item';
-            const dot = document.createElement('div'); dot.className = `ticket-dot ${dotMap[t.status] || 'open'}`;
-            const content = document.createElement('div'); content.style.flex = '1';
-            const name = document.createElement('div'); name.style.cssText = 'font-weight:700; font-size:0.85rem;'; name.textContent = t.screen_name || 'General';
-            const issue = document.createElement('div'); issue.style.cssText = 'font-size:0.8rem; color:var(--text-muted); margin-top:2px;'; issue.textContent = t.issue;
-            content.append(name, issue);
-            const side = document.createElement('div'); side.style.textAlign = 'right';
+            
+            const dot = document.createElement('div'); 
+            dot.className = `ticket-dot ${t.status.toLowerCase().replace(' ', '_')}`;
+            
+            const info = document.createElement('div'); info.className = 'ticket-info';
+            const title = document.createElement('div'); title.className = 'ticket-title';
+            title.textContent = t.screen_name || 'General Inquiry';
+            
+            const priorityPill = document.createElement('span');
+            priorityPill.className = `priority-pill priority-${t.priority}`;
+            priorityPill.textContent = t.priority;
+            title.prepend(priorityPill);
+
+            const desc = document.createElement('div'); desc.className = 'ticket-desc';
+            desc.textContent = t.issue;
+
+            const meta = document.createElement('div'); meta.className = 'ticket-meta';
+            const cat = document.createElement('span'); cat.className = 'category-tag';
+            cat.textContent = t.category || 'General';
+            const id = document.createElement('span'); id.className = 'ticket-id';
+            id.textContent = `#${t.id}`;
+            const date = document.createElement('span'); date.style.fontSize = '0.7rem'; date.style.color = '#94a3b8';
+            date.textContent = new Date(t.created_at).toLocaleDateString();
+            
+            meta.append(cat, id, date);
+            info.append(title, desc, meta);
+
+            const side = document.createElement('div'); side.className = 'ticket-status-side';
             const badge = document.createElement('span'); badge.className = `badge ${statusMap[t.status] || 'badge-open'}`; badge.textContent = t.status;
-            const date = document.createElement('div'); date.style.cssText = 'font-size:0.68rem; color:var(--text-muted); margin-top:4px;'; date.textContent = new Date(t.created_at).toLocaleDateString();
-            side.append(badge, date);
-            item.append(dot, content, side);
+            side.appendChild(badge);
+
+            item.append(dot, info, side);
             list.appendChild(item);
         });
         card.appendChild(list);
     } else {
         const empty = document.createElement('div'); empty.className = 'empty-state';
         empty.innerHTML = '<i data-lucide="check-circle"></i>';
-        const p = document.createElement('p'); p.textContent = 'No tickets yet. All looks good!';
+        const p = document.createElement('p'); p.textContent = 'No active tickets. Everything is running smoothly!';
         empty.appendChild(p);
         card.appendChild(empty);
     }
@@ -628,17 +647,39 @@ registerView('support', async (wrap) => {
     // Modal
     const modal = document.createElement('div'); modal.id = 'ticket-modal'; modal.className = 'modal-overlay';
     modal.innerHTML = `
-        <div class="modal">
+        <div class="modal" style="width: 500px;">
             <div class="modal-header">
                 <span class="modal-title">Raise a Support Ticket</span>
-                <button type="button" class="modal-close" onclick="document.getElementById('ticket-modal').classList.remove('active')">&times;</button>
+                <button type="button" class="modal-close" id="btn-close-ticket">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="form-group"><label>Screen (Optional)</label><select id="ticket-screen" class="form-control"><option value="">— General Issue —</option></select></div>
-                <div class="form-group"><label>Issue Description *</label><textarea id="ticket-issue" class="form-control" placeholder="Describe the issue in detail…"></textarea></div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                    <div class="form-group">
+                        <label>Category</label>
+                        <select id="ticket-category" class="form-control">
+                            <option>Technical Issue</option>
+                            <option>Screen Offline</option>
+                            <option>Connectivity</option>
+                            <option>Hardware Failure</option>
+                            <option>Billing / Earnings</option>
+                            <option>General</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Priority</label>
+                        <select id="ticket-priority" class="form-control">
+                            <option>Low</option>
+                            <option selected>Medium</option>
+                            <option>High</option>
+                            <option>Urgent</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group"><label>Screen (Optional)</label><select id="ticket-screen" class="form-control"><option value="">— General / Account Issue —</option></select></div>
+                <div class="form-group"><label>Issue Description *</label><textarea id="ticket-issue" class="form-control" placeholder="Describe the problem in detail…"></textarea></div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" onclick="document.getElementById('ticket-modal').classList.remove('active')">Cancel</button>
+                <button type="button" class="btn btn-secondary" id="btn-cancel-ticket">Cancel</button>
                 <button class="btn btn-primary" id="btn-submit-ticket">Submit Ticket</button>
             </div>
         </div>`;
@@ -652,25 +693,47 @@ registerView('support', async (wrap) => {
     wrap.appendChild(anim);
 
     lucide.createIcons();
+
+    // Event Bindings
+    const closeModal = () => modal.classList.remove('active');
+    document.getElementById('btn-close-ticket').onclick = closeModal;
+    document.getElementById('btn-cancel-ticket').onclick = closeModal;
+
     const submitBtn = document.getElementById('btn-submit-ticket');
     if (submitBtn) {
         submitBtn.onclick = async () => {
             const screenEl = document.getElementById('ticket-screen');
             const issueEl = document.getElementById('ticket-issue');
+            const categoryEl = document.getElementById('ticket-category');
+            const priorityEl = document.getElementById('ticket-priority');
             const issue = issueEl.value.trim();
             if (!issue) { issueEl.style.borderColor = 'var(--danger)'; return; }
+            
+            submitBtn.textContent = 'Submitting…';
+            submitBtn.disabled = true;
+
             const selectedOpt = screenEl.selectedOptions[0];
             const screenName = selectedOpt?.dataset?.name || '';
-            submitBtn.textContent = 'Submitting…';
+            
             try {
                 await api('/tickets', {
                     method: 'POST',
-                    body: JSON.stringify({ screen_id: screenEl.value || null, screen_name: screenName, issue })
+                    body: JSON.stringify({ 
+                        screen_id: screenEl.value || null, 
+                        screen_name: screenName, 
+                        issue,
+                        category: categoryEl.value,
+                        priority: priorityEl.value
+                    })
                 });
-                showToast('Your ticket has been submitted. We will contact you soon.', 'success');
-                navigate('dashboard');
-            } catch (err) { showToast('Failed: ' + err.message, 'error'); }
-            finally { submitBtn.textContent = 'Submit Ticket'; }
+                showToast('Your ticket has been submitted successfully.', 'success');
+                closeModal();
+                setTimeout(() => navigate('support'), 300);
+            } catch (err) { 
+                showToast('Failed: ' + err.message, 'error'); 
+                submitBtn.textContent = 'Submit Ticket';
+                submitBtn.disabled = false;
+            }
         };
     }
 });

@@ -116,7 +116,7 @@ app.get('/xibo/clean', async (req, res) => {
     }
 });
 
-app.get('/xibo/diag2', async (req, res) => {
+app.get('/xibo/diag2', hasPermission('audit:view'), async (req, res) => {
     try {
         const xiboService = require('./src/services/xibo.service');
         const headers = await xiboService.getHeaders();
@@ -139,7 +139,7 @@ app.get('/xibo/diag2', async (req, res) => {
     }
 });
 
-app.get('/xibo/force_publish', async (req, res) => {
+app.get('/xibo/force_publish', hasPermission('screen:manage'), async (req, res) => {
     try {
         const xiboService = require('./src/services/xibo.service');
         const headers = await xiboService.getHeaders();
@@ -785,7 +785,27 @@ const authenticateToken = async (req, res, next) => {
 
 const apiRoutes = require('./src/routes/api.routes');
 // Apply rate limiter to all /api routes
-app.use('/api', apiLimiter, authenticateToken, apiRoutes);
+app.use('/api', apiLimiter, authenticateToken);
+
+// Sensitive generic routes require specific permissions
+app.use('/api/partners', hasPermission('user:view'));
+app.use('/api/brands', hasPermission('user:view'));
+
+// ─── BILLING FEATURE DISABLED (TODO: Enable in v2.0) ──────────────────────────
+// These interceptors fire BEFORE apiRoutes and return 503 for all billing paths.
+// To re-enable: remove or comment out this block.
+const BILLING_DISABLED_MSG = { error: 'Billing feature is temporarily unavailable. Coming in v2.0.' };
+const billingPaths = [
+    '/api/billing', '/api/invoices', '/api/payments',
+    '/api/analytics/revenue', '/api/operator/revenue',
+    '/api/partners/payouts', '/api/partners/:id/earnings'
+];
+billingPaths.forEach(p => {
+    app.all(p, (req, res) => res.status(503).json(BILLING_DISABLED_MSG));
+});
+// ─── END BILLING DISABLED BLOCK ───────────────────────────────────────────────
+
+app.use('/api', apiRoutes);
 
 const screenRoutes = require('./src/routes/screen.routes');
 app.use('/api/screens', authenticateToken, screenRoutes);
@@ -808,9 +828,42 @@ app.use('/xibo', apiLimiter, authMiddleware);
 const brandRoutes = require('./src/routes/brand.routes');
 const partnerRoutes = require('./src/routes/partner.routes');
 
-// API prefixes
-app.use('/api/brand', apiLimiter, authMiddleware, brandRoutes);
-app.use('/api/partner', apiLimiter, authMiddleware, partnerRoutes);
+// ─── MAINTENANCE TASKS ────────────────────────────────────────────────────────
+/**
+ * Prunes the thumbnail_cache directory of files older than 24 hours.
+ */
+function pruneThumbnailCache() {
+    const cacheDir = path.join(__dirname, 'thumbnail_cache');
+    if (!fs.existsSync(cacheDir)) return;
+
+    fs.readdir(cacheDir, (err, files) => {
+        if (err) return console.error('[Maintenance] Failed to read thumbnail cache:', err);
+        
+        const now = Date.now();
+        const TTL = 24 * 60 * 60 * 1000; // 24 hours
+
+        files.forEach(file => {
+            const filePath = path.join(cacheDir, file);
+            fs.stat(filePath, (err, stats) => {
+                if (err) return;
+                if (now - stats.mtimeMs > TTL) {
+                    fs.unlink(filePath, (err) => {
+                        if (!err) console.log(`[Maintenance] Deleted expired thumbnail: ${file}`);
+                    });
+                }
+            });
+        });
+    });
+}
+
+// Run maintenance every hour
+setInterval(pruneThumbnailCache, 60 * 60 * 1000);
+// Run once on startup
+setTimeout(pruneThumbnailCache, 5000);
+
+// API prefixes with role-based protection
+app.use('/api/brand', apiLimiter, authMiddleware, hasPermission('own_creative:manage'), brandRoutes);
+app.use('/api/partner', apiLimiter, authMiddleware, hasPermission('own_screens:manage'), partnerRoutes);
 
 // Portal prefixes (compatibility)
 app.use('/brandportal/api', apiLimiter, authMiddleware, hasPermission('own_creative:manage'), (req, res, next) => {
@@ -874,8 +927,12 @@ app.get('/xibo/diag/module/:type', async (req, res) => {
  */
 app.get('/xibo/library', async (req, res) => {
   try {
-    const data = await xiboService.getLibrary();
-    const items = data
+    const data = await xiboService.getLibrary({ start: 0, length: 1000 });
+    
+    // Handle cases where Xibo might return { data: [...], total: ... } instead of a direct array
+    const libraryArray = Array.isArray(data) ? data : (data && Array.isArray(data.data) ? data.data : []);
+    
+    const items = libraryArray
       .filter(item => ['image', 'video'].includes(item.mediaType))
       .map(item => ({
         mediaId: item.mediaId,
@@ -940,7 +997,7 @@ app.get('/xibo/displays/locations', async (req, res) => {
 
     const { dbAll } = require('./src/db/database');
     const localScreens = await dbAll(`
-        SELECT s.xibo_display_id, s.latitude, s.longitude, s.address, s.orientation, p.name as partner_name 
+        SELECT s.id, s.xibo_display_id, s.latitude, s.longitude, s.address, s.orientation, p.name as partner_name 
         FROM screens s 
         LEFT JOIN partners p ON s.partner_id = p.id
         WHERE s.xibo_display_id IS NOT NULL
@@ -986,7 +1043,8 @@ app.get('/xibo/displays/locations', async (req, res) => {
         displayGroupId: d.displayGroupId || null,
         resolution: d.resolution || '',
         orientation: local ? local.orientation : (d.orientation || 'Landscape'),
-        partner_name: local ? local.partner_name : 'No Partner'
+        partner_name: local ? local.partner_name : 'No Partner',
+        localId: local ? local.id : null
       };
     }
     res.set('Cache-Control', 'no-store');
@@ -1337,6 +1395,48 @@ app.post('/xibo/displays/:displayId/sync', async (req, res) => {
         const result = await statsService.forceSync(displayId);
         res.json(result);
     } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * GET /api/manager/init
+ * Aggregated endpoint to boot the Manager UI in a single round-trip.
+ * Returns { user, displays, initialSlots }
+ */
+app.get('/api/manager/init', async (req, res) => {
+    try {
+        const { auth } = await getAuth();
+        const { fromNodeHeaders } = await import('better-auth/node');
+        const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
+        if (!session) return res.status(401).json({ error: 'Not logged in' });
+
+        // Fetch displays
+        const displays = await xiboService.getDisplays();
+        let initialSlots = [];
+        
+        if (displays.length > 0) {
+            const firstId = displays[0].displayId;
+            initialSlots = await getSlotsForDisplay(firstId);
+        }
+
+        res.json({
+            user: session.user,
+            displays: displays.map(d => {
+                // Determine online status here for immediate UI reflection
+                const lastAccessedTime = d.lastAccessed ? new Date(d.lastAccessed + ' UTC').getTime() : 0;
+                const isOnline = Number(d.loggedIn) === 1 || (Date.now() - lastAccessedTime < 24 * 60 * 60 * 1000);
+                return {
+                    displayId: d.displayId,
+                    displayGroupId: d.displayGroupId,
+                    name: d.display,
+                    isOnline
+                };
+            }),
+            initialSlots
+        });
+    } catch (err) {
+        console.error('[GET /api/manager/init]', err.message);
         res.status(500).json({ error: err.message });
     }
 });
@@ -1972,26 +2072,26 @@ async function getSlotsForDisplay(displayId) {
  */
 app.get('/xibo/proxy/thumbnail/:mediaId', async (req, res) => {
     const { mediaId } = req.params;
+    const fs = require('fs');
+    const path = require('path');
+    const cacheDir = path.join(__dirname, 'thumbnail_cache');
+    const cacheFile = path.join(cacheDir, `${mediaId}.jpg`);
+
+    // 1. FAST PATH: Serve from disk cache if available (prevents Xibo API calls entirely)
+    if (fs.existsSync(cacheFile)) {
+        res.set('Content-Type', 'image/jpeg');
+        return res.sendFile(cacheFile);
+    }
+
     const headers = await authHeader();
     
     try {
+        // 2. Determine type (only fetch library if we don't know it's a video)
         const library = await xiboService.getLibrary();
         const media = library.find(m => String(m.mediaId) === String(mediaId));
         
-        // INTERCEPT VIDEOS: Force local FFmpeg extraction to avoid Xibo's Red X placeholder
         if (media && media.mediaType === 'video') {
-            const fs = require('fs');
-            const path = require('path');
-            const cacheDir = path.join(__dirname, 'thumbnail_cache');
             if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir);
-            
-            const cacheFile = path.join(cacheDir, `${mediaId}.jpg`);
-            
-            // Serve from disk cache if available
-            if (fs.existsSync(cacheFile)) {
-                res.set('Content-Type', 'image/jpeg');
-                return res.sendFile(cacheFile);
-            }
             
             const videoUrl = `${xiboService.baseUrl}${xiboService._apiPrefix}/library/download/${mediaId}`;
             const videoStream = await axios({
@@ -2007,6 +2107,7 @@ app.get('/xibo/proxy/thumbnail/:mediaId', async (req, res) => {
             
             res.set('Content-Type', 'image/jpeg');
             
+            // Generate and ALSO cache for next time
             const cmd = ffmpeg(videoStream.data)
                 .outputOptions(['-vframes 1', '-ss 00:00:00.100'])
                 .format('image2')
@@ -2019,7 +2120,12 @@ app.get('/xibo/proxy/thumbnail/:mediaId', async (req, res) => {
                     if (!res.headersSent) res.status(404).send('Not Found');
                 });
                 
-            cmd.pipe(res, { end: true });
+            // Use a Passthrough stream to both send to response and save to disk
+            const { PassThrough } = require('stream');
+            const pass = new PassThrough();
+            cmd.pipe(pass);
+            pass.pipe(res);
+            pass.pipe(fs.createWriteStream(cacheFile));
             return;
         }
     } catch (err) {
@@ -2039,6 +2145,9 @@ app.get('/xibo/proxy/thumbnail/:mediaId', async (req, res) => {
     }
 });
 
+
+// Track already-warned slots to prevent log spam during a single sync cycle
+const warnedSlots = new Set();
 
 /**
  * Core Logic: Ensure the display has a dedicated 'Main Loop' playlist containing all slot sub-playlists.
@@ -2111,7 +2220,10 @@ async function synchronizeMainLoop(displayId, displayGroupId) {
         
         if (!slotPlaylist) {
             // Provision empty playlist if missing
-            console.warn(`[synchronizeMainLoop] Slot Playlist ${slotPlaylistName} not found. Robustness check failed for this slot.`);
+            if (!warnedSlots.has(slotPlaylistName)) {
+                warnedSlots.add(slotPlaylistName);
+                console.warn(`[synchronizeMainLoop] Slot Playlist ${slotPlaylistName} not found. Robustness check failed for this slot.`);
+            }
             continue;
         }
 
@@ -2661,6 +2773,9 @@ async function syncDisplayStats() {
     const statsService = require('./src/services/stats.service');
     statsService.invalidateWidgetCache();
     if (app.get('io')) app.get('io').emit('stats_updated', { time: Date.now() });
+
+    // Clear already-warned slots for the next sync cycle
+    warnedSlots.clear();
 
     console.log(`[${new Date().toISOString()}] [StatsSync] Done.`);
   } catch (err) {

@@ -201,7 +201,11 @@
             <li class="nav-item"><a href="#">Campaigns</a></li>
             <li class="nav-item"><a href="#">Creative Library</a></li>
             <li class="nav-item"><a href="#">Analytics</a></li>
-            <li class="nav-item"><a href="#">Billing</a></li>
+            <li class="nav-item"><!-- TODO: Enable in v2.0 -->
+                <a href="#" style="opacity:0.5; cursor:default; pointer-events:none; display:flex; align-items:center; gap:12px;">
+                    Billing <span class="badge" style="background:#475569; color:#fff; font-size:0.6rem; padding:2px 6px; border-radius:4px;">Coming Soon</span>
+                </a>
+            </li>
             <li class="nav-item"><a href="#">System Monitor</a></li>
             <li class="nav-item"><a href="#">Settings</a></li>
             <li class="nav-item" onclick="logout()"><a href="#">Logout</a></li>
@@ -222,7 +226,12 @@
                 <div class="kpi-card" id="card-online"><div class="kpi-label">Screens Online</div><div class="kpi-value" id="kpi-screens_online">--</div></div>
                 <div class="kpi-card"><div class="kpi-label">Active Campaigns</div><div class="kpi-value" id="kpi-active_campaigns">--</div></div>
                 <div class="kpi-card"><div class="kpi-label">Available Ad Slots</div><div class="kpi-value" id="kpi-available_slots">--</div></div>
-                <div class="kpi-card"><div class="kpi-label">Monthly Revenue (₹)</div><div class="kpi-value" id="kpi-monthly_revenue">--</div></div>
+                <div class="kpi-card">
+                    <!-- TODO: Enable in v2.0 -->
+                    <div class="kpi-label">Monthly Revenue (₹)</div>
+                    <div class="kpi-value" id="kpi-monthly_revenue">Coming Soon</div>
+                    <div style="font-size:0.7rem; color:var(--text-muted); margin-top:5px;">Available in next version</div>
+                </div>
                 <div class="kpi-card"><div class="kpi-label">Total Brands</div><div class="kpi-value" id="kpi-total_brands">--</div></div>
                 <div class="kpi-card"><div class="kpi-label">Total Partners</div><div class="kpi-value" id="kpi-total_partners">--</div></div>
             </div>

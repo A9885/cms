@@ -7,10 +7,10 @@ App.registerView('screens', {
                         <i data-lucide="tv"></i> Screens Management
                     </div>
                     <div class="table-header-actions">
-                        <button class="btn btn-secondary" id="btn-view-map">Map View</button>
-                        <button class="btn btn-secondary" id="btn-view-all-logs"><i data-lucide="history" style="width:14px; margin-right:4px;"></i>Global Logs</button>
-                        <button class="btn btn-success" style="background: #10b981; color: white;" id="btn-open-register-xibo"><i data-lucide="monitor" style="width:14px; margin-right:4px;"></i>Register Xibo Display</button>
-                        <button class="btn btn-primary" id="btn-open-create-screen">+ Add Screen</button>
+                        <button class="btn btn-secondary" id="btn-view-map" data-onclick="App.views.screens.showMapModal">Map View</button>
+                        <button class="btn btn-secondary" id="btn-view-all-logs" data-onclick="App.views.screens.showGlobalLogs"><i data-lucide="history" style="width:14px; margin-right:4px;"></i>Global Logs</button>
+                        <button class="btn btn-success" style="background: #10b981; color: white;" id="btn-open-register-xibo" data-onclick="App.views.screens.handleOpenRegister"><i data-lucide="monitor" style="width:14px; margin-right:4px;"></i>Register Xibo Display</button>
+                        <button class="btn btn-primary" id="btn-open-create-screen" data-onclick="App.views.screens.handleOpenCreate">+ Add Screen</button>
                     </div>
                 </div>
             </div>
@@ -455,14 +455,14 @@ App.registerView('screens', {
                                             <div style="display: flex; align-items: center; gap: 8px; background: white; border: 1px solid #e2e8f0; padding: 4px 8px; border-radius: 8px; font-size: 0.72rem;">
                                                 <span style="color: #64748b; width: 75px;">CMS URL:</span>
                                                 <code style="font-weight: 700; flex: 1; color: #1e293b;">https://cms.signtral.info</code>
-                                                <button class="btn-icon" title="Copy" onclick="navigator.clipboard.writeText('https://cms.signtral.info'); window.App.showToast('Copied URL', 'success')">
+                                                <button class="btn-icon" title="Copy" data-onclick="Views.screens.handleCopy" data-text="https://cms.signtral.info">
                                                     <i data-lucide="copy" style="width: 12px;"></i>
                                                 </button>
                                             </div>
                                             <div style="display: flex; align-items: center; gap: 8px; background: white; border: 1px solid #e2e8f0; padding: 4px 8px; border-radius: 8px; font-size: 0.72rem;">
                                                 <span style="color: #64748b; width: 75px;">Secret Key:</span>
                                                 <code style="font-weight: 700; flex: 1; color: #1e293b;">signtral@info</code>
-                                                <button class="btn-icon" title="Copy" onclick="navigator.clipboard.writeText('signtral@info'); window.App.showToast('Copied Key', 'success')">
+                                                <button class="btn-icon" title="Copy" data-onclick="Views.screens.handleCopy" data-text="signtral@info">
                                                     <i data-lucide="copy" style="width: 12px;"></i>
                                                 </button>
                                             </div>
@@ -558,6 +558,22 @@ App.registerView('screens', {
                     </div>
                 </div>
             </div>
+
+            <!-- Global Screens Map Modal -->
+            <div id="screens-map-modal" class="modal-overlay" style="z-index: 1005;">
+                <div class="modal" style="max-width: 900px; width:95%; height: 80vh; display: flex; flex-direction: column;">
+                    <div class="modal-header">
+                        <span class="modal-title"><i data-lucide="map"></i> Global Screens Map</span>
+                        <button type="button" data-onclick="App.closeModal" class="modal-close">&times;</button>
+                    </div>
+                    <div class="modal-body" style="flex: 1; padding:0; position: relative; min-height: 400px;">
+                        <div id="global-map-container" style="width:100%; height:100%; min-height: 400px;"></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-onclick="App.closeModal">Close</button>
+                    </div>
+                </div>
+            </div>
         `;
     },
 
@@ -628,11 +644,8 @@ App.registerView('screens', {
             });
         }
 
-        const btnViewMap = document.getElementById('btn-view-map');
-        if (btnViewMap) {
-            btnViewMap.onclick = () => this.showMapModal();
-        }
-
+        // Global Logs functionality handled via data-onclick
+        // Refresh Logs handled via data-onclick
         // Global Logs
         const btnViewLogs = document.getElementById('btn-view-all-logs');
         if (btnViewLogs) {
@@ -657,30 +670,8 @@ App.registerView('screens', {
             };
         }
 
-        // Setup Create Screen Form
-        const btnOpenAdd = document.getElementById('btn-open-create-screen');
-        if (btnOpenAdd) {
-            btnOpenAdd.onclick = () => document.getElementById('create-screen-modal').classList.add('active');
-        }
-
-        // Register Xibo Modal Opening
-        const btnOpenReg = document.getElementById('btn-open-register-xibo');
-        if (btnOpenReg) {
-            btnOpenReg.onclick = () => {
-                // Reset Modal State
-                document.getElementById('reg-xibo-name').value = '';
-                document.getElementById('reg-xibo-code').value = '';
-                const resultsContainer = document.getElementById('reg-scan-results');
-                resultsContainer.style.display = 'none';
-                resultsContainer.innerHTML = '';
-                document.getElementById('reg-step-3').style.opacity = '0.4';
-                document.getElementById('reg-step-3').style.pointerEvents = 'none';
-                document.getElementById('btn-submit-registration').disabled = true;
-                document.getElementById('reg-error-msg').style.display = 'none';
-                
-                document.getElementById('register-xibo-modal').classList.add('active');
-            };
-        }
+        // Handled via data-onclick: handleOpenRegister
+        // Handled via data-onclick: handleOpenCreate
 
         // Try Again logic
         const btnTryAgain = document.getElementById('btn-reg-try-again');
@@ -921,8 +912,8 @@ App.registerView('screens', {
             nameDiv.style.fontWeight = '700';
             nameDiv.style.cursor = 'help';
             nameDiv.innerHTML = `
-                <span onmouseenter="App.tooltip.showScreen(event, '${s.id}')" 
-                      onmouseleave="App.tooltip.hide()"
+                <span data-onmouseover="App.tooltip.showScreen" data-id="${s.id}"
+                      data-onmouseout="App.tooltip.hide"
                       style="border-bottom:1px dashed #cbd5e1;">
                     ${s.name}
                 </span>
@@ -985,6 +976,22 @@ App.registerView('screens', {
             this.mount(document.getElementById('view-container'));
         } catch (err) {
             App.showToast('Failed to delete screen: ' + err.message, 'error');
+        }
+    },
+
+    handleCopy(e) {
+        const text = e.target.closest('[data-text]')?.dataset.text;
+        if (text) {
+            navigator.clipboard.writeText(text);
+            App.showToast('Copied to clipboard', 'success');
+        }
+    },
+
+    handleShowDetails(e) {
+        const id = e.target.closest('[data-id]')?.dataset.id;
+        if (id) {
+            this.showDetails(id);
+            App.closeModal();
         }
     },
 
@@ -1621,7 +1628,7 @@ App.registerView('screens', {
                             <span style="width:8px; height:8px; border-radius:50%; background:${color};"></span>
                             <span style="font-weight:600;">${isLinked ? (online ? 'Online' : 'Offline') : 'Not Linked'}</span>
                         </div>
-                        <button class="btn btn-primary" style="width:100%; margin-top:10px; font-size:0.7rem; padding:4px 8px; height:auto;" onclick="window.Views.screens.showDetails(${s.id}); App.closeModal();">View Details</button>
+                        <button class="btn btn-primary" style="width:100%; margin-top:10px; font-size:0.7rem; padding:4px 8px; height:auto;" data-onclick="Views.screens.handleShowDetails" data-id="${s.id}">View Details</button>
                     </div>
                 `;
 
@@ -1633,6 +1640,27 @@ App.registerView('screens', {
                 this.globalMap.fitBounds(markers, { padding: [50, 50] });
             }
         }, 300);
+    },
+
+    handleOpenCreate() {
+        document.getElementById('create-screen-modal').classList.add('active');
+    },
+
+    handleOpenRegister() {
+        // Reset Modal State
+        document.getElementById('reg-xibo-name').value = '';
+        document.getElementById('reg-xibo-code').value = '';
+        const resultsContainer = document.getElementById('reg-scan-results');
+        if (resultsContainer) {
+            resultsContainer.style.display = 'none';
+            resultsContainer.innerHTML = '';
+        }
+        document.getElementById('reg-step-3').style.opacity = '0.4';
+        document.getElementById('reg-step-3').style.pointerEvents = 'none';
+        document.getElementById('btn-submit-registration').disabled = true;
+        document.getElementById('reg-error-msg').style.display = 'none';
+        
+        document.getElementById('register-xibo-modal').classList.add('active');
     },
 
     unmount() {

@@ -165,12 +165,23 @@ class ScreenService {
    */
   async _resolveAddressFromGPS(display) {
     const lat = parseFloat(display.latitude), lon = parseFloat(display.longitude);
+    
+    // FIX 2: Validation guards to prevent 400 error logs
+    if (isNaN(lat) || isNaN(lon) || (lat === 0 && lon === 0)) return;
+    
+    // Skip if address is a placeholder or too short to be valid
+    const currentAddr = (display.address || '').trim();
+    if (!currentAddr || currentAddr.toLowerCase() === "i don't know" || currentAddr.length < 5) {
+      // If it's a known placeholder, we don't want to log a warning, just skip
+      if (currentAddr.toLowerCase() === "i don't know") return;
+    }
+
     try {
       const res = await axios.get(`http://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`);
       const geo = res.data;
       if (geo?.city) {
         const address = [geo.city, geo.principalSubdivision, geo.countryName].filter(Boolean).join(', ');
-        if (address !== (display.address || '').trim()) {
+        if (address !== currentAddr) {
           await xiboService.updateDisplayLocation(display.displayId, { latitude: lat, longitude: lon, address });
           await dbRun(
             'UPDATE screens SET latitude = ?, longitude = ?, address = ?, location_source = "GPS", updated_at = CURRENT_TIMESTAMP WHERE xibo_display_id = ?',
@@ -178,7 +189,12 @@ class ScreenService {
           );
         }
       }
-    } catch (e) { console.warn(`[ScreenService] GPS geocode failed for ${display.display}:`, e.message); }
+    } catch (e) { 
+      // Only log if it's not a 400 error caused by invalid data we missed
+      if (e.response?.status !== 400) {
+        console.warn(`[ScreenService] GPS geocode failed for ${display.display}:`, e.message); 
+      }
+    }
   }
 
   /**

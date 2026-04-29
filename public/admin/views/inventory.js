@@ -410,14 +410,13 @@ App.registerView('inventory', {
                 return;
             }
 
-            // Fetch slot counts in parallel
+            // Fetch all slots in a single bulk request for performance
+            const inventory = await Api.get('/inventory').catch(() => ({}));
             const slotCounts = {};
-            await Promise.all(dIds.map(async dId => {
-                try {
-                    const slots = await fetch('/xibo/slots/display/' + dId + '?t=' + Date.now()).then(r => r.json());
-                    slotCounts[dId] = Array.isArray(slots) ? slots.filter(s => s.media && s.media.length > 0).length : 0;
-                } catch { slotCounts[dId] = 0; }
-            }));
+            dIds.forEach(dId => {
+                const slots = inventory[dId] || [];
+                slotCounts[dId] = slots.filter(s => s.mediaId).length;
+            });
 
             let rows = '';
             for (const dId of dIds) {
@@ -444,8 +443,8 @@ App.registerView('inventory', {
                 <tr>
                     <td>
                         <div style="font-weight:700;font-size:0.85rem; cursor:help; border-bottom:2px solid var(--primary); display:inline-block;" 
-                             onmouseenter="App.tooltip.showScreen(event, '${dId}')" 
-                             onmouseleave="App.tooltip.hide()">
+                             data-onmouseover="App.tooltip.showScreen" data-id="${d.localId || dId}"
+                             data-onmouseout="App.tooltip.hide">
                              ${this._esc(d.name)}
                         </div>
                         <div style="font-size:0.72rem;color:#94a3b8;margin-top:2px;">ID: ${dId}${d.device ? ' · ' + this._esc(d.device) : ''}</div>
@@ -704,9 +703,9 @@ App.registerView('inventory', {
                     return `<tr>
                         <td style="color:#4a5568;">${dt.toLocaleString('en-GB', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:true })}${liveBadge}</td>
                         <td style="font-weight:700; cursor:help;">
-                            <span onmouseenter="App.tooltip.showScreen(event, '${this._selectedScreen.id}')" 
-                                  onmouseleave="App.tooltip.hide()"
-                                  style="border-bottom:2px solid var(--primary);">
+                            <span data-onmouseover="App.tooltip.showScreen" data-id="${this._selectedScreen.localId || this._selectedScreen.id}" 
+                                  data-onmouseout="App.tooltip.hide"
+                                  style="color:#2563eb; font-weight:800; border-bottom:2px solid #2563eb; cursor:help;">
                                 ${this._esc(r.display || 'Display')}
                             </span>
                         </td>
