@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+router.use(express.json());
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { dbGet, dbRun } = require('../db/database');
@@ -144,29 +145,93 @@ router.get('/me', async (req, res) => {
 });
 
 /**
+ * PUT /auth/profile
+ * Updates the user's profile information (name, email, timezone).
+ */
+router.put('/profile', authMiddleware, async (req, res) => {
+    const { name, email, timezone } = req.body;
+    const userId = req.user.id;
+
+    if (!name || !email) {
+        return res.status(400).json({ error: 'Name and email are required.' });
+    }
+
+    try {
+        // Check if email is already taken by another user
+        const existing = await dbGet('SELECT id FROM users WHERE email = ? AND id != ?', [email, userId]);
+        if (existing) {
+            return res.status(400).json({ error: 'Email is already in use.' });
+        }
+
+        await dbRun(
+            'UPDATE users SET name = ?, email = ?, timezone = ? WHERE id = ?',
+            [name, email, timezone || 'Asia/Kolkata', userId]
+        );
+
+        // Better Auth uses email as accountId for credentials provider in this project's setup
+        await dbRun(
+            "UPDATE account SET accountId = ? WHERE userId = ? AND providerId = 'credential'",
+            [email, userId]
+        );
+
+        logActivity({
+            action: ACTION.UPDATE,
+            module: MODULE.AUTH,
+            description: `User "${req.user.username}" updated their profile (Email: ${email})`,
+            req,
+            userId
+        });
+
+        res.json({ success: true, message: 'Profile updated successfully.' });
+    } catch (err) {
+        console.error('Profile update error:', err);
+        res.status(500).json({ error: 'Failed to update profile.' });
+    }
+});
+
+/**
  * POST /auth/change-password
  * Allows users to update their password. Also clears the force_password_reset flag.
  */
 router.post('/change-password', authMiddleware, async (req, res) => {
-    const { newPassword } = req.body;
+    const { currentPassword, newPassword } = req.body;
+    
     if (!newPassword || newPassword.length < 6) {
-        return res.status(400).json({ error: 'Password must be at least 6 characters long.' });
+        return res.status(400).json({ error: 'New password must be at least 6 characters long.' });
     }
 
+    const userId = req.user.id;
+
     try {
-        // For forced resets (new brand/partner accounts), there is no current password.
-        // We bypass Better Auth's changePassword (which requires currentPassword) and
-        // directly update the password hash in the DB instead.
+        // 1. Verify current password if it's not a forced reset
+        const user = await dbGet('SELECT password_hash, force_password_reset FROM users WHERE id = ?', [userId]);
+        
+        if (!user) {
+            return res.status(404).json({ error: 'User not found.' });
+        }
+
+        // If not in forced reset mode, we require the current password
+        if (!user.force_password_reset) {
+            if (!currentPassword) {
+                return res.status(400).json({ error: 'Current password is required.' });
+            }
+            
+            const isMatch = await bcrypt.compare(currentPassword, user.password_hash);
+            if (!isMatch) {
+                return res.status(401).json({ error: 'Incorrect current password.' });
+            }
+        }
+
+        // 2. Hash and update new password
         const { hashPassword } = await import('@better-auth/utils/password');
         const hash = await hashPassword(newPassword);
         
-        const userId = req.user.id;
         const userEmail = req.user.email;
 
-        // 1. Update the users table
+        // Update the users table
         await dbRun('UPDATE users SET password_hash = ?, force_password_reset = 0 WHERE id = ?', [hash, userId]);
 
-        // 2. Update the Better Auth account table (the authoritative source for login)
+        // Update the Better Auth account table (the authoritative source for login)
         await dbRun(
             `UPDATE account SET password = ? WHERE userId = ? AND providerId = 'credential'`,
             [hash, userId]
@@ -175,7 +240,7 @@ router.post('/change-password', authMiddleware, async (req, res) => {
         logActivity({
             action: ACTION.UPDATE,
             module: MODULE.AUTH,
-            description: `User "${req.user.username || userEmail}" set their account password`,
+            description: `User "${req.user.username || userEmail}" changed their password`,
             req,
             userId
         });

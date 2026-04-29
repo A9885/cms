@@ -2,6 +2,9 @@ const PERMISSIONS = {
   SuperAdmin: ['*'],
   Admin: [
     'user:view',
+    'user:edit',
+    'creative:view',
+    'creative:edit',
     'creative:moderate',
     'screen:manage',
     'audit:view'

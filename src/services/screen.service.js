@@ -1,11 +1,26 @@
 const axios = require('axios');
 const { dbRun, dbAll, dbGet } = require('../db/database');
 const xiboService = require('./xibo.service');
+const bufferService = require('./buffer.service');
 
 /**
  * Service for managing screens and their associated slots in the CRM.
  */
 class ScreenService {
+  /**
+   * Helper to log screen-specific events
+   */
+  async logEvent(screenId, type, details) {
+    try {
+      await dbRun(
+        'INSERT INTO screen_event_logs (screen_id, event_type, details) VALUES (?, ?, ?)',
+        [screenId, type, details]
+      );
+    } catch (err) {
+      console.warn(`[ScreenService] Failed to log event for screen ${screenId}:`, err.message);
+    }
+  }
+
   /**
    * Auto-provision 20 dedicated slots for a display if they don't already exist.
    * @param {number|string} displayId
@@ -78,37 +93,64 @@ class ScreenService {
         const macAddress = d.macAddress || '';
         const brand = d.brand || '';
         const model = d.model || '';
+        const license = d.license || ''; // Hardware Key
+        const latitude = d.latitude ? parseFloat(d.latitude) : null;
+        const longitude = d.longitude ? parseFloat(d.longitude) : null;
 
-        if (!existing) {
+        const screen = await dbGet('SELECT id, name, previous_status FROM screens WHERE xibo_display_id = ?', [d.displayId]);
+        const newStatus = status;
+
+        if (!screen) {
           console.log(`[ScreenService] NEW Display detected: ${d.display} (ID: ${d.displayId}). Provisioning slots...`);
           const byName = await dbGet('SELECT id FROM screens WHERE name = ? AND xibo_display_id IS NULL', [d.display]);
           if (byName) {
             await dbRun(
               `UPDATE screens SET 
-                xibo_display_id = ?, status = ?, screen_id = COALESCE(screen_id, ?),
+                xibo_display_id = ?, status = ?, previous_status = ?, screen_id = COALESCE(screen_id, ?),
                 orientation = ?, resolution = ?, client_address = ?, mac_address = ?, 
-                brand = ?, device_model = ? 
+                brand = ?, device_model = ?, license = ?, latitude = COALESCE(latitude, ?), longitude = COALESCE(longitude, ?), last_sync = NOW()
                WHERE id = ?`, 
-              [d.displayId, status, `SIG-${d.displayId}`, orientation, resolution, clientAddress, macAddress, brand, model, byName.id]
+              [d.displayId, newStatus, newStatus, `SIG-${d.displayId}`, orientation, resolution, clientAddress, macAddress, brand, model, license, latitude, longitude, byName.id]
             );
+            await this.logEvent(byName.id, 'provisioning', `Assigned to Xibo Display ${d.display} (ID: ${d.displayId}). Initial status: ${newStatus}`);
           } else {
             const sid = `SIG-${d.displayId}`;
-            await dbRun(
-              `INSERT INTO screens (name, xibo_display_id, status, screen_id, orientation, resolution, client_address, mac_address, brand, device_model) 
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, 
-              [d.display || 'Unknown', d.displayId, status, sid, orientation, resolution, clientAddress, macAddress, brand, model]
+            const result = await dbRun(
+              `INSERT INTO screens (name, xibo_display_id, status, previous_status, screen_id, orientation, resolution, client_address, mac_address, brand, device_model, license, latitude, longitude, last_sync) 
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`, 
+               [d.display || 'Unknown', d.displayId, newStatus, newStatus, sid, orientation, resolution, clientAddress, macAddress, brand, model, license, latitude, longitude]
             );
+            await this.logEvent(result.id, 'provisioning', `New Screen detected and provisioned. Xibo ID: ${d.displayId}. Initial status: ${newStatus}`);
           }
         } else {
+          // Transition Logic
+          const wasOnline = screen.previous_status === 'Online' || screen.previous_status === null;
+          const isNowOffline = newStatus === 'Offline';
+
+          if (wasOnline && isNowOffline) {
+            await bufferService.recordOfflineStart(d.displayId);
+            await this.logEvent(screen.id, 'status_change', 'Screen went OFFLINE');
+          }
+
+          const wasOffline = screen.previous_status === 'Offline';
+          const isNowOnline = newStatus === 'Online';
+
+          if (wasOffline && isNowOnline) {
+            await bufferService.recordOfflineEnd(d.displayId);
+            await this.logEvent(screen.id, 'status_change', 'Screen back ONLINE');
+          }
+
           await dbRun(
             `UPDATE screens SET 
-              status = ?, 
+              status = ?, previous_status = ?,
               orientation = COALESCE(NULLIF(orientation, ''), ?), 
               resolution = COALESCE(NULLIF(resolution, ''), ?), 
               client_address = ?, mac_address = ?, 
-              brand = ?, device_model = ?, updated_at = CURRENT_TIMESTAMP 
+              brand = ?, device_model = ?, license = ?,
+              latitude = COALESCE(latitude, ?), longitude = COALESCE(longitude, ?),
+              updated_at = CURRENT_TIMESTAMP, last_sync = NOW()
              WHERE id = ?`, 
-            [status, orientation, resolution, clientAddress, macAddress, brand, model, existing.id]
+            [newStatus, newStatus, orientation, resolution, clientAddress, macAddress, brand, model, license, latitude, longitude, screen.id]
           );
         }
         
@@ -123,12 +165,23 @@ class ScreenService {
    */
   async _resolveAddressFromGPS(display) {
     const lat = parseFloat(display.latitude), lon = parseFloat(display.longitude);
+    
+    // FIX 2: Validation guards to prevent 400 error logs
+    if (isNaN(lat) || isNaN(lon) || (lat === 0 && lon === 0)) return;
+    
+    // Skip if address is a placeholder or too short to be valid
+    const currentAddr = (display.address || '').trim();
+    if (!currentAddr || currentAddr.toLowerCase() === "i don't know" || currentAddr.length < 5) {
+      // If it's a known placeholder, we don't want to log a warning, just skip
+      if (currentAddr.toLowerCase() === "i don't know") return;
+    }
+
     try {
       const res = await axios.get(`http://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`);
       const geo = res.data;
       if (geo?.city) {
         const address = [geo.city, geo.principalSubdivision, geo.countryName].filter(Boolean).join(', ');
-        if (address !== (display.address || '').trim()) {
+        if (address !== currentAddr) {
           await xiboService.updateDisplayLocation(display.displayId, { latitude: lat, longitude: lon, address });
           await dbRun(
             'UPDATE screens SET latitude = ?, longitude = ?, address = ?, location_source = "GPS", updated_at = CURRENT_TIMESTAMP WHERE xibo_display_id = ?',
@@ -136,7 +189,12 @@ class ScreenService {
           );
         }
       }
-    } catch (e) { console.warn(`[ScreenService] GPS geocode failed for ${display.display}:`, e.message); }
+    } catch (e) { 
+      // Only log if it's not a 400 error caused by invalid data we missed
+      if (e.response?.status !== 400) {
+        console.warn(`[ScreenService] GPS geocode failed for ${display.display}:`, e.message); 
+      }
+    }
   }
 
   /**
@@ -296,6 +354,55 @@ class ScreenService {
       console.log(`[ScreenService] ✅ Xibo sync successful for Screen ${screenId}`);
     } catch (err) {
       console.error(`[ScreenService] ❌ Failed to push updates to Xibo for Screen ${screenId}:`, err.message);
+    }
+  }
+
+  /**
+   * Flushes all buffered statistics for a display back to Xibo CMS.
+   */
+  async flushBufferedStats(displayId) {
+    console.log(`[ScreenService] Starting buffer flush for Display ${displayId}...`);
+    try {
+        const pending = await bufferService.getPendingStats(displayId);
+        if (!pending || pending.length === 0) {
+            await bufferService.markWindowFlushed(displayId);
+            return;
+        }
+
+        const batches = [];
+        for (let i = 0; i < pending.length; i += 50) {
+            batches.push(pending.slice(i, i + 50));
+        }
+
+        let totalFlushed = 0;
+        for (const batch of batches) {
+            try {
+                await Promise.all(batch.map(async (record) => {
+                    await xiboService.postStats({
+                        displayId: record.display_id,
+                        mediaId: record.media_id,
+                        layoutId: record.layout_id,
+                        widgetId: record.widget_id,
+                        statDate: record.stat_date,
+                        duration: record.duration
+                    });
+                    totalFlushed++;
+                }));
+
+                await bufferService.markSynced(batch.map(r => r.id));
+            } catch (batchErr) {
+                console.error(`[ScreenService] Batch flush failed for ${displayId}:`, batchErr.message);
+                await bufferService.markSyncFailed(batch.map(r => r.id));
+                break;
+            }
+        }
+
+        await bufferService.markWindowFlushed(displayId);
+        if (totalFlushed > 0) {
+            console.log(`[ScreenService] ✅ Flushed ${totalFlushed} stats for Display ${displayId} after reconnect.`);
+        }
+    } catch (err) {
+        console.error(`[ScreenService] Flush error for ${displayId}:`, err.message);
     }
   }
 }

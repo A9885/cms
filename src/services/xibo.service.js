@@ -29,6 +29,7 @@ class XiboService {
     this.resetTimeout = 60000; // 60 seconds
     this.clockOffset = 0;      // ms: XiboTime - LocalTime
     this._apiCache = new Map(); // Simple in-memory cache for GET requests
+    this._inflight = new Map(); // Track pending promises to avoid race conditions
   }
 
   async _getCached(key, fn, ttlMs = 5000) {
@@ -38,12 +39,27 @@ class XiboService {
             return cached.data;
         }
     }
-    const data = await fn();
-    // Cache array responses or valid objects
-    if (data && !data.error) {
-        this._apiCache.set(key, { data, expires: Date.now() + ttlMs });
+
+    // If there is an inflight request for this key, wait for it
+    if (this._inflight.has(key)) {
+        return await this._inflight.get(key);
     }
-    return data;
+
+    // Start a new request and track it
+    const promise = fn();
+    this._inflight.set(key, promise);
+
+    try {
+        const data = await promise;
+        // Cache array responses or valid objects
+        if (data && !data.error) {
+            this._apiCache.set(key, { data, expires: Date.now() + ttlMs });
+        }
+        return data;
+    } finally {
+        // Always remove from inflight
+        this._inflight.delete(key);
+    }
   }
 
   /**
@@ -275,7 +291,7 @@ class XiboService {
             throw err;
         }
       });
-    }, 10000); // 10 seconds cache
+    }, 30000); // 30 seconds cache
   }
 
   /**
@@ -400,7 +416,7 @@ class XiboService {
             });
             return resp.data;
         });
-    }, 10000); // 10 second cache
+    }, 30000); // 30 second cache
   }
 
   /**
@@ -452,6 +468,30 @@ class XiboService {
   }
 
   /**
+   * Post a playback statistic record back to Xibo.
+   * @param {Object} stat - { displayId, mediaId, layoutId, widgetId, statDate, duration }
+   * @returns {Promise<Object>}
+   */
+  async postStats(stat) {
+    return await this.xiboRequest(async () => {
+        const headers = await this.getHeaders();
+        // Xibo usually expects these fields for stat reporting
+        const params = new URLSearchParams();
+        params.append('displayId', stat.displayId);
+        if (stat.mediaId) params.append('mediaId', stat.mediaId);
+        if (stat.layoutId) params.append('layoutId', stat.layoutId);
+        if (stat.widgetId) params.append('widgetId', stat.widgetId);
+        params.append('statDate', stat.statDate);
+        params.append('duration', stat.duration || 0);
+
+        const resp = await axios.post(`${this.baseUrl}${this._apiPrefix}/stats`, params, {
+            headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' }
+        });
+        return resp.data;
+    });
+  }
+
+  /**
    * Fetch playlists from Xibo.
    * @param {Object} params
    * @returns {Promise<Array>}
@@ -472,79 +512,83 @@ class XiboService {
   }
 
   /**
-   * Register a display using an activation code or hardware key.
-   * In Xibo v4, this can use the 6-digit activation code displayed on the player.
+   * Register a display using a 6-character activation code shown on the Xibo player screen.
+   *
+   * CONFIRMED WORKING FLOW (Xibo v4.4.1 @ cms.signtral.info):
+   *   Step 1 — GET /api/display?activationCode={code}
+   *            Xibo maps the 6-char code to a display internally (returns plain array).
+   *   Step 2 — Fallback: scan licensed:0 displays by activationCode or license match.
+   *   Step 3 — Authorize + rename via registerDisplay() → PUT /api/display/:id
+   *
+   * NOTE: PUT /display/authorise always returns 422 on v4.4.1 and is NOT used.
+   *
    * @param {string} name - Friendly name for the screen.
-   * @param {string} code - Activation code (6-digits) or Hardware Key.
-   * @returns {Promise<Object>}
+   * @param {string} code - 6-character activation code shown on the player screen.
+   * @returns {Promise<Object>} The updated Xibo display object.
    */
   async addDisplay(name, code) {
-    console.log(`[XiboService] Registering display "${name}" with code: ${code}`);
     const headers = await this.getHeaders();
-    const codeLower = (code || '').trim().toLowerCase();
-    const codeUpper = codeLower.toUpperCase();
+    const upperCode = (code || '').toUpperCase().trim();
+    console.log(`[XiboService] addDisplay() — name="${name}" code="${upperCode}"`);
 
-    // Step 1: Fetch BOTH authorized and unauthorized displays
-    const [authorizedDisplays, unauthorizedDisplays] = await Promise.all([
-      this.getDisplays().catch(() => []),
-      (async () => {
-        try {
-          const resp = await axios.get(`${this.baseUrl}${this._apiPrefix}/display`, {
-            headers,
-            params: { licensed: 0, length: 200 },
-            timeout: 10000
-          });
-          return Array.isArray(resp.data) ? resp.data : [];
-        } catch { return []; }
-      })()
-    ]);
+    let display = null;
 
-    const allDisplays = [...authorizedDisplays, ...unauthorizedDisplays];
-    console.log(`[XiboService] Scanning ${allDisplays.length} total displays (${unauthorizedDisplays.length} pending)...`);
-
-    // Match by license UUID partial match OR activationCode field
-    const matching = allDisplays.find(d => {
-      const licLower = (d.license || '').toLowerCase();
-      const actCode  = (d.activationCode || '').toLowerCase();
-      return licLower === codeLower ||
-             licLower.startsWith(codeLower) ||
-             codeLower.startsWith(licLower.slice(0, 6)) ||
-             actCode === codeLower ||
-             actCode.includes(codeLower);
-    });
-
-    if (matching) {
-      console.log(`[XiboService] Found display ID ${matching.displayId} (licensed: ${matching.licensed}). Authorizing as "${name}"...`);
-
-      if (matching.licensed !== 1) {
-        // Unauthorized display — try /display/authorise first (Xibo v4)
-        try {
-          const ap = new URLSearchParams();
-          ap.append('displayId', matching.displayId);
-          ap.append('code', codeUpper);
-          await axios.put(`${this.baseUrl}${this._apiPrefix}/display/authorise`, ap, {
-            headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' },
-            timeout: 10000
-          });
-          console.log(`[XiboService] ✅ Authorized via /display/authorise`);
-        } catch (authErr) {
-          console.warn(`[XiboService] /display/authorise: ${authErr.response?.data?.message || authErr.message} — falling back to licensed update`);
-        }
+    // STEP 1: Search by activationCode (primary method)
+    // NOTE: Xibo v4.4.1 returns a plain array as res.data (not res.data.data)
+    try {
+      const res = await axios.get(
+        `${this.baseUrl}${this._apiPrefix}/display`,
+        { headers, params: { activationCode: upperCode }, timeout: 10000 }
+      );
+      const results = Array.isArray(res.data) ? res.data : [];
+      if (results.length > 0) {
+        display = results[0];
+        console.log(`[XiboService] ✅ Found via activationCode: "${display.display}" (ID: ${display.displayId}, licensed: ${display.licensed})`);
       }
-      // Rename + set licensed=1 via PUT
-      return await this.registerDisplay(matching.displayId, name);
+    } catch (e) {
+      console.warn(`[XiboService] activationCode search failed: ${e.message}`);
     }
 
-    // Step 2: Player not yet connected — give a clear actionable error
-    const cmsUrl = this.baseUrl.replace(/\/$/, '');
-    throw new Error(
-      `No pending display found for code "${codeUpper}". ` +
-      `Make sure the Xibo player is: ` +
-      `(1) Online, ` +
-      `(2) Pointing to this CMS server: ${cmsUrl}, ` +
-      `(3) Showing the activation code on screen — then try again.`
-    );
+    // STEP 2: Fallback - scan all pending displays
+    if (!display) {
+      console.log(`[XiboService] activationCode search returned 0 results. Scanning pending displays...`);
+      try {
+        const pending = await axios.get(
+          `${this.baseUrl}${this._apiPrefix}/display`,
+          { headers, params: { licensed: 0 }, timeout: 10000 }
+        );
+        // NOTE: Xibo v4.4.1 returns a plain array as pending.data (not pending.data.data)
+        const all = Array.isArray(pending.data) ? pending.data : [];
+        console.log(`[XiboService] Fallback scan: ${all.length} pending displays`);
+        display = all.find(d =>
+          d.activationCode?.toUpperCase() === upperCode ||
+          (d.license || '').replace(/:/g, '').toUpperCase().includes(upperCode)
+        );
+        if (display) {
+          console.log(`[XiboService] ✅ Found via fallback scan: "${display.display}" (ID: ${display.displayId})`);
+        }
+      } catch (e) {
+        console.warn(`[XiboService] Fallback scan failed: ${e.message}`);
+      }
+    }
+
+    // STEP 3: Not found error
+    if (!display) {
+      throw new Error(
+        `No display found for code "${upperCode}". ` +
+        `Make sure the player is: ` +
+        `(1) Online, ` +
+        `(2) Pointing to https://cms.signtral.info, ` +
+        `(3) Showing the activation code on screen.`
+      );
+    }
+
+    // STEP 4: Authorize + rename in one call
+    // DO NOT use /display/authorise — it is broken in v4.4.1 (always returns 422)
+    console.log(`[XiboService] Authorizing display ${display.displayId} as "${name}"...`);
+    return await this.registerDisplay(display.displayId, name);
   }
+
 
 
   /**
@@ -555,26 +599,91 @@ class XiboService {
    */
   async registerDisplay(displayId, name) {
     console.log(`[XiboService] Registering display ${displayId} as "${name}"...`);
+    const headers = await this.getHeaders();
+
+    // Fetch the display directly — include unlicensed ones that won't appear in the default cache
+    let display = null;
     try {
-      const displays = await this.getDisplays();
-      const display = displays.find(d => d.displayId === displayId);
-      if (!display) throw new Error(`Display with ID ${displayId} not found in Xibo.`);
+      const resp = await axios.get(`${this.baseUrl}${this._apiPrefix}/display`, {
+        headers,
+        params: { displayId },
+        timeout: 10000
+      });
+      const results = Array.isArray(resp.data) ? resp.data : [];
+      display = results.find(d => d.displayId === displayId) || results[0] || null;
+    } catch (e) {
+      console.warn(`[XiboService] Direct display fetch failed, trying cached list: ${e.message}`);
+    }
 
-      const updates = { display: name };
-      if (display.licensed !== 1) {
-        updates.licensed = 1;
-        console.log(`[XiboService] Display ${displayId} is unauthorized — authorizing...`);
-      }
+    // Fallback to cached list
+    if (!display) {
+      const all = await this.getDisplays();
+      display = all.find(d => d.displayId === displayId);
+    }
 
+    if (!display) throw new Error(`Display with ID ${displayId} not found in Xibo.`);
+
+    const needsAuth = display.licensed !== 1;
+    console.log(`[XiboService] Display ${displayId} licensed=${display.licensed} — needsAuth=${needsAuth}`);
+
+    // Resolve a defaultLayoutId if missing (Xibo v4 rejects PUT without it)
+    let defaultLayoutId = display.defaultLayoutId || null;
+    if (!defaultLayoutId) {
       try {
-        return await this.updateDisplay(displayId, updates);
-      } catch (updateErr) {
-        console.warn(`[XiboService] updateDisplay failed (non-fatal): ${updateErr.message}`);
-        return { ...display, display: name };
+        const layoutsResp = await axios.get(`${this.baseUrl}${this._apiPrefix}/layout`, {
+          headers,
+          params: { retired: 0, publishedStatusId: 1, length: 10 }
+        });
+        const layouts = layoutsResp.data || [];
+        if (layouts.length > 0) {
+          defaultLayoutId = layouts[0].layoutId;
+          console.log(`[XiboService] Auto-assigned defaultLayoutId=${defaultLayoutId} for display ${displayId}`);
+        }
+      } catch (e) {
+        console.warn(`[XiboService] Could not resolve defaultLayoutId: ${e.message}`);
       }
+    }
+
+    // Build a minimal PUT body — only the fields we need to change
+    // Using URLSearchParams and echoing back required read fields from the fetched display
+    const params = new URLSearchParams();
+    params.append('display', name);
+    if (needsAuth) params.append('licensed', '1');
+    if (defaultLayoutId) params.append('defaultLayoutId', defaultLayoutId);
+
+    // Map license (from GET) to hardwareKey (expected by PUT in Xibo v4)
+    const hardwareKeyVal = display.hardwareKey || display.license;
+    if (hardwareKeyVal) {
+        params.append('hardwareKey', hardwareKeyVal);
+    }
+
+    // Echo back the fields Xibo requires (will 422 if missing)
+    const requiredFields = ['timeZone', 'displayProfileId', 'displayGroupId', 'license'];
+    for (const field of requiredFields) {
+      if (display[field] != null) params.append(field, display[field]);
+    }
+
+    try {
+      const resp = await axios.put(
+        `${this.baseUrl}${this._apiPrefix}/display/${displayId}`,
+        params,
+        { headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 15000 }
+      );
+      console.log(`[XiboService] ✅ Display ${displayId} authorized and renamed to "${name}".`);
+      // Invalidate display cache entries so next getDisplays() returns fresh state
+      for (const k of this._apiCache.keys()) {
+        if (k.startsWith('displays_')) this._apiCache.delete(k);
+      }
+      return resp.data;
     } catch (err) {
-      console.error('[XiboService] registerDisplay failed:', err.message);
-      throw err;
+      const detail = err.response?.data;
+      const status = err.response?.status;
+      console.error(`[XiboService] ❌ registerDisplay PUT failed (${status}):`, JSON.stringify(detail));
+      // Re-throw with a clear message so the UI shows the real error
+      throw new Error(
+        `Failed to authorize display ${displayId} in Xibo (HTTP ${status}): ` +
+        (detail?.message || detail?.error || JSON.stringify(detail) || err.message)
+      );
     }
   }
 
@@ -739,9 +848,55 @@ class XiboService {
         await axios.put(`${this.baseUrl}${this._apiPrefix}/task/${aggregationTask.taskId}`, params, {
           headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' }
         });
-      }
+        }
     } catch (err) {
       console.error('[XiboService] Failed to verify global stats task:', err.message);
+    }
+
+    // --- AUDIO FIX: Ensure all display profiles have audio enabled ---
+    await this.auditDisplayProfiles().catch(err => {
+      console.error('[XiboService] Failed to audit display profiles:', err.message);
+    });
+  }
+
+  /**
+   * AUDIO FIX: Audits all display profiles and ensures audio is enabled with volume 100.
+   */
+  async auditDisplayProfiles() {
+    try {
+      const headers = await this.getHeaders();
+      const profilesRes = await axios.get(`${this.baseUrl}${this._apiPrefix}/displayprofile`, { 
+        headers,
+        params: { embed: 'settings' }
+      });
+      const profiles = profilesRes.data || [];
+
+      for (const profile of profiles) {
+        // Xibo v3/v4 often embeds settings in 'settings' or 'config' object
+        const settings = profile.settings || profile.config || profile;
+        
+        if (settings.audioEnabled != 1 || settings.volume != 100) {
+          console.log(`[XiboService] 🔊 Fixing audio for display profile: ${profile.name} (ID: ${profile.displayProfileId})`);
+          
+          const params = new URLSearchParams();
+          params.append('name', profile.name);
+          params.append('type', profile.type);
+          params.append('audioEnabled', '1');
+          params.append('volume', '100');
+          
+          // Carry over other essential fields if they exist
+          if (settings.email_alerts !== undefined) params.append('email_alerts', settings.email_alerts);
+          
+          await axios.put(`${this.baseUrl}${this._apiPrefix}/displayprofile/${profile.displayProfileId}`, params, {
+            headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' }
+          }).catch(e => {
+            console.warn(`[XiboService] Could not update profile ${profile.displayProfileId}:`, e.message);
+          });
+        }
+      }
+    } catch (err) {
+      const detail = err.response?.data || err.message;
+      console.error('[XiboService] auditDisplayProfiles failed:', detail);
     }
   }
 
@@ -820,6 +975,10 @@ class XiboService {
       params.append('media[0]', mediaId);
       params.append('duration', duration);
       params.append('useDuration', '1');
+      
+      // --- AUDIO FIX: Ensure video widgets are NOT muted and have volume 100 ---
+      params.append('mute', '0');
+      params.append('volume', '100');
 
       const resp = await axios.post(`${this.baseUrl}${this._apiPrefix}/playlist/library/assign/${playlistId}`, params, {
         headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' }

@@ -43,6 +43,9 @@
                 <a href="#partners" class="nav-item" data-view="partners">
                     <i data-lucide="users"></i> Partners
                 </a>
+                <a href="#admins" class="nav-item" data-view="admins" id="nav-admins" style="display: none;">
+                    <i data-lucide="shield-check"></i> Admin Users
+                </a>
                 <a href="#campaigns" class="nav-item" data-view="campaigns">
                     <i data-lucide="calendar"></i> Campaigns
                 </a>
@@ -53,9 +56,11 @@
                     <i data-lucide="activity"></i> Activity Log
                 </a>
 
-                <a href="#billing" class="nav-item" data-view="billing">
+                <!-- TODO: Enable in v2.0 -->
+                <div class="nav-item coming-soon">
                     <i data-lucide="credit-card"></i> Billing & Payments
-                </a>
+                    <span class="badge">Coming Soon</span>
+                </div>
                 <a href="#subscriptions" class="nav-item" data-view="subscriptions">
                     <i data-lucide="calendar-check"></i> Subscriptions
                 </a>
@@ -124,6 +129,7 @@
     <script src="views/subscriptions.js?v=1.0.2"></script>
     <script src="views/monitoring.js?v=1.0.2"></script>
     <script src="views/settings.js?v=1.0.2"></script>
+    <script src="views/admins.js?v=1.0.0"></script>
 
 </body>
 

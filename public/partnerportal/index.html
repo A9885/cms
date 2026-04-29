@@ -100,6 +100,48 @@
             padding: 1rem 0 !important;
             border-top: 1px solid var(--sidebar-border);
         }
+
+        /* Support Enhancements */
+        .priority-pill {
+            font-size: 0.62rem;
+            font-weight: 800;
+            padding: 2px 8px;
+            border-radius: 4px;
+            text-transform: uppercase;
+        }
+        .priority-Urgent { background: #fee2e2; color: #ef4444; border: 1px solid #fecaca; }
+        .priority-High   { background: #ffedd5; color: #f97316; border: 1px solid #fed7aa; }
+        .priority-Medium { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
+        .priority-Low    { background: #ecfdf5; color: #10b981; border: 1px solid #d1fae5; }
+
+        .category-tag {
+            font-size: 0.65rem;
+            font-weight: 600;
+            color: var(--accent);
+            background: var(--sidebar-active-bg);
+            padding: 2px 8px;
+            border-radius: 6px;
+        }
+
+        .ticket-item {
+            padding: 1.25rem 1.5rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 1.25rem;
+            transition: all 0.2s;
+        }
+        .ticket-item:hover { background: #f8fafc; }
+        .ticket-item:last-child { border-bottom: none; }
+
+        .ticket-info { flex: 1; min-width: 0; }
+        .ticket-title { font-weight: 700; font-size: 0.9rem; color: #0f172a; display: flex; align-items: center; gap: 8px; }
+        .ticket-desc { font-size: 0.82rem; color: #64748b; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        
+        .ticket-meta { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+        .ticket-id { font-family: monospace; font-size: 0.7rem; color: #94a3b8; }
+        
+        .ticket-status-side { text-align: right; flex-shrink: 0; }
     </style>
 </head>
 <body>
@@ -131,10 +173,12 @@
                 <span>My Screens</span>
                 <span class="nav-badge" id="badge-screens">—</span>
             </a>
-            <a href="#" class="nav-item" data-view="earnings" id="nav-earnings">
+            <!-- TODO: Enable in v2.0 -->
+            <div class="nav-item" style="opacity:0.5; cursor:default; pointer-events:none; display:flex; align-items:center; gap:12px;">
                 <i data-lucide="bar-chart-2"></i>
                 <span>Earnings</span>
-            </a>
+                <span class="badge" style="margin-left:auto; background:#475569; color:#fff; font-size:0.6rem; padding:2px 6px; border-radius:4px; text-transform:uppercase;">Coming Soon</span>
+            </div>
             <a href="#" class="nav-item" data-view="support" id="nav-support">
                 <i data-lucide="life-buoy"></i>
                 <span>Support</span>
