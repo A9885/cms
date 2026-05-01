@@ -10,7 +10,8 @@ const dbConfig = {
     // Production tuning
     connectionLimit: 10,
     waitForConnections: true,
-    queueLimit: 0
+    queueLimit: 0,
+    dateStrings: true
 };
 
 let pool;
@@ -247,11 +248,15 @@ async function initSchema() {
                 displayId INT NOT NULL,
                 slot_number INT NOT NULL,
                 brand_id INT,
+                subscription_id INT,
                 status VARCHAR(100) DEFAULT 'Available',
                 playlist_id INT,
                 xibo_widget_id INT,
                 mediaId INT,
                 duration INT DEFAULT 13,
+                start_date DATETIME,
+                end_date DATETIME,
+                creative_name VARCHAR(255),
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 UNIQUE(displayId, slot_number),
                 FOREIGN KEY (brand_id) REFERENCES brands(id) ON DELETE SET NULL
@@ -263,18 +268,34 @@ async function initSchema() {
         try { await p.query("ALTER TABLE slots ADD COLUMN xibo_widget_id INT"); } catch(e) {}
         try { await p.query("ALTER TABLE slots ADD COLUMN mediaId INT"); } catch(e) {}
         try { await p.query("ALTER TABLE slots ADD COLUMN duration INT DEFAULT 13"); } catch(e) {}
+        try { await p.query("ALTER TABLE slots ADD COLUMN subscription_id INT"); } catch(e) {}
+        try { await p.query("ALTER TABLE slots ADD COLUMN start_date DATETIME"); } catch(e) {
+            // If already exists as DATE, modify it
+            try { await p.query("ALTER TABLE slots MODIFY COLUMN start_date DATETIME"); } catch(m1) {}
+        }
+        try { await p.query("ALTER TABLE slots ADD COLUMN end_date DATETIME"); } catch(e) {
+            // If already exists as DATE, modify it
+            try { await p.query("ALTER TABLE slots MODIFY COLUMN end_date DATETIME"); } catch(m2) {}
+        }
+        try { await p.query("ALTER TABLE slots ADD COLUMN creative_name VARCHAR(255)"); } catch(e) {}
+
+        // Handle Subscriptions table migrations if it was created via manual SQL
+        try { await p.query("ALTER TABLE subscriptions MODIFY COLUMN start_date DATETIME"); } catch(e) {}
+        try { await p.query("ALTER TABLE subscriptions MODIFY COLUMN end_date DATETIME"); } catch(e) {}
 
         await p.query(`
             CREATE TABLE IF NOT EXISTS media_brands (
                 mediaId INT PRIMARY KEY,
                 brand_id INT,
                 status VARCHAR(100) DEFAULT 'Approved',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (brand_id) REFERENCES brands(id) ON DELETE SET NULL
             )
         `);
 
         // Migration for existing media_brands table
         try { await p.query("ALTER TABLE media_brands ADD COLUMN status VARCHAR(100) DEFAULT 'Approved'"); } catch(e) {}
+        try { await p.query("ALTER TABLE media_brands ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP"); } catch(e) {}
 
         await p.query(`
             CREATE TABLE IF NOT EXISTS screens (

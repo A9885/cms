@@ -8,6 +8,15 @@ const { hasPermission } = require('../middleware/access.middleware');
 const { generateId } = require('../utils/id.utils.js');
 const { getAuth } = require('../auth.js');
 
+/**
+ * sanitizeUsername
+ * Converts an email or name into a Better Auth compatible username.
+ */
+function sanitizeUsername(str) {
+    if (!str) return 'user_' + Math.random().toString(36).substring(7);
+    return str.toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_{2,}/g, '_');
+}
+
 // ─── ID VALIDATION MIDDLEWARE ────────────────────────────────────────────────
 // System-wide protection against 'null', 'undefined' or non-numeric IDs in routes
 router.param('id', (req, res, next, id) => {
@@ -118,7 +127,6 @@ router.get('/health/xibo', hasPermission('audit:view'), async (req, res) => {
 });
 
 // ─── UTILITIES ───
-const sanitizeUsername = (str) => (str || '').toLowerCase().replace(/[^a-z0-9._-]/g, '_');
 
 router.get('/brands/debug', hasPermission('audit:view'), async (req, res) => {
     try {
@@ -233,7 +241,7 @@ router.get('/brands/:id', hasPermission('screen:manage'), async (req, res) => {
 });
 
 /** POST /api/admin/brands - Create a brand with email validation and conflict check. */
-router.post('/brands', hasPermission('*'), async (req, res) => {
+router.post('/brands', hasPermission('user:edit'), async (req, res) => {
     const { company_name, name, industry, contact_person, email, phone, password, extra_fields, customFields } = req.body;
     const finalName = company_name || name;
     
@@ -676,10 +684,20 @@ router.get('/subscriptions/brand/:brandId', hasPermission('user:view'), async (r
 
 /** POST /api/admin/subscriptions - Create a new subscription. */
 router.post('/subscriptions', hasPermission('user:edit'), async (req, res) => {
-    const { brand_id, plan_name, start_date, end_date, screens_included, slots_included, cities, payment_status, status, notes } = req.body;
+    let { brand_id, plan_name, start_date, end_date, screens_included, slots_included, cities, payment_status, status, notes } = req.body;
     if (!brand_id || !plan_name || !start_date || !end_date) {
         return res.status(400).json({ error: 'brand_id, plan_name, start_date, and end_date are required.' });
     }
+
+    if (new Date(end_date) < new Date()) {
+        return res.status(400).json({ error: 'Subscription end date cannot be in the past' });
+    }
+    
+    // Ensure dates are stored in UTC format for accurate NOW() comparisons
+    const formatToUTC = (iso) => new Date(iso).toISOString().slice(0, 19).replace('T', ' ');
+    start_date = formatToUTC(start_date);
+    end_date = formatToUTC(end_date);
+
     try {
         const result = await dbRun(
             `INSERT INTO subscriptions (brand_id, plan_name, start_date, end_date, screens_included, slots_included, cities, payment_status, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -692,11 +710,19 @@ router.post('/subscriptions', hasPermission('user:edit'), async (req, res) => {
 
 /** PUT /api/admin/subscriptions/:id - Update subscription. */
 router.put('/subscriptions/:id', hasPermission('user:edit'), async (req, res) => {
-    const { plan_name, start_date, end_date, screens_included, slots_included, cities, payment_status, status, notes } = req.body;
+    let { plan_name, start_date, end_date, screens_included, slots_included, cities, payment_status, status, notes } = req.body;
+    
+    if (end_date && new Date(end_date) < new Date()) {
+        return res.status(400).json({ error: 'Subscription end date cannot be in the past' });
+    }
     try {
+        const formatToUTC = (iso) => new Date(iso).toISOString().slice(0, 19).replace('T', ' ');
+        start_date = formatToUTC(start_date);
+        end_date = formatToUTC(end_date);
+
         const result = await dbRun(
-            `UPDATE subscriptions SET plan_name=?, start_date=?, end_date=?, cities=?, payment_status=?, status=?, notes=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
-            [plan_name, start_date, end_date, cities, payment_status, status, notes, req.params.id]
+            `UPDATE subscriptions SET plan_name=?, start_date=?, end_date=?, screens_included=?, slots_included=?, cities=?, payment_status=?, status=?, notes=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+            [plan_name, start_date, end_date, screens_included || 1, slots_included || 1, cities, payment_status, status, notes, req.params.id]
         );
         if (result.changes === 0) return res.status(404).json({ error: 'Subscription not found' });
         logActivity({ action: ACTION.UPDATE, module: MODULE.BILLING, description: `Subscription ID ${req.params.id} updated`, req });
@@ -752,23 +778,18 @@ router.get('/brands/:brandId/subscription/:subscriptionId/assignments', hasPermi
 
         // Find all slots linked to this brand and subscription
         const slots = await dbAll(`
-            SELECT s.slot_number, s.displayId, 
-                   sc.name as screen_name,
-                   m.name as media_name,
-                   s.status as slot_status
-            FROM slots s
-            LEFT JOIN screens sc ON sc.xibo_display_id = s.displayId  
-            LEFT JOIN media_brands mb ON mb.mediaId = s.mediaId
-            LEFT JOIN (
-                SELECT id as xibo_media_id, name FROM (
-                    -- This is a placeholder since we don't have a local media library table yet 
-                    -- and fetching from Xibo for every row is too slow.
-                    -- We'll just show 'Media #ID' if we can't find it easily.
-                    SELECT 0 as id, 'Unknown' as name
-                ) dummy
-            ) m ON m.xibo_media_id = s.mediaId
-            WHERE s.brand_id = ? AND s.subscription_id = ?
-        `, [brandId, subscriptionId]);
+            SELECT 
+                sl.slot_number,
+                sl.displayId,
+                sc.name as screen_name,
+                sc.status as screen_status,
+                sc.city as location,
+                sl.creative_name as media_name,
+                sl.status as slot_status
+            FROM slots sl
+            LEFT JOIN screens sc ON sc.xibo_display_id = sl.displayId
+            WHERE sl.subscription_id = ? AND sl.brand_id = ?
+        `, [subscriptionId, brandId]);
 
         res.json({ screens, slots });
     } catch (err) {
@@ -1650,9 +1671,9 @@ router.post('/slots/assign', hasPermission('screen:manage'), async (req, res) =>
         const today = new Date().toISOString().slice(0, 10);
         // 1. Validate the specific subscription (if provided) or find the best active one
         const sub = subscription_id
-            ? await dbGet('SELECT * FROM subscriptions WHERE id = ? AND brand_id = ? AND status = "Active" AND DATE(start_date) <= CURDATE() AND DATE(end_date) >= CURDATE()', [subscription_id, brand_id])
+            ? await dbGet('SELECT * FROM subscriptions WHERE id = ? AND brand_id = ? AND status = "Active" AND start_date <= NOW() AND end_date >= NOW()', [subscription_id, brand_id])
             : await dbGet(
-                `SELECT * FROM subscriptions WHERE brand_id = ? AND status = 'Active' AND DATE(start_date) <= CURDATE() AND DATE(end_date) >= CURDATE() ORDER BY id DESC LIMIT 1`,
+                `SELECT * FROM subscriptions WHERE brand_id = ? AND status = 'Active' AND start_date <= NOW() AND end_date >= NOW() ORDER BY id DESC LIMIT 1`,
                 [brand_id]
               );
 
@@ -1664,7 +1685,7 @@ router.post('/slots/assign', hasPermission('screen:manage'), async (req, res) =>
         const activeSubs = await dbAll(
             `SELECT SUM(screens_included) as allowed_screens, SUM(slots_included) as allowed_slots 
              FROM subscriptions 
-             WHERE brand_id = ? AND status = 'Active' AND DATE(start_date) <= CURDATE() AND DATE(end_date) >= CURDATE()`,
+             WHERE brand_id = ? AND status = 'Active' AND start_date <= NOW() AND end_date >= NOW()`,
             [brand_id]
         );
         const totalAllowedScreens = activeSubs[0].allowed_screens || 0;

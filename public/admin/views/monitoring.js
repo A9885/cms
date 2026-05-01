@@ -2,6 +2,10 @@ App.registerView('monitoring', {
     render() {
         return `
             <div class="page-title">System Monitoring</div>
+            <div class="dash-kpi-row" id="monitoring-stats-row" style="margin-bottom: 2rem;">
+                <!-- Will be populated by JS -->
+            </div>
+
             <div class="card">
                 <div class="table-header">
                     <h3 style="font-size: 1rem; font-weight: 600;">Screen Health Monitoring</h3>
@@ -28,7 +32,36 @@ App.registerView('monitoring', {
     },
 
     async mount(container) {
-        const screensMap = await Api.getXiboDisplays();
+        const [health, screensMap] = await Promise.all([
+            Api.get('/health/xibo'),
+            Api.getXiboDisplays()
+        ]);
+
+        const statsRow = document.getElementById('monitoring-stats-row');
+        if (statsRow && health && health.monitor) {
+            const m = health.monitor;
+            const lastPulse = m.lastPulse ? new Date(m.lastPulse).toLocaleTimeString() : 'Never';
+            const lastCleanup = m.lastCleanup ? new Date(m.lastCleanup).toLocaleTimeString() : 'Never';
+            
+            statsRow.innerHTML = `
+                <div class="kpi-card kpi-darkblue" style="grid-column: span 2;">
+                    <div class="kpi-header">Heartbeat Status</div>
+                    <h2>${m.active ? 'ACTIVE' : 'INACTIVE'}</h2>
+                    <div class="kpi-footer">Last pulse: ${lastPulse}</div>
+                </div>
+                <div class="kpi-card kpi-blue" style="grid-column: span 2;">
+                    <div class="kpi-header">Last Cleanup</div>
+                    <h2>${lastCleanup}</h2>
+                    <div class="kpi-footer">Next run in ~2 mins</div>
+                </div>
+                <div class="kpi-card kpi-orange" style="grid-column: span 2;">
+                    <div class="kpi-header">Slots Freed</div>
+                    <h2>${m.freedSlots || 0}</h2>
+                    <div class="kpi-footer">During last maintenance cycle</div>
+                </div>
+            `;
+        }
+
         const tbody = document.getElementById('monitoring-table-body');
         if (!tbody) return;
         tbody.innerHTML = '';

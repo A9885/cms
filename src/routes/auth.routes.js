@@ -15,38 +15,29 @@ router.post('/login', async (req, res) => {
         const { fromNodeHeaders } = await import('better-auth/node');
         
         const isEmail = username.includes('@');
-        let result;
-
         if (isEmail) {
-            // Find the user by actual username if they entered an email as username, 
-            // OR find by email if it matches user.email.
-            // Better Auth signInEmail uses the 'email' field.
-            // However, our users table has dummy emails like user1@signtral.com.
-            // If the user entered their username (which happens to be an email), 
-            // Better Auth's signInEmail might fail if it doesn't match the 'email' column.
-            
-            // To be safe, we first try signInEmail. If that fails, we try signInUsername 
-            // (though Better Auth plugin might reject it).
             result = await auth.api.signInEmail({
                 body: { email: username, password },
-                headers: fromNodeHeaders(req.headers)
+                headers: fromNodeHeaders(req.headers),
+                asResponse: true
             }).catch(() => null);
 
             if (!result) {
-                // Try as username even if it has an @
                 result = await auth.api.signInUsername({
                     body: { username, password },
-                    headers: fromNodeHeaders(req.headers)
+                    headers: fromNodeHeaders(req.headers),
+                    asResponse: true
                 }).catch(() => null);
             }
         } else {
             result = await auth.api.signInUsername({
                 body: { username, password },
-                headers: fromNodeHeaders(req.headers)
+                headers: fromNodeHeaders(req.headers),
+                asResponse: true
             }).catch(() => null);
         }
 
-        if (!result || !result.user) {
+        if (!result || !result.ok) {
             logActivity({
                 action: 'LOGIN',
                 module: MODULE.AUTH,
@@ -57,8 +48,24 @@ router.post('/login', async (req, res) => {
             return res.status(401).json({ error: 'Invalid credentials' });
         }
 
-        const user = result.user;
+        const data = await result.json();
+        const user = data.user;
         const userId = user && user.id ? parseInt(user.id, 10) : null;
+
+        // Forward the Set-Cookie headers from better-auth
+        if (typeof result.headers.getSetCookie === 'function') {
+            const setCookies = result.headers.getSetCookie();
+            if (setCookies && setCookies.length > 0) {
+                res.setHeader('Set-Cookie', setCookies);
+            }
+        } else {
+            const setCookie = result.headers.get('set-cookie');
+            if (setCookie) {
+                // If it's a comma-separated string, it might break if there are multiple cookies,
+                // but this is a fallback for environments without getSetCookie.
+                res.setHeader('Set-Cookie', setCookie);
+            }
+        }
 
         // Log successful login
         logActivity({
@@ -133,6 +140,10 @@ router.get('/me', async (req, res) => {
 
         if (!session) return res.status(401).json({ error: 'Not logged in' });
         
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+
         res.json({ 
             user: {
                 ...session.user,

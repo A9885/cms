@@ -72,31 +72,20 @@
             try {
                 const usernameInput = document.getElementById('username').value;
                 const passwordInput = document.getElementById('password').value;
-                const isEmail = usernameInput.includes('@');
-                const endpoint = isEmail ? '/api/auth/sign-in/email' : '/api/auth/sign-in/username';
-                const body = isEmail ? { email: usernameInput, password: passwordInput } : { username: usernameInput, password: passwordInput };
+                const body = { username: usernameInput, password: passwordInput };
 
-                const res = await fetch(endpoint, {
+                const res = await fetch('/auth/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body)
                 });
                 
                 const data = await res.json();
-                if (res.ok) {
-                    // Successful login, Better Auth has already set the cookies.
-                    // Now we get user role to decide redirect. 
-                    // Better Auth returns { user, session }
-                    const user = data.user;
-                    if (user.role === 'Brand') {
-                        window.location.href = '/brandportal/index.html';
-                    } else if (user.role === 'Partner') {
-                        window.location.href = '/partnerportal/index.html';
-                    } else {
-                        window.location.href = '/admin/index.html';
-                    }
+                if (res.ok && data.success) {
+                    // Custom login route returns portalUrl
+                    window.location.href = data.portalUrl || '/admin/index.html';
                 } else {
-                    err.innerText = data.message || 'Login failed';
+                    err.innerText = data.error || 'Login failed';
                     err.style.display = 'block';
                 }
             } catch (e) {

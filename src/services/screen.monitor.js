@@ -15,6 +15,8 @@ class ScreenMonitor {
         this.intervalMs = 2 * 60 * 1000; // 2 minutes
         this.isProcessing = false;
         this.lastPulse = null;
+        this.lastCleanupTime = null;
+        this.lastFreedSlots = 0;
     }
 
     /**
@@ -56,8 +58,13 @@ class ScreenMonitor {
         try {
             console.log(`[${new Date().toISOString()}] [ScreenMonitor] 🔄 Heartbeat pulse: Syncing screen states...`);
             
-            // This method in ScreenService fetches from Xibo and updates MySQL
+            // 1. Sync screen status from Xibo
             await screenService.syncDisplays();
+
+            // 2. Cleanup expired slot assignments
+            const freedCount = await screenService.cleanupExpiredSlots();
+            this.lastCleanupTime = new Date();
+            this.lastFreedSlots = freedCount || 0;
             
             this.lastPulse = new Date();
             console.log(`[ScreenMonitor] ✅ Heartbeat success. Next pulse in 2 minutes.`);
@@ -76,6 +83,8 @@ class ScreenMonitor {
         return {
             active: !!this.interval,
             lastPulse: this.lastPulse,
+            lastCleanup: this.lastCleanupTime,
+            freedSlots: this.lastFreedSlots,
             isProcessing: this.isProcessing
         };
     }

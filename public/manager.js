@@ -277,6 +277,25 @@ async function deleteMedia(widgetId, slotId) {
     }
 }
 
+async function releaseSlot(slotId) {
+    if (!await showConfirm("Are you sure you want to release this slot? It will become available for other brands.")) return;
+    showLoader(true);
+    try {
+        const resp = await fetch('/xibo/slots/unassign', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ displayId: currentDisplayId, slotId })
+        });
+        const result = await resp.json();
+        if (result.error) throw new Error(result.error);
+        loadSlots(currentDisplayId);
+    } catch (err) {
+        showToast("Release Failed: " + err.message, "error");
+    } finally {
+        showLoader(false);
+    }
+}
+
 // --- UI Helpers ---
 
 function createSlotCard(slot) {
@@ -294,10 +313,30 @@ function createSlotCard(slot) {
     header.appendChild(title);
 
     if (slot.lockedBrandName) {
-        const lockBadge = document.createElement('div');
-        lockBadge.className = 'locked-badge';
-        lockBadge.innerHTML = `🔒 Locked to: ${slot.lockedBrandName}`;
-        card.appendChild(lockBadge);
+        const lockContainer = document.createElement('div');
+        lockContainer.style.display = 'flex';
+        lockContainer.style.justifyContent = 'space-between';
+        lockContainer.style.alignItems = 'center';
+        lockContainer.className = 'locked-badge';
+        
+        const lockText = document.createElement('span');
+        lockText.innerHTML = `🔒 Locked to: ${slot.lockedBrandName}`;
+        lockContainer.appendChild(lockText);
+
+        // If slot is empty, allow releasing it (unassigning)
+        if (slot.media.length === 0) {
+            const releaseBtn = document.createElement('button');
+            releaseBtn.className = 'btn';
+            releaseBtn.style.cssText = 'font-size: 0.65rem; padding: 2px 6px; background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; cursor: pointer; border-radius: 4px;';
+            releaseBtn.textContent = 'Release Slot';
+            releaseBtn.onclick = (e) => {
+                e.stopPropagation();
+                releaseSlot(slot.slot);
+            };
+            lockContainer.appendChild(releaseBtn);
+        }
+        
+        card.appendChild(lockContainer);
     }
 
     const badge = document.createElement('span');

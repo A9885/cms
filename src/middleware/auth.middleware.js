@@ -20,6 +20,11 @@ const authMiddleware = async (req, res, next) => {
         });
         
         if (!session || !session.user) {
+            console.error('[Auth Middleware] Unauthorized access attempt.', {
+                method: req.method,
+                path: req.originalUrl,
+                headers: req.headers
+            });
             return res.status(401).json({ error: 'Unauthorized. Please login.' });
         }
 

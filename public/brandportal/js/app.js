@@ -1176,18 +1176,16 @@ async function loadSubscription() {
             campaigns.forEach(c => {
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
-                    <td style="font-weight:600;">${c.name}</td>
                     <td>${c.screen} <span style="display:block;font-size:0.75rem;color:var(--text-muted);">${c.location}</span></td>
                     <td><div class="badge-lastseen" style="display:inline-block;">Slot ${c.slot}</div></td>
-                    <td style="font-size:0.85rem;color:var(--text-muted);">${c.startDate} to ${c.endDate}</td>
-                    <td style="font-weight:700;color:#3b82f6;">${c.plays > 0 ? c.plays + ' plays' : '-'}</td>
+                    <td style="font-weight:700;color:#3b82f6;">${c.plays > 0 ? c.plays.toLocaleString() + ' plays' : '-'}</td>
                     <td><span class="status-pill status-active" style="padding:2px 8px;font-size:0.7rem;font-weight:700;">${c.status}</span></td>
                 `;
                 campaignsBody.appendChild(tr);
             });
         } else {
             campaignsContainer.style.display = 'block';
-            campaignsBody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:2rem; color:var(--text-muted);">No active slot assignments found.</td></tr>`;
+            campaignsBody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:2rem; color:var(--text-muted);">No active slot assignments found.</td></tr>`;
         }
     }
     // Renewal Warning

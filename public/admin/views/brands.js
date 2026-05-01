@@ -115,15 +115,13 @@ App.registerView('brands', {
                                 <label>Plan Name</label>
                                 <input type="text" class="form-control" id="sub-plan-name" placeholder="e.g. Premium 5 Screens" required>
                             </div>
-                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-                                <div class="form-group">
-                                    <label>Start Date</label>
-                                    <input type="date" class="form-control" id="sub-start-date" required>
-                                </div>
-                                <div class="form-group">
-                                    <label>End Date</label>
-                                    <input type="date" class="form-control" id="sub-end-date" required>
-                                </div>
+                            <div class="form-group">
+                                <label>Start Date & Time</label>
+                                <input type="text" class="form-control" id="sub-start-date" required placeholder="Select date and time...">
+                            </div>
+                            <div class="form-group">
+                                <label>End Date & Time</label>
+                                <input type="text" class="form-control" id="sub-end-date" required placeholder="Select date and time...">
                             </div>
                             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
                                 <div class="form-group">
@@ -388,10 +386,11 @@ App.registerView('brands', {
         content.appendChild(loading);
 
         try {
-            const [metrics, campaigns, screens] = await Promise.all([
+            const [metrics, campaigns, screens, subscriptions] = await Promise.all([
                 Api.get(`/brands/${brandId}/metrics`),
                 Api.get(`/brands/${brandId}/campaigns`),
-                Api.get('/screens')
+                Api.get('/screens'),
+                Api.get(`/subscriptions/brand/${brandId}`)
             ]);
 
             const validScreens = (screens || []).filter(s => s.xibo_display_id);
@@ -567,7 +566,27 @@ App.registerView('brands', {
                 }
                 selectWrap.appendChild(select);
                 rightHead.appendChild(selectWrap);
+
+                // --- NEW: Subscription Selector ---
+                const subWrap = document.createElement('div');
+                subWrap.style.cssText = 'display:flex; gap:8px; align-items:center; margin-top:8px;';
+                const subLabel = document.createElement('label'); subLabel.style.fontSize = '0.8rem'; subLabel.style.color = 'var(--text-muted)'; subLabel.textContent = 'Subscription:';
+                subWrap.appendChild(subLabel);
+                
+                const subSelect = document.createElement('select'); subSelect.id = 'slot-sub-select'; subSelect.className = 'form-control'; subSelect.style.borderRadius = '6px'; subSelect.style.fontSize = '0.85rem';
+                const activeSubs = (subscriptions || []).filter(s => s.status === 'Active');
+                if (activeSubs.length > 0) {
+                    activeSubs.forEach(s => {
+                        const opt = document.createElement('option'); opt.value = s.id; opt.textContent = s.plan_name;
+                        if (String(s.id) === String(this._lastViewedSubId)) opt.selected = true;
+                        subSelect.appendChild(opt);
+                    });
+                } else {
+                    const opt = document.createElement('option'); opt.value = ''; opt.textContent = 'No Active Subscriptions'; subSelect.appendChild(opt);
+                }
+                subWrap.appendChild(subSelect);
                 rightCol.appendChild(rightHead);
+                rightCol.appendChild(subWrap);
 
                 const legend = document.createElement('div'); legend.style.cssText = 'display:flex; gap:12px; margin-bottom:10px; font-size:0.75rem; color:var(--text-muted);';
                 const ts = [{c:'#dcfce7', b:'#86efac', t:'Available'}, {c:'#dbeafe', b:'#93c5fd', t:'This Brand'}, {c:'#fee2e2', b:'#fca5a5', t:'Other Brand'}];
@@ -818,20 +837,45 @@ App.registerView('brands', {
             return;
         }
 
-        // Check for active subscription before assigning
-        const today = new Date().toISOString().slice(0, 10);
+        // Use the explicitly selected subscription if available, else fallback to current logic
+        const subSelect = document.getElementById('slot-sub-select');
+        let selectedSubId = subSelect ? subSelect.value : null;
+        
+        const now = new Date();
         const subs = await Api.get(`/subscriptions/brand/${brandId}`);
-        // Normalize dates: MySQL DATE fields serialize as ISO strings ("2026-04-20T00:00:00.000Z")
-        // Extract just YYYY-MM-DD for safe string comparison
-        const normDate = (d) => d ? String(d).split('T')[0] : '';
-        const activeSub = (subs || []).find(s => 
-            s.status === 'Active' && 
-            normDate(s.start_date) <= today && 
-            normDate(s.end_date) >= today
-        );
+        
+        let activeSub = null;
+        if (selectedSubId) {
+            activeSub = (subs || []).find(s => String(s.id) === String(selectedSubId) && s.status === 'Active');
+        }
+
+        // If not selected or not found, try fallback
+        if (!activeSub) {
+            if (this._lastViewedSubId) {
+                activeSub = (subs || []).find(s => {
+                    if (s.status !== 'Active') return false;
+                    if (String(s.id) !== String(this._lastViewedSubId)) return false;
+                    // Append 'Z' to treat DB date as UTC, preventing local timezone offset bugs
+                    const start = new Date(String(s.start_date).replace(' ', 'T') + 'Z');
+                    const end = new Date(String(s.end_date).replace(' ', 'T') + 'Z');
+                    return start <= now && end >= now;
+                });
+            }
+        }
+        
+        if (!activeSub) {
+            activeSub = (subs || [])
+                .filter(s => {
+                    if (s.status !== 'Active') return false;
+                    const start = new Date(String(s.start_date).replace(' ', 'T') + 'Z');
+                    const end = new Date(String(s.end_date).replace(' ', 'T') + 'Z');
+                    return start <= now && end >= now;
+                })
+                .sort((a, b) => b.id - a.id)[0];
+        }
 
         if (!activeSub) {
-            App.showToast('This brand has no active subscription. Create and activate one first (Subscriptions tab).', 'error');
+            App.showToast('This brand has no active subscription. Create and activate one first.', 'error');
             return;
         }
 
@@ -851,6 +895,26 @@ App.registerView('brands', {
         if (res && res.success) {
             await this.loadSlotGrid(brandId);
             this.loadAssignments(brandId);
+            
+            // Force refresh the relevant subscription accordion if it exists
+            const targetSubId = activeSub?.id || (isUnassign ? this._lastViewedSubId : null);
+            if (targetSubId) {
+                const container = document.getElementById(`assignments-${targetSubId}`);
+                if (container) {
+                    container.dataset.loaded = 'false';
+                    if (container.style.display === 'block') {
+                        // If it's already open, re-trigger the load
+                        const btn = document.querySelector(`[data-onclick="Brands.toggleAssignments"][data-sub-id="${targetSubId}"]`);
+                        if (btn) {
+                            // We need to bypass the "if display === block return" logic
+                            // So we manually call the load part or just click it twice (hacky)
+                            // Better: just call toggleAssignments with a flag or clear container
+                            container.innerHTML = '<div style="font-size:0.8rem; color:var(--text-muted); text-align:center; padding:15px;">Updating...</div>';
+                            this.loadSubscriptionAssignments(targetSubId, brandId);
+                        }
+                    }
+                }
+            }
         } else if (res && res.error === 'slot_limit_reached') {
             this.showUpgradeBanner(res.used, res.allowed);
         } else {
@@ -917,18 +981,35 @@ App.registerView('brands', {
                 el.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-muted);">No subscriptions yet. Create one to enable slot assignments.</div>';
                 return;
             }
-            const statusStyle = { Active:'color:#166534;background:#dcfce7', Draft:'color:#374151;background:#f3f4f6', 'Awaiting Payment':'color:#92400e;background:#fef3c7', Paused:'color:#1e40af;background:#dbeafe', Expired:'color:#991b1b;background:#fee2e2', Cancelled:'color:#374151;background:#e5e7eb' };
+            const statusStyle = { 
+                Active:'color:#166534;background:#dcfce7', 
+                Draft:'color:#374151;background:#f3f4f6', 
+                'Awaiting Payment':'color:#92400e;background:#fef3c7', 
+                Paused:'color:#1e40af;background:#dbeafe', 
+                Expired:'color:#991b1b;background:#fee2e2', 
+                Cancelled:'color:#374151;background:#e5e7eb' 
+            };
             el.innerHTML = subs.map(s => {
-                const st = statusStyle[s.status] || 'color:#374151;background:#f3f4f6';
+                let displayStatus = s.status;
+                const endDate = s.end_date ? new Date(String(s.end_date).replace(' ', 'T') + 'Z') : null;
+                if (endDate && endDate < new Date() && displayStatus === 'Active') {
+                    displayStatus = 'Expired';
+                }
+                const st = statusStyle[displayStatus] || 'color:#374151;background:#f3f4f6';
                 return `
                 <div style="border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px;">
                     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
                         <div>
                             <strong style="font-size:0.95rem;">${s.plan_name}</strong>
-                            <div style="font-size:0.75rem;color:var(--text-muted);margin-top:2px;">${String(s.start_date).split('T')[0]} to ${String(s.end_date).split('T')[0]} &nbsp;·&nbsp; ${s.cities || 'All locations'}</div>
+                            <div style="font-size:0.75rem;color:var(--text-muted);margin-top:2px;">
+                                ${s.start_date ? new Date(String(s.start_date).replace(' ', 'T') + 'Z').toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'} 
+                                to 
+                                ${endDate ? endDate.toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'} 
+                                &nbsp;·&nbsp; ${s.cities || 'All locations'}
+                            </div>
                         </div>
                         <div style="display:flex;gap:6px;align-items:center;">
-                            <span style="font-size:0.72rem;font-weight:700;padding:3px 8px;border-radius:999px;${st}">${s.status}</span>
+                            <span style="font-size:0.72rem;font-weight:700;padding:3px 8px;border-radius:999px;${st}">${displayStatus}</span>
                             <button class="icon-btn" title="Edit" data-onclick="Views.brands.showSubModal" data-brand-id="${brandId}" data-sub-id="${s.id}"><i data-lucide="edit-2" style="width:13px;"></i></button>
                             <button class="icon-btn" title="Delete" style="color:#ef4444" data-onclick="Views.brands.deleteSub" data-brand-id="${brandId}" data-sub-id="${s.id}"><i data-lucide="trash-2" style="width:13px;"></i></button>
                         </div>
@@ -942,7 +1023,7 @@ App.registerView('brands', {
                     
                     <div style="margin-top:12px; border-top:1px solid #f1f5f9; padding-top:8px;">
                         <button class="btn btn-secondary" style="width:100%; font-size:0.75rem; padding:4px; display:flex; align-items:center; justify-content:center; gap:4px;" 
-                                onclick="Views.brands.toggleAssignments(${brandId}, ${s.id}, this)">
+                                data-onclick="Views.brands.toggleAssignments" data-brand-id="${brandId}" data-sub-id="${s.id}">
                             <i data-lucide="chevron-down" style="width:14px;"></i> Assigned to this Subscription
                         </button>
                         <div id="assignments-${s.id}" style="display:none; margin-top:10px;">
@@ -951,101 +1032,137 @@ App.registerView('brands', {
                     </div>
                 </div>`;
             }).join('');
-            lucide.createIcons();
+            if (window.lucide) lucide.createIcons();
         } catch(e) {
+            console.error('loadSubscriptions error:', e);
             el.innerHTML = `<div style="color:red;padding:10px;">Error: ${e.message}</div>`;
         }
     },
 
-    async toggleAssignments(brandId, subId, btn) {
+    async toggleAssignments(e) {
+        const btn = e.target.closest('[data-onclick]');
+        if (!btn) return;
+
+        const subId = btn.dataset.subId;
+        const brandId = btn.dataset.brandId;
         const container = document.getElementById(`assignments-${subId}`);
-        const icon = btn.querySelector('i');
-        
+        if (!container) return;
+
+        // Set as active subscription context for the slot grid
+        this._lastViewedSubId = subId;
+
+        // Toggle Visibility
         if (container.style.display === 'block') {
             container.style.display = 'none';
-            icon.setAttribute('data-lucide', 'chevron-down');
-            lucide.createIcons();
+            btn.querySelector('i')?.setAttribute('data-lucide', 'chevron-down');
+            if (window.lucide) lucide.createIcons();
             return;
         }
 
         container.style.display = 'block';
-        icon.setAttribute('data-lucide', 'chevron-up');
-        lucide.createIcons();
+        const icon = btn.querySelector('i');
+        if (icon) {
+            icon.setAttribute('data-lucide', 'chevron-up');
+            if (window.lucide) lucide.createIcons();
+        }
+
+        await this.loadSubscriptionAssignments(subId, brandId);
+    },
+
+    async loadSubscriptionAssignments(subId, brandId) {
+        const container = document.getElementById(`assignments-${subId}`);
+        if (!container) return;
+
+        // Check if already loaded
+        if (container.dataset.loaded === 'true') return;
 
         try {
-            const data = await Api.get(`/brands/${brandId}/subscription/${subId}/assignments`);
-            if (!data || (!data.screens.length && !data.slots.length)) {
-                container.innerHTML = '<div style="font-size:0.75rem; color:var(--text-muted); text-align:center; padding:10px;">No screens or slots assigned yet</div>';
+            container.innerHTML = '<div style="font-size:0.75rem; color:var(--text-muted); text-align:center; padding:15px;">Loading assignments...</div>';
+            
+            const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Request timed out')), 10000)
+            );
+            
+            const data = await Promise.race([
+                Api.get(`/brands/${brandId}/subscription/${subId}/assignments`),
+                timeoutPromise
+            ]);
+
+            if (!data || data.error) {
+                container.innerHTML = `<div style="color:#ef4444; font-size:0.75rem; text-align:center; padding:15px; background:#fef2f2; border-radius:8px; border:1px solid #fee2e2;">
+                    ⚠️ ${data?.error || 'Failed to load assignments.'}
+                </div>`;
                 return;
             }
 
+            if (!data.screens?.length && !data.slots?.length) {
+                container.innerHTML = `<div style="font-size:0.75rem; color:var(--text-muted); text-align:center; padding:20px; border:1px dashed var(--border); border-radius:8px;">
+                    No screens or slots assigned yet
+                </div>`;
+                container.dataset.loaded = 'true';
+                return;
+            }
+
+            // Render Results
             container.innerHTML = `
-                <div style="display:flex; gap:10px; margin-bottom:10px; border-bottom:1px solid #f1f5f9;">
-                    <div id="tab-assign-screens-${subId}" style="padding:4px 8px; font-size:0.7rem; font-weight:700; cursor:pointer; color:var(--accent); border-bottom:2px solid var(--accent);">SCREENS</div>
-                    <div id="tab-assign-slots-${subId}" style="padding:4px 8px; font-size:0.7rem; font-weight:700; cursor:pointer; color:var(--text-muted);">SLOTS</div>
-                </div>
-                <div id="content-assign-screens-${subId}">
-                    <table style="font-size:0.7rem; width:100%;">
-                        <thead>
-                            <tr style="text-align:left; color:var(--text-muted);">
-                                <th>Screen Name</th>
-                                <th>Location</th>
-                                <th>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${data.screens.map(s => `
-                                <tr>
-                                    <td>${s.name}</td>
-                                    <td>${s.location || '-'}</td>
-                                    <td><span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${s.status === 'Online' ? '#22c55e' : '#94a3b8'}; margin-right:4px;"></span>${s.status}</td>
-                                </tr>
+                <div style="background:var(--bg-light); border:1px solid var(--border); border-radius:12px; padding:15px; margin-top:10px;">
+                    <div style="margin-bottom:15px;">
+                        <div style="font-weight:700; font-size:0.7rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--primary); margin-bottom:10px; display:flex; align-items:center; gap:6px;">
+                            <i data-lucide="tv" style="width:14px;"></i> Assigned Screens
+                        </div>
+                        <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap:8px;">
+                            ${(data.screens || []).map(s => `
+                                <div style="background:white; border:1px solid var(--border); border-radius:8px; padding:10px; font-size:0.75rem; box-shadow:0 1px 2px rgba(0,0,0,0.05);">
+                                    <div style="font-weight:600; color:var(--text-main); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${s.name}</div>
+                                    <div style="font-size:0.65rem; color:var(--text-muted); margin:4px 0;">${s.location || 'Unknown'}</div>
+                                    <span style="font-size:0.6rem; padding:2px 6px; border-radius:10px; background:${s.status === 'Online' ? '#dcfce7' : '#fee2e2'}; color:${s.status === 'Online' ? '#166534' : '#991b1b'}; font-weight:600;">
+                                        ${s.status}
+                                    </span>
+                                </div>
                             `).join('')}
-                        </tbody>
-                    </table>
-                </div>
-                <div id="content-assign-slots-${subId}" style="display:none;">
-                    <table style="font-size:0.7rem; width:100%;">
-                        <thead>
-                            <tr style="text-align:left; color:var(--text-muted);">
-                                <th>Slot</th>
-                                <th>Screen</th>
-                                <th>Media</th>
-                                <th>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${data.slots.map(s => `
-                                <tr>
-                                    <td>#${s.slot_number}</td>
-                                    <td>${s.screen_name}</td>
-                                    <td>${s.media_name || 'Empty'}</td>
-                                    <td>${s.slot_status}</td>
-                                </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div style="font-weight:700; font-size:0.7rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--primary); margin-bottom:10px; display:flex; align-items:center; gap:6px;">
+                            <i data-lucide="grid" style="width:14px;"></i> Slot Details
+                        </div>
+                        <div style="overflow-x:auto;">
+                            <table style="width:100%; border-collapse:collapse; font-size:0.75rem;">
+                                <thead>
+                                    <tr style="border-bottom:1px solid var(--border); text-align:left; color:var(--text-muted);">
+                                        <th style="padding:8px 4px; font-weight:600;">Slot</th>
+                                        <th style="padding:8px 4px; font-weight:600;">Screen</th>
+                                        <th style="padding:8px 4px; font-weight:600;">Content</th>
+                                        <th style="padding:8px 4px; font-weight:600;">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${(data.slots || []).map(s => `
+                                        <tr style="border-bottom:1px dotted var(--border);">
+                                            <td style="padding:8px 4px; font-weight:600;">S${s.slot_number}</td>
+                                            <td style="padding:8px 4px; color:var(--text-main);">${s.screen_name}</td>
+                                            <td style="padding:8px 4px; font-style:italic;">${s.media_name || 'Empty Slot'}</td>
+                                            <td style="padding:8px 4px;">
+                                                <span style="color:${s.slot_status === 'Active' ? '#166534' : 'var(--text-muted)'}; font-weight:600; padding:2px 6px; border-radius:10px; background:${s.slot_status === 'Active' ? '#dcfce7' : 'transparent'};">
+                                                    ${s.slot_status}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
             `;
-
-            const tScreens = document.getElementById(`tab-assign-screens-${subId}`);
-            const tSlots = document.getElementById(`tab-assign-slots-${subId}`);
-            const cScreens = document.getElementById(`content-assign-screens-${subId}`);
-            const cSlots = document.getElementById(`content-assign-slots-${subId}`);
-
-            tScreens.onclick = () => {
-                tScreens.style.color = 'var(--accent)'; tScreens.style.borderBottomColor = 'var(--accent)';
-                tSlots.style.color = 'var(--text-muted)'; tSlots.style.borderBottomColor = 'transparent';
-                cScreens.style.display = 'block'; cSlots.style.display = 'none';
-            };
-            tSlots.onclick = () => {
-                tSlots.style.color = 'var(--accent)'; tSlots.style.borderBottomColor = 'var(--accent)';
-                tScreens.style.color = 'var(--text-muted)'; tScreens.style.borderBottomColor = 'transparent';
-                cSlots.style.display = 'block'; cScreens.style.display = 'none';
-            };
-
-        } catch (e) {
-            container.innerHTML = `<div style="color:red; font-size:0.7rem;">Error loading assignments: ${e.message}</div>`;
+            container.dataset.loaded = 'true';
+            if (window.lucide) lucide.createIcons();
+        } catch (err) {
+            console.error('loadSubscriptionAssignments error:', err);
+            container.innerHTML = `<div style="color:#ef4444; font-size:0.75rem; text-align:center; padding:15px; background:#fef2f2; border-radius:8px; border:1px solid #fee2e2;">
+                ⚠️ Error: ${err.message}
+            </div>`;
         }
     },
 
@@ -1068,19 +1185,23 @@ App.registerView('brands', {
         this._subEditId = subId;
         this._subBrandId = brandId;
 
-        const formatDate = (d) => {
-            if (!d) return '';
-            // Extract YYYY-MM-DD from ISO string
-            if (typeof d === 'string' && d.includes('T')) return d.split('T')[0];
-            return d;
-        };
 
         document.getElementById('sub-modal-title').textContent = subId ? 'Edit Subscription' : 'Create Subscription';
         document.getElementById('subscription-form').reset();
         
-        // Prevent past dates for Start Date
-        const todayStr = new Date().toISOString().split('T')[0];
-        document.getElementById('sub-start-date').setAttribute('min', todayStr);
+        const fpConfig = {
+            enableTime: true,
+            altInput: true,
+            altFormat: "d M Y, h:i K", // e.g. 30 Apr 2026, 03:30 PM
+            dateFormat: "Y-m-d H:i:S", // Hidden input format sent to server
+            plugins: [confirmDatePlugin({ confirmText: "Done", showAlways: true })]
+        };
+        const startPicker = flatpickr("#sub-start-date", fpConfig);
+        const endPicker = flatpickr("#sub-end-date", fpConfig);
+
+        // Prevent past dates
+        startPicker.set('minDate', new Date());
+        endPicker.set('minDate', new Date());
         
         const screenInput = document.getElementById('sub-screens');
         const slotInput = document.getElementById('sub-slots');
@@ -1100,8 +1221,8 @@ App.registerView('brands', {
                 const s = (subs || []).find(x => x.id === subId);
                 if (s) {
                     document.getElementById('sub-plan-name').value = s.plan_name || '';
-                    document.getElementById('sub-start-date').value = formatDate(s.start_date);
-                    document.getElementById('sub-end-date').value = formatDate(s.end_date);
+                    if (s.start_date) startPicker.setDate(new Date(String(s.start_date).replace(' ', 'T') + 'Z'));
+                    if (s.end_date) endPicker.setDate(new Date(String(s.end_date).replace(' ', 'T') + 'Z'));
                     
                     screenInput.value = s.screens_included || 1;
                     slotInput.value = s.slots_included || 1;
@@ -1158,11 +1279,16 @@ App.registerView('brands', {
             e.preventDefault();
             e.stopPropagation();
         }
+        const getSelectedISO = (id) => {
+            const picker = document.getElementById(id)._flatpickr;
+            return (picker && picker.selectedDates[0]) ? picker.selectedDates[0].toISOString() : document.getElementById(id).value;
+        };
+
         const payload = {
             brand_id: this._subBrandId,
             plan_name: document.getElementById('sub-plan-name').value,
-            start_date: document.getElementById('sub-start-date').value,
-            end_date: document.getElementById('sub-end-date').value,
+            start_date: getSelectedISO('sub-start-date'),
+            end_date: getSelectedISO('sub-end-date'),
             screens_included: parseInt(document.getElementById('sub-screens').value, 10),
             slots_included: parseInt(document.getElementById('sub-slots').value, 10),
             cities: document.getElementById('sub-cities').value,

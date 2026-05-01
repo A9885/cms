@@ -68,7 +68,13 @@ App.registerView('subscriptions', {
 
                 const tdPeriod = document.createElement('td');
                 tdPeriod.style.color = 'var(--text-muted)';
-                tdPeriod.textContent = `${s.start_date} to ${s.end_date}`;
+                tdPeriod.style.fontSize = '0.8rem';
+                
+                const fmt = (d) => {
+                    const date = new Date(d);
+                    return isNaN(date.getTime()) ? d : date.toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+                };
+                tdPeriod.innerHTML = `<div>${fmt(s.start_date)}</div><div style="font-size:0.7rem; opacity:0.7;">to ${fmt(s.end_date)}</div>`;
                 tr.appendChild(tdPeriod);
 
                 const tdAlloc = document.createElement('td');

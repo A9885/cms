@@ -698,7 +698,7 @@ app.use(helmet({
             ],
             fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
             imgSrc: ["'self'", "data:", "https:", "http:"],
-            connectSrc: ["'self'", "https://cms.signtral.info", "https://api.signtral.info", "wss://signtral.info", "ws://localhost:3000"],
+            connectSrc: ["'self'", "https://cms.signtral.info", "https://api.signtral.info", "wss://signtral.info", "ws://localhost:3000", "https://unpkg.com"],
             frameSrc: ["'none'"],
             objectSrc: ["'none'"]
         }
@@ -2505,6 +2505,9 @@ app.post('/xibo/slots/add', upload.single('file'), async (req, res) => {
         await axios.put(`${xiboService.baseUrl}${xiboService._apiPrefix}/playlist/widget/${widgetId}`, `name=Slot ${slotId}: ${file.originalname}`, {
           headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' }
         });
+        
+        // SAVE widget and playlist IDs to DB for later cleanup
+        await dbRun('UPDATE slots SET xibo_widget_id = ?, playlist_id = ? WHERE displayId = ? AND slot_number = ?', [widgetId, playlistId, displayId, slotId]);
       }
   
       // 4. Instant Sync & Scheduling
@@ -2618,6 +2621,10 @@ app.post('/xibo/slots/assign', async (req, res) => {
             await axios.put(`${xiboService.baseUrl}${xiboService._apiPrefix}/playlist/widget/${widgetId}`, `name=Slot ${slotId}: Brand Creative`, {
                 headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' }
             });
+
+            // SAVE widget and playlist IDs to DB for later cleanup
+            const { dbRun: dbRunUpdate } = require('./src/db/database');
+            await dbRunUpdate('UPDATE slots SET xibo_widget_id = ?, playlist_id = ? WHERE displayId = ? AND slot_number = ?', [widgetId, playlistId, displayId, slotId]);
         }
 
         // 5. Instant Sync
@@ -2658,6 +2665,37 @@ app.post('/xibo/slots/assign', async (req, res) => {
 /**
  * DELETE /xibo/slots/media/:widgetId
  */
+app.post('/xibo/slots/unassign', async (req, res) => {
+    const { displayId, slotId } = req.body;
+    if (!displayId || !slotId) return res.status(400).json({ error: 'Display and Slot IDs are required.' });
+
+    try {
+        const { dbRun } = require('./src/db/database');
+        const dId = parseInt(displayId, 10);
+        const sNum = parseInt(slotId, 10);
+        
+        await dbRun(
+            "UPDATE slots SET status='Available', mediaId=NULL, xibo_widget_id=NULL, brand_id=NULL, subscription_id=NULL, creative_name=NULL WHERE displayId=? AND slot_number=?",
+            [dId, sNum]
+        );
+        
+        // Trigger sync
+        await synchronizeMainLoop(dId).catch(e => console.warn('Sync failed after unassign:', e.message));
+        
+        res.json({ success: true });
+
+        logActivity({
+            action: ACTION.DELETE,
+            module: MODULE.SLOT,
+            description: `Slot ${sNum} on Display ${dId} unassigned (released)`,
+            req
+        });
+    } catch (err) {
+        console.error('[UNASSIGN]', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.delete('/xibo/slots/media/:widgetId', async (req, res) => {
   const { widgetId } = req.params;
   const { displayId, displayGroupId, slotId } = req.query;
@@ -2672,11 +2710,14 @@ app.delete('/xibo/slots/media/:widgetId', async (req, res) => {
     // This prevents background sync scripts from re-assigning media to this slot.
     if (displayId && slotId) {
         const { dbRun } = require('./src/db/database');
+        const dId = parseInt(displayId, 10);
+        const sNum = parseInt(slotId, 10);
+        
         await dbRun(
-            "UPDATE slots SET status='Available', mediaId=NULL, xibo_widget_id=NULL, brand_id=NULL WHERE displayId=? AND slot_number=?",
-            [displayId, slotId]
+            "UPDATE slots SET status='Available', mediaId=NULL, xibo_widget_id=NULL, brand_id=NULL, subscription_id=NULL, creative_name=NULL WHERE displayId=? AND slot_number=?",
+            [dId, sNum]
         );
-        console.log(`[DELETE] Cleared slot ${slotId} for display ${displayId} in database.`);
+        console.log(`[DELETE] Cleared slot ${sNum} for display ${dId} in database.`);
     }
 
     // 3. Sync Main Loop and refresh display

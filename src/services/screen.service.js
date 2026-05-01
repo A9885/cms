@@ -405,7 +405,141 @@ class ScreenService {
         console.error(`[ScreenService] Flush error for ${displayId}:`, err.message);
     }
   }
+  /**
+   * Automatically free slots that have reached their end date or
+   * belong to expired/cancelled subscriptions.
+   */
+  async cleanupExpiredSlots() {
+    try {
+      // 1. Mark subscriptions as Expired if their end_date has passed
+      const subResult = await dbRun(`
+        UPDATE subscriptions 
+        SET status = 'Expired' 
+        WHERE status = 'Active' AND end_date < NOW()
+      `);
+      if (subResult.changes > 0) {
+        console.log(`[ScreenService] 📅 Marked ${subResult.changes} subscriptions as Expired.`);
+      }
+
+      // 2. Identify and free slots that are past their end date or linked to non-active subscriptions
+      const slotsToFree = await dbAll(`
+        SELECT id, displayId, slot_number, xibo_widget_id, playlist_id 
+        FROM slots 
+        WHERE status != 'Available' 
+        AND (
+          (end_date IS NOT NULL AND end_date < NOW())
+          OR (subscription_id IS NOT NULL AND subscription_id IN (SELECT id FROM subscriptions WHERE status IN ('Expired', 'Cancelled')))
+        )
+      `);
+
+      for (const slot of slotsToFree) {
+          if (slot.xibo_widget_id) {
+              try {
+                  console.log(`[ScreenService] 🗑️ Deleting Xibo widget ${slot.xibo_widget_id} for Slot ${slot.slot_number} on Screen ${slot.displayId} (Subscription Expired)`);
+                  await xiboService.removeWidgetFromPlaylist(slot.xibo_widget_id);
+              } catch (xErr) {
+                  console.error(`[ScreenService] ⚠️ Failed to delete Xibo widget ${slot.xibo_widget_id}:`, xErr.message);
+              }
+          }
+          
+          await dbRun(`
+              UPDATE slots 
+              SET status = 'Available', 
+                  brand_id = NULL, 
+                  subscription_id = NULL, 
+                  mediaId = NULL, 
+                  creative_name = NULL,
+                  start_date = NULL, 
+                  end_date = NULL,
+                  playlist_id = NULL,
+                  xibo_widget_id = NULL,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE id = ?
+          `, [slot.id]);
+      }
+
+      if (slotsToFree.length > 0) {
+        console.log(`[ScreenService] 🔓 Freed ${slotsToFree.length} expired slots.`);
+      }
+
+      // 3. Reconcile brand slot limits (liberate excess slots if capacity dropped)
+      const brands = await dbAll('SELECT id FROM brands');
+      let totalExcessFreed = 0;
+      for (const brand of brands) {
+          // Get total allowed slots across all ACTIVE subscriptions for this brand
+          const activeSubs = await dbAll(
+              `SELECT SUM(slots_included) as allowed_slots 
+               FROM subscriptions 
+               WHERE brand_id = ? AND status = 'Active' AND start_date <= NOW() AND end_date >= NOW()`,
+              [brand.id]
+          );
+          const allowed = activeSubs[0].allowed_slots || 0;
+          
+          // Get all currently assigned slots for this brand
+          const assignedSlots = await dbAll(
+              'SELECT id, displayId, slot_number, xibo_widget_id FROM slots WHERE brand_id = ? ORDER BY updated_at ASC',
+              [brand.id]
+          );
+          const assignedCount = assignedSlots.length;
+          
+          if (assignedCount > allowed) {
+              const excess = assignedCount - allowed;
+              const slotsToLiberate = assignedSlots.slice(0, excess);
+              
+              for (const slot of slotsToLiberate) {
+                  if (slot.xibo_widget_id) {
+                      try {
+                          console.log(`[ScreenService] ⚖️ Deleting Xibo widget ${slot.xibo_widget_id} for Slot ${slot.slot_number} on Screen ${slot.displayId} (Capacity Reconciliation)`);
+                          await xiboService.removeWidgetFromPlaylist(slot.xibo_widget_id);
+                      } catch (xErr) {
+                          console.error(`[ScreenService] ⚠️ Reconciler failed to delete Xibo widget ${slot.xibo_widget_id}:`, xErr.message);
+                      }
+                  }
+                  
+                  await dbRun(`
+                      UPDATE slots 
+                      SET status = 'Available', 
+                          brand_id = NULL, 
+                          subscription_id = NULL, 
+                          mediaId = NULL, 
+                          creative_name = NULL,
+                          start_date = NULL, 
+                          end_date = NULL,
+                          playlist_id = NULL,
+                          xibo_widget_id = NULL,
+                          updated_at = CURRENT_TIMESTAMP
+                      WHERE id = ?
+                  `, [slot.id]);
+              }
+              console.log(`[ScreenService] ⚖️ Liberated ${excess} excess slots for Brand ID ${brand.id} due to capacity reduction.`);
+              totalExcessFreed += excess;
+          }
+      }
+      console.log(`[ScreenService] ⚖️ Liberated ${totalExcessFreed} excess slots across all brands.`);
+
+      // 4. Ghost Purge: Find Available slots that still have a xibo_widget_id (Leaked)
+      const ghostSlots = await dbAll(`
+          SELECT id, displayId, slot_number, xibo_widget_id 
+          FROM slots 
+          WHERE status = 'Available' AND xibo_widget_id IS NOT NULL
+      `);
+      
+      for (const slot of ghostSlots) {
+          try {
+              console.log(`[ScreenService] 👻 Purging ghost widget ${slot.xibo_widget_id} from Available Slot ${slot.slot_number} on Screen ${slot.displayId}`);
+              await xiboService.removeWidgetFromPlaylist(slot.xibo_widget_id);
+          } catch (xErr) {
+              console.error(`[ScreenService] ⚠️ Failed to purge ghost widget ${slot.xibo_widget_id}:`, xErr.message);
+          }
+          await dbRun('UPDATE slots SET xibo_widget_id = NULL WHERE id = ?', [slot.id]);
+      }
+
+      return slotsToFree.length + totalExcessFreed + ghostSlots.length;
+    } catch (err) {
+      console.error('[ScreenService] Cleanup Error:', err.message);
+      return 0;
+    }
+  }
 }
 
 module.exports = new ScreenService();
-

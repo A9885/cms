@@ -37,7 +37,7 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     // 3. Link to Brand in MySQL with 'Pending' status (if brand provided)
     if (targetBrandId) {
       await dbRun(
-        'REPLACE INTO media_brands (mediaId, brand_id, status) VALUES (?, ?, ?)',
+        'INSERT INTO media_brands (mediaId, brand_id, status) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE status = VALUES(status)',
         [mediaId, targetBrandId, req.user?.role === 'SuperAdmin' || req.user?.role === 'Admin' ? 'Approved' : 'Pending']
       );
     }

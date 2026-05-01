@@ -684,9 +684,11 @@ router.get('/campaigns', async (req, res) => {
         const [campaigns, statsSummary] = await Promise.all([
             dbAll(`
                 SELECT sl.id, sl.creative_name as campaign_name, sl.displayId as screen_id, s.name as screen_name, s.city, s.address as location,
-                sl.slot_number, sl.start_date, sl.end_date, sl.status, sl.mediaId as creative_id
+                sl.slot_number, sl.start_date, sl.end_date, sl.status, sl.mediaId as creative_id,
+                mb.created_at as upload_date
                 FROM slots sl
                 LEFT JOIN screens s ON sl.displayId = s.xibo_display_id
+                LEFT JOIN media_brands mb ON sl.mediaId = mb.mediaId
                 WHERE sl.brand_id = ? AND sl.mediaId IS NOT NULL
                 ORDER BY sl.updated_at DESC
             `, [brandId]),
@@ -703,6 +705,7 @@ router.get('/campaigns', async (req, res) => {
                 slot: c.slot_number,
                 startDate: c.start_date,
                 endDate: c.end_date,
+                uploadDate: c.upload_date,
                 status: c.status,
                 plays: stats.totalPlays || 0,
                 impact: (stats.totalPlays || 0) * 45
